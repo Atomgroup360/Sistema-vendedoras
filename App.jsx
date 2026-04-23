@@ -337,7 +337,7 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-8">
                    <div className="space-y-5">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Costo Mercancía Vendida:</span>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Costo Mercancía (Unid):</span>
                         <span className="font-black text-rose-500 text-sm font-mono">{formatCurrency(stats.productCostTotal)}</span>
                       </div>
                       <div className="flex justify-between items-center">
