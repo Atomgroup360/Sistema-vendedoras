@@ -115,7 +115,7 @@ export default function App() {
 
       // --- 1. COSTOS EXACTOS (SOBRE UNIDADES) ---
       // FÓRMULA ESTRICTA: COSTO MERCANCIA = COSTO UNITARIO X UNIDADES ENTREGADAS
-      const costoMercancia = (parseFloat(c.productCost) || 0) * entregasFinalesGuias; // CMV = costo producto x entregas finales
+      const costoMercancia = (parseFloat(c.productCost) || 0) * entregasFinalesUnidades; // 69.900 x 2.28 = 159.372
       
       const comisiones = (parseFloat(c.commission) || 0) * entregasFinalesUnidades;
       
