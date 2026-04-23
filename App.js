@@ -13,12 +13,12 @@ import {
 
 // --- CONFIGURACIÓN DE FIREBASE (PONER AQUÍ TUS NUEVAS CREDENCIALES) ---
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_DOMINIO",
-  projectId: "TU_PROJECT_ID",
-  storageBucket: "TU_STORAGE_BUCKET",
-  messagingSenderId: "TU_SENDER_ID",
-  appId: "TU_APP_ID"
+  apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
+  authDomain: "vendedoras-winner-360.firebaseapp.com",
+  projectId: "vendedoras-winner-360",
+  storageBucket: "vendedoras-winner-360.firebasestorage.app",
+  messagingSenderId: "460355470202",
+  appId: "1:460355470202:web:bfa880f95d25192e814cc3"
 };
 
 const app = initializeApp(firebaseConfig);
