@@ -9,7 +9,7 @@ import {
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
-  Coffee, Moon
+  Coffee, Moon, ShoppingCart
 } from 'lucide-react';
 
 // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (excluye restDay) ───────────────────────────────────────
+// ─── MOTOR DE CÁLCULO (incluye AOV) ───────────────────────────────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
@@ -61,7 +61,8 @@ function calcularStats(records, configs) {
     totalFreightCost: 0, totalFulfillment: 0,
     productCostTotal: 0, totalCommissions: 0, totalFixedCosts: 0, totalAds: 0,
     realRev: 0,
-    net: 0
+    net: 0,
+    aov: 0
   };
 
   activeRecords.forEach(r => {
@@ -137,6 +138,7 @@ function calcularStats(records, configs) {
   s.costMercXEntrega       = s.finalDeliveries > 0 ? s.productCostTotal / s.finalDeliveries : 0;
   s.pctProductosEntregados = s.unitsRegistradas > 0 ? (s.unitsDeliveredReal / s.unitsRegistradas) * 100 : 0;
   s.recaudoEficiencia      = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0;
+  s.aov                    = s.grossOrd > 0 ? s.grossRev / s.grossOrd : 0;
 
   return s;
 }
@@ -177,7 +179,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (sin cambios) ────────────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (igual) ───────────────────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -329,7 +331,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (CON VALIDACIÓN DE DUPLICADOS) ──────────────────
+// ─── VISTA 2: REGISTRO DIARIO (con validación de duplicados) ──────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -357,7 +359,7 @@ function VistaRegistro({ configs, months }) {
     if (!editingRec) {
       setFormField('restDay', false);
     }
-    setErrorMsg(''); // Limpiar error al cambiar producto
+    setErrorMsg('');
   };
 
   const save = async () => {
@@ -367,7 +369,6 @@ function VistaRegistro({ configs, months }) {
       return;
     }
 
-    // Verificar duplicado SOLO si NO estamos editando
     if (!editingRec) {
       const exists = dayRecords.some(r => r.configId === form.configId);
       if (exists) {
@@ -595,7 +596,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CORREGIDO: proyección días activos) ──────────────────
+// ─── VISTA 3: DASHBOARD (CON AOV) ─────────────────────────────────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -671,6 +672,16 @@ function VistaDashboard({ configs, months }) {
             <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por Inefectividad + Devoluciones</Label><p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde por IER</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real (después de IER)</Label><p className="text-3xl font-black font-mono text-emerald-700">{fmt(stats.realRev)}</p><p className="text-[9px] text-emerald-500 mt-1">Lo que realmente ingresa después de cancelaciones y devoluciones</p></Card>
           </div>
+
+          {/* Nueva fila de métricas clave incluido AOV */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Stat label="AOV (Valor Promedio Venta)" value={fmt(stats.aov)} sub={`Sobre ${fmtN(stats.grossOrd)} pedidos brutos`} highlight />
+            <Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Sobre ${fmtN(stats.finalDeliveries)} entregas`} />
+            <Stat label="CPA Real x Entrega" value={fmt(stats.cpaReal)} sub="Costo adquisición real" />
+            <Stat label="ROAS Real" value={`${fmtDec(stats.roas, 4)}x`} sub="Ingreso neto / ads" />
+            <Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,4)}%`} accent />
+          </div>
+
           <section className="space-y-3">
             <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Activity size={14} /> Embudo Operativo Contraentrega</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -696,7 +707,6 @@ function VistaDashboard({ configs, months }) {
           </section>
           <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Calculator size={14} /> Radiografía de Costos Reales</h3>
             <Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"><div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0"><item.icon size={14} /></div><div className="flex-1"><p className="text-xs font-black text-slate-700">{item.label}</p><p className="text-[9px] text-slate-400 font-semibold">{item.note}</p></div><p className="font-black font-mono text-sm text-slate-900">{fmt(item.value)}</p></div>))}<div className="flex items-center gap-4 px-6 py-4 bg-slate-900 text-white"><div className="flex-1"><p className="text-xs font-black uppercase tracking-widest">Total Costos</p></div><p className="font-black font-mono text-lg text-rose-400">{fmt(totalCostos)}</p></div></Card>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Sobre ${fmtN(stats.finalDeliveries)} entregas`} /><Stat label="CPA Real x Entrega" value={fmt(stats.cpaReal)} sub="Costo adquisición real" /><Stat label="ROAS Real" value={`${fmtDec(stats.roas, 4)}x`} sub="Ingreso neto / ads" /><Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,4)}%`} accent /></div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><Stat label="Costo Mercancía Total" value={fmt(stats.productCostTotal)} sub={`Sobre ${fmtN(stats.unitsDeliveredReal)} unid. entregadas`} highlight /><Stat label="Costo Merc. x Unidad Entregada" value={fmt(stats.costMercXEntrega)} sub={`Prom. ${fmtDec(stats.avgUnitsPerDelivery,4)} unid/entrega × costo`} highlight /><Stat label="Unidades Devueltas (stock)" value={fmtN(stats.unitsReturnedReal)} sub="No generan costo de mercancía" dark={false} /></div>
           </section>
           <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><TrendingUp size={14} /> Utilidad y Proyección</h3>
