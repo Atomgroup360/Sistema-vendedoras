@@ -12,7 +12,7 @@ import {
   Coffee, Moon
 } from 'lucide-react';
 
-// ─── FIREBASE CONFIG (sin cambios) ──────────────────────────────────────────
+// ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
   authDomain: "vendedoras-winner-360.firebaseapp.com",
@@ -48,9 +48,10 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (excluye restDay) ───────────────────────────────────────
+// ─── MOTOR DE CÁLCULO (excluye registros con restDay = true) ──────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
+  
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
     realShipped: 0, estimatedReturns: 0, finalDeliveries: 0,
@@ -177,7 +178,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (sin cambios) ────────────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN ────────────────────────────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -351,7 +352,6 @@ function VistaRegistro({ configs, months }) {
 
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Al cambiar producto, si no estamos editando, reseteamos restDay
   const handleProductChange = (value) => {
     setFormField('configId', value);
     if (!editingRec) {
@@ -360,7 +360,6 @@ function VistaRegistro({ configs, months }) {
   };
 
   const save = async () => {
-    // Validación básica: siempre se necesita producto
     if (!form.configId) {
       alert("Debes seleccionar una vendedora y producto.");
       return;
@@ -371,19 +370,16 @@ function VistaRegistro({ configs, months }) {
     let revenue = form.revenue;
     let adSpend = form.adSpend;
 
-    // Si es día de descanso, forzamos valores en cero (sin importar lo que haya escrito)
     if (form.restDay) {
       orders = '0';
       units = '0';
       revenue = '0';
       adSpend = '0';
-      // Opcional: actualizar el estado visual para que el usuario lo vea
       setFormField('orders', '0');
       setFormField('units', '0');
       setFormField('revenue', '0');
       if (!selectedConfig?.fixedAdSpend) setFormField('adSpend', '0');
     } else {
-      // Si no es descanso, validamos que los campos no estén vacíos
       if (!orders || !units || !revenue) {
         alert("Completa todos los campos obligatorios (guías, unidades y recaudo) o activa 'Día de descanso'.");
         return;
@@ -416,7 +412,6 @@ function VistaRegistro({ configs, months }) {
       else await setDoc(ref, { records });
     }
 
-    // Resetear formulario
     setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
@@ -473,7 +468,6 @@ function VistaRegistro({ configs, months }) {
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
 
-        {/* Interruptor de descanso */}
         <div className={`rounded-2xl p-4 flex items-center justify-between ${form.restDay ? 'bg-amber-100 border-2 border-amber-300' : 'bg-slate-100'}`}>
           <div className="flex items-center gap-3">
             <Coffee size={20} className="text-amber-600" />
@@ -482,32 +476,16 @@ function VistaRegistro({ configs, months }) {
               <p className="text-[9px] text-slate-500">Activa este interruptor si la vendedora no trabajó o no hubo campañas. Los campos de ventas se guardarán como 0.</p>
             </div>
           </div>
-          <button
-            onClick={() => setFormField('restDay', !form.restDay)}
-            className="flex items-center gap-1.5 text-[9px] font-black uppercase"
-          >
-            {form.restDay ? (
-              <><ToggleRight size={28} className="text-amber-500" /><span className="text-amber-600">DESCANSO ACTIVADO</span></>
-            ) : (
-              <><ToggleLeft size={28} className="text-slate-400" /><span className="text-slate-500">Activo</span></>
-            )}
+          <button onClick={() => setFormField('restDay', !form.restDay)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">
+            {form.restDay ? (<><ToggleRight size={28} className="text-amber-500" /><span className="text-amber-600">DESCANSO ACTIVADO</span></>) : (<><ToggleLeft size={28} className="text-slate-400" /><span className="text-slate-500">Activo</span></>)}
           </button>
         </div>
 
         <div className="space-y-1.5">
           <Label>Vendedora → Producto</Label>
-          <select
-            value={form.configId}
-            onChange={e => handleProductChange(e.target.value)}
-            disabled={!!editingRec}
-            className={`w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none ${editingRec ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400'}`}
-          >
+          <select value={form.configId} onChange={e => handleProductChange(e.target.value)} disabled={!!editingRec} className={`w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none ${editingRec ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400'}`}>
             <option value="">Seleccionar estrategia...</option>
-            {Object.entries(grouped).map(([v, ps]) => (
-              <optgroup key={v} label={`── ${v.toUpperCase()} ──`}>
-                {ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}
-              </optgroup>
-            ))}
+            {Object.entries(grouped).map(([v, ps]) => (<optgroup key={v} label={`── ${v.toUpperCase()} ──`}>{ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</optgroup>))}
           </select>
           {editingRec && <p className="text-[9px] text-amber-600 mt-1">⚠ No puedes cambiar el producto mientras editas un registro existente.</p>}
         </div>
@@ -515,46 +493,21 @@ function VistaRegistro({ configs, months }) {
         {selectedConfig && !selectedConfig.fixedAdSpend && (
           <div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1">
             <Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label>
-            <input
-              type="number"
-              value={form.adSpend}
-              onChange={e => setFormField('adSpend', e.target.value)}
-              placeholder="$ 0"
-              disabled={form.restDay}
-              className={`w-full bg-transparent font-black text-2xl outline-none placeholder:text-zinc-700 ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`}
-            />
+            <input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full bg-transparent font-black text-2xl outline-none placeholder:text-zinc-700 ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`} />
             {form.restDay && <p className="text-[9px] text-amber-400">Se guardará como 0 por ser día de descanso.</p>}
           </div>
         )}
-        {selectedConfig?.fixedAdSpend && (
-          <div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase">
-            <ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático
-          </div>
-        )}
+        {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase"><ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
 
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
             <div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div>
-            <input
-              type="number"
-              value={form.orders}
-              onChange={e => setFormField('orders', e.target.value)}
-              placeholder="0"
-              disabled={form.restDay}
-              className={`w-full bg-transparent font-black text-4xl outline-none placeholder:text-slate-200 ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`}
-            />
+            <input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-4xl outline-none placeholder:text-slate-200 ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} />
             {form.restDay && <p className="text-[9px] text-amber-500">Se guardará como 0.</p>}
           </div>
           <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
             <div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div>
-            <input
-              type="number"
-              value={form.units}
-              onChange={e => setFormField('units', e.target.value)}
-              placeholder="0"
-              disabled={form.restDay}
-              className={`w-full bg-transparent font-black text-4xl outline-none placeholder:text-slate-200 ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`}
-            />
+            <input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-4xl outline-none placeholder:text-slate-200 ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} />
             {form.restDay && <p className="text-[9px] text-amber-500">Se guardará como 0.</p>}
           </div>
         </div>
@@ -562,35 +515,18 @@ function VistaRegistro({ configs, months }) {
         {!form.restDay && avgUnits && (
           <div className="text-center space-y-1">
             <p className="text-[10px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span></p>
-            {extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (
-              <p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía</p>
-            )}
-            {extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (
-              <p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>
-            )}
+            {extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía</p>)}
+            {extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (<p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>)}
           </div>
         )}
 
         <div className="space-y-1.5">
           <Label>Recaudo Bruto Total del Día</Label>
-          <input
-            type="number"
-            value={form.revenue}
-            onChange={e => setFormField('revenue', e.target.value)}
-            placeholder="$ 0"
-            disabled={form.restDay}
-            className={`w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-3xl outline-none placeholder:text-slate-200 transition-all ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`}
-          />
+          <input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-3xl outline-none placeholder:text-slate-200 transition-all ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`} />
           {form.restDay && <p className="text-[9px] text-amber-500 text-center">Se guardará como $0.</p>}
         </div>
 
-        <button
-          onClick={save}
-          disabled={!form.configId}
-          className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
-        >
-          <Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}
-        </button>
+        <button onClick={save} disabled={!form.configId} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}</button>
         {savedMsg && <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse"><CheckCircle2 size={16} /> ¡Guardado exitosamente!</div>}
       </Card>
 
@@ -614,11 +550,7 @@ function VistaRegistro({ configs, months }) {
                     <span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span>
                     <span className="text-slate-300">·</span>
                     <span className="font-semibold text-sm text-slate-600">{c?.productName}</span>
-                    {r.restDay && (
-                      <span className="flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                        <Moon size={10} /> DESCANSO
-                      </span>
-                    )}
+                    {r.restDay && (<span className="flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full"><Moon size={10} /> DESCANSO</span>)}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span>
@@ -628,10 +560,7 @@ function VistaRegistro({ configs, months }) {
                     <span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span>
                   </div>
                 </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button>
-                  <button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button>
-                </div>
+                <div className="flex gap-2 justify-end"><button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button><button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button></div>
               </Card>
             );
           })}
@@ -641,20 +570,52 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (igual) ──────────────────────────────────────────────
+// ─── VISTA 3: DASHBOARD (CORREGIDO: proyección basada en días activos) ─────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
-  const filteredRecords = useMemo(() => { const all = months.flatMap(m => m.records || []); return all.filter(r => { const c = configs.find(x => x.id === r.configId); if (!c) return false; if (r.date < filter.startDate || r.date > filter.endDate) return false; if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false; if (filter.producto !== 'all' && r.configId !== filter.producto) return false; return true; }); }, [months, configs, filter]);
+
+  const filteredRecords = useMemo(() => { 
+    const all = months.flatMap(m => m.records || []); 
+    return all.filter(r => { 
+      const c = configs.find(x => x.id === r.configId); 
+      if (!c) return false; 
+      if (r.date < filter.startDate || r.date > filter.endDate) return false; 
+      if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false; 
+      if (filter.producto !== 'all' && r.configId !== filter.producto) return false; 
+      return true; 
+    }); 
+  }, [months, configs, filter]);
+
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
-  const targetProfit = useMemo(() => { if (filter.producto !== 'all') { const c = configs.find(x => x.id === filter.producto); return parseFloat(c?.targetProfit) || 0; } if (filter.vendedora !== 'all') { const prods = grouped[filter.vendedora] || []; return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); } return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); }, [filter, configs, grouped]);
-  const dias = daysBetween(filter.startDate, filter.endDate);
-  const avgDiario = stats.net / dias;
+
+  // DÍAS ACTIVOS: fechas únicas con al menos un registro activo (no descanso)
+  const activeDays = useMemo(() => {
+    const activeRecords = filteredRecords.filter(r => !r.restDay);
+    const uniqueDates = new Set(activeRecords.map(r => r.date));
+    return uniqueDates.size;
+  }, [filteredRecords]);
+
+  const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
+
+  const targetProfit = useMemo(() => { 
+    if (filter.producto !== 'all') { 
+      const c = configs.find(x => x.id === filter.producto); 
+      return parseFloat(c?.targetProfit) || 0; 
+    } 
+    if (filter.vendedora !== 'all') { 
+      const prods = grouped[filter.vendedora] || []; 
+      return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); 
+    } 
+    return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); 
+  }, [filter, configs, grouped]);
+
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
   if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
   else if (proyeccion30 >= targetProfit && targetProfit > 0) semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
+
   const costItems = [
     { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas × costo unit. · devueltas no cuentan`, icon: Package },
     { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `Incluye cargos extra configurados`, icon: Truck },
@@ -675,9 +636,11 @@ function VistaDashboard({ configs, months }) {
         <div className="space-y-1.5"><Label><Calendar size={11} className="inline mr-1" />Hasta</Label><input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" /></div>
         <div className="space-y-1.5"><Label>Vendedora</Label><select value={filter.vendedora} onChange={e => setF('vendedora', e.target.value) || setF('producto', 'all')} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none"><option value="all">TODAS</option>{Object.keys(grouped).map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
         <div className="space-y-1.5"><Label>Producto</Label><select value={filter.producto} onChange={e => setF('producto', e.target.value)} disabled={filter.vendedora === 'all'} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none disabled:opacity-40"><option value="all">TODOS</option>{filter.vendedora !== 'all' && (grouped[filter.vendedora] || []).map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select></div>
-        <div className="col-span-2 md:col-span-4 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><Info size={12} className="text-slate-400" /><p className="text-[9px] font-black text-slate-400 uppercase">Analizando <span className="text-emerald-600">{dias} día{dias > 1 ? 's' : ''}</span> · Proyección a 30 días = promedio diario × 30</p></div>
+        <div className="col-span-2 md:col-span-4 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><Info size={12} className="text-slate-400" /><p className="text-[9px] font-black text-slate-400 uppercase">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye días de descanso) · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
-      {filteredRecords.length === 0 ? (<Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos en este rango</p></Card>) : (
+      {filteredRecords.length === 0 || activeDays === 0 ? (
+        <Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p><p className="text-[9px] mt-1">Los días de descanso no generan métricas.</p></Card>
+      ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-white border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p><p className="text-[9px] text-slate-400 mt-1">Suma de todos los cierres diarios (sin ajustes)</p></Card>
@@ -714,7 +677,7 @@ function VistaDashboard({ configs, months }) {
           </section>
           <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><TrendingUp size={14} /> Utilidad y Proyección</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card dark className="space-y-4"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-3 pt-4 border-t border-zinc-800"><div><p className="text-[9px] text-zinc-500 font-black uppercase">Ingresos Reales</p><p className="font-black text-white font-mono">{fmt(stats.realRev)}</p></div><div><p className="text-[9px] text-zinc-500 font-black uppercase">Total Costos</p><p className="font-black text-rose-400 font-mono">{fmt(totalCostos)}</p></div><div><p className="text-[9px] text-zinc-500 font-black uppercase">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[9px] text-zinc-500 font-black uppercase">Profit / Día</p><p className="font-black text-white font-mono">{fmt(avgDiario)}</p></div></div></Card>
-            <div className={`rounded-3xl p-6 text-white space-y-4 shadow-2xl relative overflow-hidden ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><TrendingUp className="absolute -bottom-4 -right-4 opacity-10" size={120} /><div><p className="text-[9px] font-black opacity-60 uppercase tracking-widest">Proyección 30 Días</p><p className="text-[9px] font-semibold opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-4xl font-black font-mono tracking-tighter">{fmt(proyeccion30)}</p><div className="bg-white/20 px-4 py-3 rounded-2xl"><p className="text-lg font-black uppercase tracking-wider">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && (<p className="text-[9px] font-semibold opacity-70 mt-0.5">Meta: {fmt(targetProfit)} · 1M excelente</p>)}</div><div className="grid grid-cols-2 gap-3 text-[9px] font-black uppercase opacity-60"><div>Días analizados: <span className="text-white opacity-100">{dias}</span></div><div>IER: <span className="text-white opacity-100">{fmtDec(stats.ierGlobal,4)}%</span></div></div></div></div>
+            <div className={`rounded-3xl p-6 text-white space-y-4 shadow-2xl relative overflow-hidden ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><TrendingUp className="absolute -bottom-4 -right-4 opacity-10" size={120} /><div><p className="text-[9px] font-black opacity-60 uppercase tracking-widest">Proyección 30 Días</p><p className="text-[9px] font-semibold opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-4xl font-black font-mono tracking-tighter">{fmt(proyeccion30)}</p><div className="bg-white/20 px-4 py-3 rounded-2xl"><p className="text-lg font-black uppercase tracking-wider">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && (<p className="text-[9px] font-semibold opacity-70 mt-0.5">Meta: {fmt(targetProfit)} · 1M excelente</p>)}</div><div className="grid grid-cols-2 gap-3 text-[9px] font-black uppercase opacity-60"><div>Días activos: <span className="text-white opacity-100">{activeDays}</span></div><div>IER: <span className="text-white opacity-100">{fmtDec(stats.ierGlobal,4)}%</span></div></div></div></div>
             {targetProfit > 0 && (<Card className="space-y-3"><div className="flex justify-between items-center"><Label>Avance vs Meta Mensual</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 4)}% de la meta</span></div><div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div><div className="flex justify-between text-[9px] font-black text-slate-400 uppercase"><span>$0</span><span>Meta {fmt(targetProfit)}</span><span className="text-emerald-500">Excelente $1.000.000+</span></div></Card>)}
           </section>
         </>
