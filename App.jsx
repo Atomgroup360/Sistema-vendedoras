@@ -238,6 +238,12 @@ function VistaConfig({ configs, onSaved }) {
   }, {}), [configs]);
  
   const openNew = () => { setEditId(null); setForm(EMPTY_CONFIG); setShowForm(true); };
+  const openNewForVendor = (vendedora) => {
+    setEditId(null);
+    setForm({ ...EMPTY_CONFIG, vendedora });
+    setExpandedV(x => ({ ...x, [vendedora]: true }));
+    setShowForm(true);
+  };
   const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
  
@@ -351,6 +357,15 @@ function VistaConfig({ configs, onSaved }) {
                       </div>
                     </div>
                   ))}
+
+                  <div className="p-5 bg-slate-50/60">
+                    <button
+                      onClick={() => openNewForVendor(vendedora)}
+                      className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-50 hover:border-emerald-400 active:scale-95 transition-all"
+                    >
+                      <Plus size={16} /> Agregar producto a {vendedora}
+                    </button>
+                  </div>
                 </div>
               )}
             </Card>
