@@ -846,6 +846,42 @@ function VistaDashboard({ configs, months }) {
  
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
  
+  // ── ANÁLISIS POR DÍA: mejor, peor, CPA promedio diario ────────────────────
+  const dayAnalysis = useMemo(() => {
+    // Agrupar registros por fecha
+    const byDate = {};
+    filteredRecords.forEach(r => {
+      if (!byDate[r.date]) byDate[r.date] = [];
+      byDate[r.date].push(r);
+    });
+ 
+    const days = Object.entries(byDate).map(([date, recs]) => {
+      const s = calcularStats(recs, configs);
+      return { date, ...s };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+ 
+    if (days.length === 0) return { days: [], best: null, worst: null, avgCpaPerDay: 0 };
+ 
+    const best  = days.reduce((a, b) => b.net > a.net ? b : a);
+    const worst = days.reduce((a, b) => b.net < a.net ? b : a);
+ 
+    // CPA promedio diario = suma de todos los ads diarios / suma de todas las entregas diarias
+    // (equivalente al CPA global del período, pero lo mostramos como "por día")
+    const totalAdsSum        = days.reduce((s, d) => s + d.totalAds, 0);
+    const totalDelivSum      = days.reduce((s, d) => s + d.finalDeliveries, 0);
+    const avgCpaPerDay       = totalDelivSum > 0 ? totalAdsSum / totalDelivSum : 0;
+    // Promedio de CPA de cada día individualmente
+    const daysWithAds        = days.filter(d => d.finalDeliveries > 0);
+    const cpaDiarioPromedio  = daysWithAds.length > 0
+      ? daysWithAds.reduce((s, d) => s + d.cpaReal, 0) / daysWithAds.length
+      : 0;
+ 
+    return { days, best, worst, avgCpaPerDay, cpaDiarioPromedio };
+  }, [filteredRecords, configs]);
+ 
+  const fmtDate = (d) => new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
+ 
+
   return (
     <div className="space-y-8 anim-fade">
       <div>
@@ -1104,41 +1140,6 @@ function VistaDashboard({ configs, months }) {
               />
             </div>
           </section>
- 
-  // ── ANÁLISIS POR DÍA: mejor, peor, CPA promedio diario ────────────────────
-  const dayAnalysis = useMemo(() => {
-    // Agrupar registros por fecha
-    const byDate = {};
-    filteredRecords.forEach(r => {
-      if (!byDate[r.date]) byDate[r.date] = [];
-      byDate[r.date].push(r);
-    });
- 
-    const days = Object.entries(byDate).map(([date, recs]) => {
-      const s = calcularStats(recs, configs);
-      return { date, ...s };
-    }).sort((a, b) => a.date.localeCompare(b.date));
- 
-    if (days.length === 0) return { days: [], best: null, worst: null, avgCpaPerDay: 0 };
- 
-    const best  = days.reduce((a, b) => b.net > a.net ? b : a);
-    const worst = days.reduce((a, b) => b.net < a.net ? b : a);
- 
-    // CPA promedio diario = suma de todos los ads diarios / suma de todas las entregas diarias
-    // (equivalente al CPA global del período, pero lo mostramos como "por día")
-    const totalAdsSum        = days.reduce((s, d) => s + d.totalAds, 0);
-    const totalDelivSum      = days.reduce((s, d) => s + d.finalDeliveries, 0);
-    const avgCpaPerDay       = totalDelivSum > 0 ? totalAdsSum / totalDelivSum : 0;
-    // Promedio de CPA de cada día individualmente
-    const daysWithAds        = days.filter(d => d.finalDeliveries > 0);
-    const cpaDiarioPromedio  = daysWithAds.length > 0
-      ? daysWithAds.reduce((s, d) => s + d.cpaReal, 0) / daysWithAds.length
-      : 0;
- 
-    return { days, best, worst, avgCpaPerDay, cpaDiarioPromedio };
-  }, [filteredRecords, configs]);
- 
-  const fmtDate = (d) => new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
  
           {/* BLOQUE 4: CPA DIARIO + MEJOR Y PEOR DÍA */}
           <section className="space-y-3">
