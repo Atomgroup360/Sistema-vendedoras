@@ -640,64 +640,106 @@ function VistaRegistro({ configs, months }) {
         )}
  
         {/* Fecha — selector libre para registrar ventas en cualquier fecha */}
-        <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-3">
+        <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-4">
           <div className="flex items-center gap-3">
-            <Calendar size={18} className="text-emerald-400" />
-
+            <Calendar size={18} className="text-emerald-400 shrink-0" />
             <div className="flex-1">
               <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                Fecha del Registro · Puedes escoger cualquier fecha
+                Fecha del Registro · Selección libre
               </p>
-
-              <input
-                type="date"
-                value={selectedDate || today()}
-                min="2020-01-01"
-                max="2035-12-31"
-                onChange={(e) => {
-                  const nuevaFecha = e.target.value;
-                  if (!nuevaFecha) return;
-
-                  setSelectedDate(nuevaFecha);
-                  setEditingRec(null);
-                  setForm({
-                    configId: '',
-                    orders: '',
-                    units: '',
-                    revenue: '',
-                    adSpend: ''
-                  });
-                }}
-                onClick={(e) => {
-                  if (e.currentTarget.showPicker) {
-                    e.currentTarget.showPicker();
-                  }
-                }}
-                className="mt-2 w-full bg-white text-zinc-950 font-black text-base outline-none rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400"
-                style={{ colorScheme: 'light' }}
-              />
+              <p className="text-[9px] text-zinc-600 font-semibold mt-0.5">
+                Puedes registrar ventas en fechas pasadas, actuales o futuras.
+              </p>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
+            <div>
+              <Label className="text-zinc-500">Calendario</Label>
+              <input
+                type="date"
+                value={selectedDate || today()}
+                min="2000-01-01"
+                max="2099-12-31"
+                onChange={(e) => {
+                  const nuevaFecha = e.target.value;
+                  if (!nuevaFecha) return;
+                  setSelectedDate(nuevaFecha);
+                  setEditingRec(null);
+                }}
+                onInput={(e) => {
+                  const nuevaFecha = e.currentTarget.value;
+                  if (!nuevaFecha) return;
+                  setSelectedDate(nuevaFecha);
+                  setEditingRec(null);
+                }}
+                className="w-full bg-white text-zinc-950 font-black text-base outline-none rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400"
+                style={{ colorScheme: 'light', appearance: 'auto', WebkitAppearance: 'auto' }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const base = new Date((selectedDate || today()) + 'T12:00:00');
+                base.setDate(base.getDate() - 1);
+                setSelectedDate(base.toISOString().split('T')[0]);
+                setEditingRec(null);
+              }}
+              className="bg-white/10 text-emerald-400 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
+            >
+              Día anterior
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const base = new Date((selectedDate || today()) + 'T12:00:00');
+                base.setDate(base.getDate() + 1);
+                setSelectedDate(base.toISOString().split('T')[0]);
+                setEditingRec(null);
+              }}
+              className="bg-white/10 text-emerald-400 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
+            >
+              Día siguiente
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+            <div>
+              <Label className="text-zinc-500">Fecha manual</Label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={selectedDate || today()}
+                placeholder="AAAA-MM-DD"
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedDate(value);
+                  setEditingRec(null);
+                }}
+                onBlur={(e) => {
+                  const value = e.target.value;
+                  const isValid = /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(value + 'T12:00:00').getTime());
+                  if (!isValid) setSelectedDate(today());
+                }}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white font-black text-base outline-none rounded-xl px-4 py-3 focus:border-emerald-500"
+              />
+            </div>
+
             <button
               type="button"
               onClick={() => {
                 setSelectedDate(today());
                 setEditingRec(null);
-                setForm({
-                  configId: '',
-                  orders: '',
-                  units: '',
-                  revenue: '',
-                  adSpend: ''
-                });
               }}
-              className="bg-white/10 text-emerald-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
+              className="bg-emerald-500 text-zinc-950 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all"
             >
-              Usar fecha de hoy
+              Usar hoy
             </button>
+          </div>
 
+          <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
             <p className="text-[10px] text-zinc-500 font-black uppercase">
               Registrando en:{' '}
               <span className="text-emerald-400">
