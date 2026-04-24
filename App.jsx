@@ -12,17 +12,6 @@ import {
 } from 'lucide-react';
  
 // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
-// INSTRUCCIONES:
-// 1. Ve a https://console.firebase.google.com/
-// 2. Crea proyecto → habilita Firestore (modo producción)
-// 3. Agrega app Web → copia credenciales aquí abajo
-// 4. En Firestore > Reglas, pega esto mientras desarrollas:
-//    rules_version = '2';
-//    service cloud.firestore {
-//      match /databases/{database}/documents {
-//        match /{document=**} { allow read, write: if true; }
-//      }
-//    }
 const firebaseConfig = {
   apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
   authDomain: "vendedoras-winner-360.firebaseapp.com",
@@ -52,40 +41,33 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
  
-// ─── MOTOR DE CÁLCULO (LÓGICA CONTRAENTREGA COLOMBIA) ─────────────────────────
-// ARQUITECTURA DEL CÁLCULO:
+// ─── MOTOR DE CÁLCULO ─────────────────────────────────────────────────────────
 //
-// PASO 1 — Pedidos reales despachados
-//   despachos = pedidos × efectividad%
-//   (se descuentan cancelaciones y sin cobertura ANTES de salir)
+// PRODUCTOS: Las guías pueden llevar 1, 2 o más unidades (multi-producto).
+//   avgUnitsPerOrder = totalUnits / totalOrders
 //
-// PASO 2 — Entregas finales al cliente
-//   entregas = despachos × (1 - devolucion%)
-//   (transportadora entregó, cliente recibió y pagó)
+// PRODUCTOS REGISTRADOS BRUTOS:
+//   grossUnits = suma de todas las unidades registradas
 //
-// PASO 3 — Costo de fletes (sobre despachos, no sobre entregas)
-//   La transportadora cobra el flete de ida Y de vuelta
-//   flete_extra = (avgUnits - 1) × $5.000 si venden multi-unidad
-//   costo_fletes = despachos × (flete_base + flete_extra)
-//   FLETE REAL por entrega = costo_fletes / entregas  ← métrica clave
+// PRODUCTOS QUE SALEN (despachos):
+//   unitsShippedReal = shipped_orders × avgUnitsPerOrder
+//   (se descuentan los pedidos cancelados / sin cobertura por efectividad)
 //
-// PASO 4 — Costo de mercancía (solo sobre entregas finales)
-//   Las devoluciones retornan al inventario → no son pérdida de producto
-//   costo_mercanc = costo_unitario × avgUnits × entregas
+// PRODUCTOS DEVUELTOS A BODEGA:
+//   unitsReturnedReal = returns × avgUnitsPerOrder
+//   (vuelven al stock, NO son pérdida de producto)
 //
-// PASO 5 — Comisiones y fijos (sobre entregas finales)
-//   La vendedora cobra solo por lo que realmente se entregó
+// PRODUCTOS REALMENTE ENTREGADOS Y PAGADOS:
+//   unitsDeliveredReal = deliveries × avgUnitsPerOrder
+//   = grossOrders × IER × avgUnitsPerOrder
 //
-// PASO 6 — Recaudo neto real
-//   IER = efectividad × (1 - devolucion)
-//   recaudo_real = recaudo_bruto × IER
+// COSTO DE MERCANCÍA:
+//   Se calcula SOLO sobre unitsDeliveredReal (lo que el cliente pagó)
+//   productCostTotal = costUnitario × unitsDeliveredReal
 //
-// PASO 7 — Utilidad neta
-//   utilidad = recaudo_real - mercanc - fletes - fulfillment - comisiones - fijos - ads
-//
-// PROYECCIÓN 30 DÍAS:
-//   promedio_diario = utilidad / dias_del_rango
-//   proyeccion_mes = promedio_diario × 30
+// PROMEDIO DE PRODUCTOS POR ENTREGA REAL:
+//   avgUnitsPerDelivery = unitsDeliveredReal / finalDeliveries
+//   (métrica de eficiencia comercial)
  
 function calcularStats(records, configs) {
   let s = {
@@ -93,8 +75,11 @@ function calcularStats(records, configs) {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
     // Operativo
     realShipped: 0, estimatedReturns: 0, finalDeliveries: 0,
-    // Unidades físicas
-    unitsShippedReal: 0, unitsReturnedReal: 0, unitsDeliveredReal: 0,
+    // Unidades físicas — NUEVO DETALLE
+    unitsRegistradas: 0,       // Total unidades ingresadas en el sistema
+    unitsShippedReal: 0,       // Unidades que realmente salieron (× efectividad)
+    unitsReturnedReal: 0,      // Unidades que volvieron a bodega (× devolución)
+    unitsDeliveredReal: 0,     // Unidades PAGADAS por el cliente (= costo mercancía)
     // Costos
     totalFreightCost: 0, totalFulfillment: 0,
     productCostTotal: 0, totalCommissions: 0, totalFixedCosts: 0, totalAds: 0,
@@ -119,15 +104,22 @@ function calcularStats(records, configs) {
                       ? parseFloat(r.adSpend)
                       : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
  
+    // Promedio de unidades por guía en este registro
     const avgUnits     = orders > 0 ? units / orders : 1;
+ 
     const shipped      = orders * eff;
     const returns_     = shipped * ret;
     const deliveries   = shipped * (1 - ret);  // = orders × IER
  
-    // Unidades físicas
-    const unitsShipped   = shipped * avgUnits;
-    const unitsReturned  = returns_ * avgUnits;
-    const unitsDelivered = deliveries * avgUnits;
+    // ── UNIDADES FÍSICAS ──────────────────────────────────────────────────────
+    // Registradas: lo que se ingresó al sistema (bruto total)
+    const unitsRegistradas   = units;
+    // Enviadas: solo las guías que salieron × promedio unidades/guía
+    const unitsShipped       = shipped * avgUnits;
+    // Devueltas: guías devueltas × promedio → regresan al stock
+    const unitsReturned      = returns_ * avgUnits;
+    // Entregadas y PAGADAS: guías entregadas × promedio → sobre estas se paga mercancía
+    const unitsDelivered     = deliveries * avgUnits;
  
     // Fletes: se paga por cada guía despachada (ida + vuelta en devoluciones)
     const extraUnits     = Math.max(avgUnits - 1, 0);
@@ -135,7 +127,8 @@ function calcularStats(records, configs) {
     const freightTotal   = shipped * fleteUnit;
     const fulfillTotal   = shipped * (parseFloat(c.fulfillment) || 0);
  
-    // Mercancía: solo sobre entregas (devoluciones regresan al stock)
+    // ── COSTO MERCANCÍA ───────────────────────────────────────────────────────
+    // SOLO sobre unidades entregadas y pagadas (las devueltas regresan al stock)
     const mercanciaNeto  = (parseFloat(c.productCost) || 0) * unitsDelivered;
  
     // Variable por entrega
@@ -146,22 +139,23 @@ function calcularStats(records, configs) {
     const realRevenue    = revenue * IER;
  
     // Acumular
-    s.grossOrd         += orders;
-    s.grossUnits       += units;
-    s.grossRev         += revenue;
-    s.realShipped      += shipped;
-    s.estimatedReturns += returns_;
-    s.finalDeliveries  += deliveries;
-    s.unitsShippedReal += unitsShipped;
-    s.unitsReturnedReal+= unitsReturned;
-    s.unitsDeliveredReal+=unitsDelivered;
-    s.totalFreightCost += freightTotal;
-    s.totalFulfillment += fulfillTotal;
-    s.productCostTotal += mercanciaNeto;
-    s.totalCommissions += commissions;
-    s.totalFixedCosts  += fixedCosts;
-    s.totalAds         += ads;
-    s.realRev          += realRevenue;
+    s.grossOrd              += orders;
+    s.grossUnits            += units;
+    s.grossRev              += revenue;
+    s.realShipped           += shipped;
+    s.estimatedReturns      += returns_;
+    s.finalDeliveries       += deliveries;
+    s.unitsRegistradas      += unitsRegistradas;
+    s.unitsShippedReal      += unitsShipped;
+    s.unitsReturnedReal     += unitsReturned;
+    s.unitsDeliveredReal    += unitsDelivered;
+    s.totalFreightCost      += freightTotal;
+    s.totalFulfillment      += fulfillTotal;
+    s.productCostTotal      += mercanciaNeto;
+    s.totalCommissions      += commissions;
+    s.totalFixedCosts       += fixedCosts;
+    s.totalAds              += ads;
+    s.realRev               += realRevenue;
   });
  
   s.net = s.realRev
@@ -177,6 +171,16 @@ function calcularStats(records, configs) {
     ? s.totalFreightCost / s.finalDeliveries : 0;
   s.cpaReal = s.finalDeliveries > 0 ? s.totalAds / s.finalDeliveries : 0;
   s.roas    = s.totalAds > 0 ? s.realRev / s.totalAds : 0;
+ 
+  // ── PROMEDIOS DE PRODUCTOS ─────────────────────────────────────────────────
+  // Promedio de unidades por pedido registrado
+  s.avgUnitsPerOrder       = s.grossOrd > 0 ? s.grossUnits / s.grossOrd : 0;
+  // Promedio de unidades por entrega real (métrica de eficiencia comercial)
+  s.avgUnitsPerDelivery    = s.finalDeliveries > 0 ? s.unitsDeliveredReal / s.finalDeliveries : 0;
+  // Costo promedio de mercancía por entrega
+  s.costMercXEntrega       = s.finalDeliveries > 0 ? s.productCostTotal / s.finalDeliveries : 0;
+  // % de productos que llegaron vs registrados
+  s.pctProductosEntregados = s.unitsRegistradas > 0 ? (s.unitsDeliveredReal / s.unitsRegistradas) * 100 : 0;
  
   return s;
 }
@@ -209,11 +213,11 @@ const InputField = ({ label, type = 'text', value, onChange, placeholder, classN
   </div>
 );
  
-const Stat = ({ label, value, sub, accent = false, big = false, dark = false }) => (
-  <div className={`p-4 rounded-2xl ${accent ? 'bg-emerald-500 text-white' : dark ? 'bg-zinc-800' : 'bg-slate-50'}`}>
-    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${accent ? 'text-emerald-100' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{label}</p>
-    <p className={`font-black font-mono leading-none ${big ? 'text-2xl' : 'text-lg'} ${accent ? 'text-white' : dark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
-    {sub && <p className={`text-[9px] mt-1 font-semibold ${accent ? 'text-emerald-100' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{sub}</p>}
+const Stat = ({ label, value, sub, accent = false, big = false, dark = false, highlight = false }) => (
+  <div className={`p-4 rounded-2xl ${accent ? 'bg-emerald-500 text-white' : highlight ? 'bg-blue-50 border border-blue-100' : dark ? 'bg-zinc-800' : 'bg-slate-50'}`}>
+    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${accent ? 'text-emerald-100' : highlight ? 'text-blue-500' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{label}</p>
+    <p className={`font-black font-mono leading-none ${big ? 'text-2xl' : 'text-lg'} ${accent ? 'text-white' : highlight ? 'text-blue-700' : dark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
+    {sub && <p className={`text-[9px] mt-1 font-semibold ${accent ? 'text-emerald-100' : highlight ? 'text-blue-400' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{sub}</p>}
   </div>
 );
  
@@ -238,12 +242,15 @@ function VistaConfig({ configs, onSaved }) {
   }, {}), [configs]);
  
   const openNew = () => { setEditId(null); setForm(EMPTY_CONFIG); setShowForm(true); };
+ 
+  // Abre el form con la vendedora pre-llenada y la sección expandida
   const openNewForVendor = (vendedora) => {
     setEditId(null);
     setForm({ ...EMPTY_CONFIG, vendedora });
     setExpandedV(x => ({ ...x, [vendedora]: true }));
     setShowForm(true);
   };
+ 
   const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
  
@@ -280,6 +287,9 @@ function VistaConfig({ configs, onSaved }) {
     return ingreso - costos;
   }, [form]);
  
+  // Nombre de la vendedora pre-llenada (para el modal)
+  const isPrefilledVendor = showForm && !editId && form.vendedora && configs.some(c => c.vendedora === form.vendedora);
+ 
   return (
     <div className="space-y-8 anim-fade">
       {/* Header */}
@@ -292,7 +302,7 @@ function VistaConfig({ configs, onSaved }) {
           onClick={openNew}
           className="flex items-center gap-2 bg-zinc-950 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"
         >
-          <Plus size={16} /> Nueva Estrategia
+          <Plus size={16} /> Nueva Vendedora + Producto
         </button>
       </div>
  
@@ -320,10 +330,12 @@ function VistaConfig({ configs, onSaved }) {
                     <p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p>
                   </div>
                 </button>
-
+ 
                 <div className="flex items-center gap-2">
+                  {/* ── BOTÓN AGREGAR PRODUCTO A VENDEDORA EXISTENTE ── */}
                   <button
                     onClick={() => openNewForVendor(vendedora)}
+                    title={`Agregar nuevo producto a ${vendedora}`}
                     className="flex items-center gap-1.5 bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 active:scale-95 transition-all shadow-sm"
                   >
                     <Plus size={14} /> Producto
@@ -368,7 +380,8 @@ function VistaConfig({ configs, onSaved }) {
                       </div>
                     </div>
                   ))}
-
+ 
+                  {/* ── BOTÓN INLINE DENTRO DEL PANEL EXPANDIDO ── */}
                   <div className="p-5 bg-slate-50/60">
                     <button
                       onClick={() => openNewForVendor(vendedora)}
@@ -390,15 +403,51 @@ function VistaConfig({ configs, onSaved }) {
           <div className="bg-white w-full max-w-3xl rounded-3xl p-8 max-h-[92vh] overflow-y-auto anim-zoom shadow-2xl">
             <div className="flex justify-between items-center mb-8 pb-6 border-b border-slate-100">
               <div>
-                <h3 className="text-2xl font-black italic uppercase">{editId ? 'Editar' : 'Nueva'} Estrategia</h3>
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">Define parámetros de costo por producto</p>
+                <h3 className="text-2xl font-black italic uppercase">
+                  {editId ? 'Editar' : isPrefilledVendor ? `Nuevo Producto · ${form.vendedora}` : 'Nueva'} Estrategia
+                </h3>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                  {isPrefilledVendor
+                    ? `Agregando producto a vendedora existente`
+                    : 'Define parámetros de costo por producto'}
+                </p>
               </div>
               <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-slate-100 transition-colors"><X size={20} /></button>
             </div>
  
+            {/* Aviso si es producto nuevo para vendedora existente */}
+            {isPrefilledVendor && (
+              <div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-2xl">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">
+                  {form.vendedora[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-xs font-black text-emerald-700 uppercase">{form.vendedora}</p>
+                  <p className="text-[9px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p>
+                </div>
+              </div>
+            )}
+ 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => set('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />
-              <InputField label="Nombre Producto" value={form.productName} onChange={e => set('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" />
+              {/* Si es vendedora nueva, muestra campo editable; si ya existe, muestra solo el nombre */}
+              {isPrefilledVendor ? (
+                <div className="sm:col-span-2 bg-zinc-950 text-white px-5 py-4 rounded-2xl flex items-center gap-3">
+                  <Users size={16} className="text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p>
+                    <p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p>
+                  </div>
+                </div>
+              ) : (
+                <InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => set('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />
+              )}
+              <InputField
+                label="Nombre Producto"
+                value={form.productName}
+                onChange={e => set('productName', e.target.value)}
+                placeholder="Ej: CEPILLO PRO X2"
+                className={isPrefilledVendor ? 'sm:col-span-1' : ''}
+              />
  
               {/* Efectividad y Devolución */}
               <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl space-y-2">
@@ -480,7 +529,7 @@ function VistaConfig({ configs, onSaved }) {
               disabled={!form.vendedora.trim() || !form.productName.trim()}
               className="w-full mt-8 bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
             >
-              <Save size={18} /> {editId ? 'Actualizar Estrategia' : 'Guardar Estrategia'}
+              <Save size={18} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}
             </button>
           </div>
         </div>
@@ -502,7 +551,6 @@ function VistaRegistro({ configs, months }) {
     return a;
   }, {}), [configs]);
  
-  // Registros del día seleccionado
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() =>
@@ -558,20 +606,17 @@ function VistaRegistro({ configs, months }) {
     setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' });
   };
  
-  // Avg unidades para mostrar referencia
   const avgUnits = form.orders && form.units && parseFloat(form.orders) > 0
     ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2)
     : null;
  
   return (
     <div className="max-w-2xl mx-auto space-y-6 anim-slide">
-      {/* Header fecha */}
       <div>
         <h2 className="text-3xl font-black italic uppercase tracking-tighter">Cierre Diario</h2>
         <p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 2 · Registro de Operación</p>
       </div>
  
-      {/* Formulario principal */}
       <Card className={`space-y-5 ${editingRec ? 'border-2 border-amber-400' : ''}`}>
         {editingRec && (
           <div className="flex items-center gap-2 text-amber-600 text-xs font-black uppercase bg-amber-50 px-4 py-2.5 rounded-xl">
@@ -579,7 +624,6 @@ function VistaRegistro({ configs, months }) {
           </div>
         )}
  
-        {/* Fecha */}
         <div className="flex items-center gap-3 bg-zinc-950 px-5 py-4 rounded-2xl text-white">
           <Calendar size={18} className="text-emerald-400" />
           <div className="flex-1">
@@ -592,7 +636,6 @@ function VistaRegistro({ configs, months }) {
           </div>
         </div>
  
-        {/* Selector vendedora → producto */}
         <div className="space-y-1.5">
           <Label>Vendedora → Producto</Label>
           <select
@@ -609,7 +652,6 @@ function VistaRegistro({ configs, months }) {
           </select>
         </div>
  
-        {/* Ads — mostrar solo si NO es fijo */}
         {selectedConfig && !selectedConfig.fixedAdSpend && (
           <div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1">
             <Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label>
@@ -626,7 +668,6 @@ function VistaRegistro({ configs, months }) {
           </div>
         )}
  
-        {/* Guías y Unidades */}
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
             <div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div>
@@ -646,7 +687,6 @@ function VistaRegistro({ configs, months }) {
           </div>
         </div>
  
-        {/* Avg unidades info */}
         {avgUnits && (
           <p className="text-[10px] text-slate-400 font-black uppercase text-center">
             Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span>
@@ -654,7 +694,6 @@ function VistaRegistro({ configs, months }) {
           </p>
         )}
  
-        {/* Recaudo */}
         <div className="space-y-1.5">
           <Label>Recaudo Bruto Total del Día</Label>
           <input
@@ -679,7 +718,6 @@ function VistaRegistro({ configs, months }) {
         )}
       </Card>
  
-      {/* Registros del día */}
       {dayRecords.length > 0 && (
         <div className="space-y-3">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
@@ -690,7 +728,11 @@ function VistaRegistro({ configs, months }) {
             const eff = parseFloat(c?.effectiveness||95)/100;
             const ret = parseFloat(c?.returnRate||20)/100;
             const IER = eff*(1-ret);
-            const deliveries = (parseFloat(r.orders)||0) * IER;
+            const orders = parseFloat(r.orders)||0;
+            const units  = parseFloat(r.units)||0;
+            const avgU   = orders > 0 ? units / orders : 1;
+            const deliveries = orders * IER;
+            const unitsDelivered = deliveries * avgU;
             return (
               <Card key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="flex-1 space-y-2">
@@ -701,8 +743,9 @@ function VistaRegistro({ configs, months }) {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span>
-                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid.</span>
+                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span>
                     <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtDec(deliveries, 1)} entregas est.</span>
+                    <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtDec(unitsDelivered, 1)} prod. entregados</span>
                     <span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span>
                   </div>
                 </div>
@@ -734,7 +777,6 @@ function VistaDashboard({ configs, months }) {
  
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
  
-  // Filtrado de registros
   const filteredRecords = useMemo(() => {
     const all = months.flatMap(m => m.records || []);
     return all.filter(r => {
@@ -749,7 +791,6 @@ function VistaDashboard({ configs, months }) {
  
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
  
-  // Meta de la configuración seleccionada
   const targetProfit = useMemo(() => {
     if (filter.producto !== 'all') {
       const c = configs.find(x => x.id === filter.producto);
@@ -762,12 +803,10 @@ function VistaDashboard({ configs, months }) {
     return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
   }, [filter, configs, grouped]);
  
-  // Proyección 30 días
   const dias = daysBetween(filter.startDate, filter.endDate);
   const avgDiario = stats.net / dias;
   const proyeccion30 = avgDiario * 30;
  
-  // Semáforo de proyección
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
   if (proyeccion30 >= 1_000_000) {
     semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
@@ -775,9 +814,8 @@ function VistaDashboard({ configs, months }) {
     semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
   }
  
-  // Desglose de costos para tabla
   const costItems = [
-    { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `Solo sobre ${fmtDec(stats.finalDeliveries,1)} entregas finales`, icon: Package },
+    { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtDec(stats.unitsDeliveredReal,1)} unid. entregadas × costo unit. · devueltas no cuentan`, icon: Package },
     { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `${fmtDec(stats.realShipped,1)} guías desp. × flete unit`, icon: Truck },
     { label: 'Fulfillment / Alistamiento', value: stats.totalFulfillment, note: 'Por cada guía despachada', icon: Boxes },
     { label: 'Comisiones Vendedoras', value: stats.totalCommissions, note: 'Solo sobre entregas exitosas', icon: DollarSign },
@@ -873,11 +911,120 @@ function VistaDashboard({ configs, months }) {
               </Card>
             </div>
  
-            {/* Unidades físicas */}
-            <div className="grid grid-cols-3 gap-4">
-              <Stat label="Unidades Enviadas" value={fmtDec(stats.unitsShippedReal, 1)} sub="En guías despachadas" />
-              <Stat label="Unidades Devueltas" value={fmtDec(stats.unitsReturnedReal, 1)} sub="Regresan al stock" />
-              <Stat label="Unidades Entregadas" value={fmtDec(stats.unitsDeliveredReal, 1)} sub="Vendidas realmente" accent />
+            {/* ── BLOQUE NUEVO: EMBUDO DE PRODUCTOS ──────────────────────────── */}
+            <div className="mt-2">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.18em] flex items-center gap-1.5 ml-1 mb-3">
+                <Layers size={11} /> Embudo de Productos (unidades físicas)
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+ 
+                {/* Col 1: Productos registrados */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm border-l-4 border-l-slate-200">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Productos Registrados</p>
+                  <p className="text-2xl font-black font-mono text-slate-800">{fmtDec(stats.unitsRegistradas, 0)}</p>
+                  <p className="text-[9px] text-slate-400 mt-1 font-semibold">
+                    Prom. <span className="text-slate-600">{fmtDec(stats.avgUnitsPerOrder, 2)} unid/pedido</span>
+                  </p>
+                </div>
+ 
+                {/* Col 2: Productos que salieron */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm border-l-4 border-l-blue-300">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Productos Enviados</p>
+                  <p className="text-2xl font-black font-mono text-blue-600">{fmtDec(stats.unitsShippedReal, 1)}</p>
+                  <p className="text-[9px] text-slate-400 mt-1 font-semibold">
+                    -{fmtDec(stats.unitsRegistradas - stats.unitsShippedReal, 1)} por inefectividad
+                  </p>
+                </div>
+ 
+                {/* Col 3: Productos devueltos a bodega */}
+                <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 border-l-4 border-l-rose-400">
+                  <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1">Devueltos a Bodega</p>
+                  <p className="text-2xl font-black font-mono text-rose-500">{fmtDec(stats.unitsReturnedReal, 1)}</p>
+                  <p className="text-[9px] text-rose-400 mt-1 font-semibold">
+                    Regresan al stock · NO son pérdida
+                  </p>
+                </div>
+ 
+                {/* Col 4: Productos realmente entregados y pagados — MÉTRICA ESTRELLA */}
+                <div className="bg-emerald-500 rounded-2xl p-4 text-white relative overflow-hidden">
+                  <CheckCircle2 className="absolute -bottom-3 -right-3 opacity-15" size={56} />
+                  <p className="text-[9px] font-black text-emerald-100 uppercase tracking-widest mb-1">Productos Entregados</p>
+                  <p className="text-2xl font-black font-mono text-white">{fmtDec(stats.unitsDeliveredReal, 1)}</p>
+                  <p className="text-[9px] text-emerald-100 mt-1 font-semibold">
+                    Prom. <span className="font-black">{fmtDec(stats.avgUnitsPerDelivery, 2)} unid/entrega</span>
+                  </p>
+                  <div className="mt-2 bg-emerald-600/50 rounded-xl px-2 py-1">
+                    <p className="text-[9px] font-black text-emerald-100">
+                      {fmtDec(stats.pctProductosEntregados, 1)}% de productos registrados llegaron
+                    </p>
+                  </div>
+                </div>
+              </div>
+ 
+              {/* Barra visual del embudo de productos */}
+              <div className="mt-3 bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Flujo de productos: de registrados a entregados</p>
+ 
+                {/* Barra de registrados */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase">
+                    <span>Registrados</span><span>{fmtDec(stats.unitsRegistradas, 0)} unidades (100%)</span>
+                  </div>
+                  <div className="h-2.5 bg-slate-100 rounded-full"><div className="h-full bg-slate-300 rounded-full" style={{width:'100%'}} /></div>
+                </div>
+ 
+                {/* Barra de enviados */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[8px] font-black text-blue-400 uppercase">
+                    <span>Enviados (× efectividad)</span>
+                    <span>{fmtDec(stats.unitsShippedReal, 1)} unid. · {stats.unitsRegistradas > 0 ? fmtDec(stats.unitsShippedReal/stats.unitsRegistradas*100,1) : 0}%</span>
+                  </div>
+                  <div className="h-2.5 bg-blue-50 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-400 rounded-full transition-all duration-700"
+                      style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.unitsShippedReal/stats.unitsRegistradas*100,100)}%` : '0%'}} />
+                  </div>
+                </div>
+ 
+                {/* Barra de entregados */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[8px] font-black text-emerald-600 uppercase">
+                    <span>Entregados y Pagados (× IER)</span>
+                    <span>{fmtDec(stats.unitsDeliveredReal, 1)} unid. · {fmtDec(stats.pctProductosEntregados,1)}%</span>
+                  </div>
+                  <div className="h-2.5 bg-emerald-50 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full transition-all duration-700"
+                      style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.pctProductosEntregados,100)}%` : '0%'}} />
+                  </div>
+                </div>
+ 
+                {/* Barra de devueltos */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[8px] font-black text-rose-400 uppercase">
+                    <span>Devueltos a Bodega</span>
+                    <span>{fmtDec(stats.unitsReturnedReal, 1)} unid. · {stats.unitsRegistradas > 0 ? fmtDec(stats.unitsReturnedReal/stats.unitsRegistradas*100,1) : 0}%</span>
+                  </div>
+                  <div className="h-2.5 bg-rose-50 rounded-full overflow-hidden">
+                    <div className="h-full bg-rose-400 rounded-full transition-all duration-700"
+                      style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.unitsReturnedReal/stats.unitsRegistradas*100,100)}%` : '0%'}} />
+                  </div>
+                </div>
+ 
+                {/* Resumen numérico abajo */}
+                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-50">
+                  <div className="text-center">
+                    <p className="text-[8px] font-black text-slate-400 uppercase">Prom. Unid/Pedido</p>
+                    <p className="text-sm font-black text-slate-700 font-mono">{fmtDec(stats.avgUnitsPerOrder, 2)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[8px] font-black text-slate-400 uppercase">Prom. Unid/Entrega Real</p>
+                    <p className="text-sm font-black text-emerald-600 font-mono">{fmtDec(stats.avgUnitsPerDelivery, 2)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[8px] font-black text-slate-400 uppercase">Costo Merc/Entrega</p>
+                    <p className="text-sm font-black text-slate-700 font-mono">{fmt(stats.costMercXEntrega)}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
  
@@ -907,12 +1054,33 @@ function VistaDashboard({ configs, months }) {
               </div>
             </Card>
  
-            {/* Métricas clave por entrega */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Spread sobre ${fmtDec(stats.finalDeliveries,1)} ent.`} />
               <Stat label="CPA Real x Entrega" value={fmt(stats.cpaReal)} sub="Costo adquisición real" />
               <Stat label="ROAS Real" value={`${fmtDec(stats.roas, 2)}x`} sub="Ingreso neto / ads" />
               <Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,1)}%`} accent />
+            </div>
+ 
+            {/* Métricas de costo de mercancía ajustadas por productos */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Stat
+                label="Costo Mercancía Total"
+                value={fmt(stats.productCostTotal)}
+                sub={`Sobre ${fmtDec(stats.unitsDeliveredReal,1)} unid. entregadas`}
+                highlight
+              />
+              <Stat
+                label="Costo Merc. x Unidad Entregada"
+                value={fmt(stats.costMercXEntrega)}
+                sub={`Prom. ${fmtDec(stats.avgUnitsPerDelivery,2)} unid/entrega × costo`}
+                highlight
+              />
+              <Stat
+                label="Unidades Devueltas (stock)"
+                value={fmtDec(stats.unitsReturnedReal, 1)}
+                sub="No generan costo de mercancía"
+                dark={false}
+              />
             </div>
           </section>
  
@@ -923,7 +1091,6 @@ function VistaDashboard({ configs, months }) {
             </h3>
  
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Utilidad neta */}
               <Card dark className="space-y-4">
                 <Label className="text-zinc-500">Utilidad Neta Período</Label>
                 <p className={`text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -951,7 +1118,6 @@ function VistaDashboard({ configs, months }) {
                 </div>
               </Card>
  
-              {/* Proyección 30 días */}
               <div className={`rounded-3xl p-6 text-white space-y-4 shadow-2xl relative overflow-hidden
                 ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600'
                   : semaforo.color === 'bg-blue-500' ? 'bg-blue-600'
@@ -979,7 +1145,6 @@ function VistaDashboard({ configs, months }) {
               </div>
             </div>
  
-            {/* Gauge visual de meta */}
             {targetProfit > 0 && (
               <Card className="space-y-3">
                 <div className="flex justify-between items-center">
@@ -1035,8 +1200,6 @@ export default function App() {
  
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
- 
-      {/* NAV */}
       <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40, boxShadow: '0 4px 32px rgba(0,0,0,0.4)' }}>
         <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -1070,7 +1233,6 @@ export default function App() {
         </div>
       </header>
  
-      {/* CONTENIDO */}
       <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '2rem 1.5rem' }}>
         {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
         {activeTab === 'records'   && <VistaRegistro  configs={configs} months={months} />}
@@ -1079,4 +1241,3 @@ export default function App() {
     </div>
   );
 }
-
