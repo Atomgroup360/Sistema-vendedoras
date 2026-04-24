@@ -639,63 +639,80 @@ function VistaRegistro({ configs, months }) {
           </div>
         )}
  
-        {/* Fecha — permite registrar ventas en cualquier fecha */}
-<div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-3">
-  <div className="flex items-center gap-3">
-    <Calendar size={18} className="text-emerald-400" />
+        {/* Fecha — selector libre para registrar ventas en cualquier fecha */}
+        <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-3">
+          <div className="flex items-center gap-3">
+            <Calendar size={18} className="text-emerald-400" />
 
-    <div className="flex-1">
-      <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-        Fecha del Registro
-      </p>
+            <div className="flex-1">
+              <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                Fecha del Registro · Puedes escoger cualquier fecha
+              </p>
 
-      <input
-        type="date"
-        value={selectedDate}
-        min="2020-01-01"
-        max="2035-12-31"
-        onChange={e => {
-          if (e.target.value) {
-            setSelectedDate(e.target.value);
-            setEditingRec(null);
-            setForm({
-              configId: '',
-              orders: '',
-              units: '',
-              revenue: '',
-              adSpend: ''
-            });
-          }
-        }}
-        className="w-full mt-1 bg-white text-zinc-950 font-black text-base outline-none rounded-xl px-4 py-3 cursor-pointer"
-      />
-    </div>
-  </div>
+              <input
+                type="date"
+                value={selectedDate || today()}
+                min="2020-01-01"
+                max="2035-12-31"
+                onChange={(e) => {
+                  const nuevaFecha = e.target.value;
+                  if (!nuevaFecha) return;
 
-  <div className="flex items-center justify-between gap-3">
-    <button
-      type="button"
-      onClick={() => setSelectedDate(today())}
-      className="bg-white/10 text-emerald-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
-    >
-      Hoy
-    </button>
+                  setSelectedDate(nuevaFecha);
+                  setEditingRec(null);
+                  setForm({
+                    configId: '',
+                    orders: '',
+                    units: '',
+                    revenue: '',
+                    adSpend: ''
+                  });
+                }}
+                onClick={(e) => {
+                  if (e.currentTarget.showPicker) {
+                    e.currentTarget.showPicker();
+                  }
+                }}
+                className="mt-2 w-full bg-white text-zinc-950 font-black text-base outline-none rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400"
+                style={{ colorScheme: 'light' }}
+              />
+            </div>
+          </div>
 
-    <p className="text-[10px] text-zinc-500 font-black uppercase">
-      Registrando en:{" "}
-      <span className="text-emerald-400">
-        {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric'
-        })}
-      </span>
-    </p>
-  </div>
-</div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDate(today());
+                setEditingRec(null);
+                setForm({
+                  configId: '',
+                  orders: '',
+                  units: '',
+                  revenue: '',
+                  adSpend: ''
+                });
+              }}
+              className="bg-white/10 text-emerald-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
+            >
+              Usar fecha de hoy
+            </button>
+
+            <p className="text-[10px] text-zinc-500 font-black uppercase">
+              Registrando en:{' '}
+              <span className="text-emerald-400">
+                {new Date((selectedDate || today()) + 'T12:00:00').toLocaleDateString('es-CO', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </span>
+            </p>
+          </div>
+        </div>
  
-       <div className="space-y-1.5">
+        <div className="space-y-1.5">
           <Label>Vendedora → Producto</Label>
           <select
             value={form.configId}
