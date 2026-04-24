@@ -12,7 +12,7 @@ import {
   Coffee, Moon
 } from 'lucide-react';
 
-// ─── FIREBASE CONFIG (igual) ──────────────────────────────────────────────────
+// ─── FIREBASE CONFIG (sin cambios) ──────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
   authDomain: "vendedoras-winner-360.firebaseapp.com",
@@ -25,7 +25,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ─── HELPERS (sin cambios) ────────────────────────────────────────────────────
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 const fmt = (v) => new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0
 }).format(v || 0);
@@ -48,10 +48,9 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (excluye registros con restDay = true) ──────────────────
+// ─── MOTOR DE CÁLCULO (excluye restDay) ───────────────────────────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
-  
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
     realShipped: 0, estimatedReturns: 0, finalDeliveries: 0,
@@ -142,7 +141,7 @@ function calcularStats(records, configs) {
   return s;
 }
 
-// ─── COMPONENTES UI (iguales) ─────────────────────────────────────────────────
+// ─── COMPONENTES UI ──────────────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -178,7 +177,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (sin cambios relevantes) ──────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (sin cambios) ────────────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -330,7 +329,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (CORREGIDA: descanso solo para el producto y día actual) ───
+// ─── VISTA 2: REGISTRO DIARIO (CON INTERRUPTOR DE DESCANSO FUNCIONAL) ─────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -352,7 +351,7 @@ function VistaRegistro({ configs, months }) {
 
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Al cambiar de producto (si no estamos editando), reseteamos restDay a false
+  // Al cambiar producto, si no estamos editando, reseteamos restDay
   const handleProductChange = (value) => {
     setFormField('configId', value);
     if (!editingRec) {
@@ -361,67 +360,106 @@ function VistaRegistro({ configs, months }) {
   };
 
   const save = async () => {
-    if (!form.configId || !form.orders || !form.units || !form.revenue) { alert("Completa todos los campos obligatorios"); return; }
-    const rec = { 
-      ...form, 
-      date: selectedDate, 
-      id: editingRec?.id || Date.now().toString(), 
+    // Validación básica: siempre se necesita producto
+    if (!form.configId) {
+      alert("Debes seleccionar una vendedora y producto.");
+      return;
+    }
+
+    let orders = form.orders;
+    let units = form.units;
+    let revenue = form.revenue;
+    let adSpend = form.adSpend;
+
+    // Si es día de descanso, forzamos valores en cero (sin importar lo que haya escrito)
+    if (form.restDay) {
+      orders = '0';
+      units = '0';
+      revenue = '0';
+      adSpend = '0';
+      // Opcional: actualizar el estado visual para que el usuario lo vea
+      setFormField('orders', '0');
+      setFormField('units', '0');
+      setFormField('revenue', '0');
+      if (!selectedConfig?.fixedAdSpend) setFormField('adSpend', '0');
+    } else {
+      // Si no es descanso, validamos que los campos no estén vacíos
+      if (!orders || !units || !revenue) {
+        alert("Completa todos los campos obligatorios (guías, unidades y recaudo) o activa 'Día de descanso'.");
+        return;
+      }
+    }
+
+    const rec = {
+      configId: form.configId,
+      orders: orders,
+      units: units,
+      revenue: revenue,
+      adSpend: adSpend,
+      date: selectedDate,
+      id: editingRec?.id || Date.now().toString(),
       savedAt: Date.now(),
-      restDay: form.restDay || false 
+      restDay: form.restDay
     };
+
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
-    if (editingRec) { 
-      records = records.map(r => r.id === editingRec.id ? rec : r); 
-      await setDoc(ref, { records }); 
+
+    if (editingRec) {
+      records = records.map(r => r.id === editingRec.id ? rec : r);
+      await setDoc(ref, { records });
       setEditingRec(null);
-    } else { 
-      records = [...records, rec]; 
-      if (existing) await updateDoc(ref, { records }); 
-      else await setDoc(ref, { records }); 
+    } else {
+      records = [...records, rec];
+      if (existing) await updateDoc(ref, { records });
+      else await setDoc(ref, { records });
     }
-    // Resetear formulario completamente después de guardar
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
-    setSavedMsg(true); 
+
+    // Resetear formulario
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
   };
 
-  const startEdit = (r) => { 
-    setEditingRec(r); 
-    setForm({ 
-      configId: r.configId, 
-      orders: r.orders, 
-      units: r.units, 
-      revenue: r.revenue, 
+  const startEdit = (r) => {
+    setEditingRec(r);
+    setForm({
+      configId: r.configId,
+      orders: r.orders,
+      units: r.units,
+      revenue: r.revenue,
       adSpend: r.adSpend || '',
       restDay: r.restDay || false
-    }); 
+    });
   };
 
-  const deleteRec = async (id) => { 
-    if (!window.confirm('¿Eliminar este registro?')) return; 
-    const ref = doc(db, 'sales_months', monthId); 
-    const existing = months.find(m => m.id === monthId); 
-    const records = (existing?.records || []).filter(r => r.id !== id); 
-    await setDoc(ref, { records }); 
+  const deleteRec = async (id) => {
+    if (!window.confirm('¿Eliminar este registro?')) return;
+    const ref = doc(db, 'sales_months', monthId);
+    const existing = months.find(m => m.id === monthId);
+    const records = (existing?.records || []).filter(r => r.id !== id);
+    await setDoc(ref, { records });
   };
 
-  const cancelEdit = () => { 
-    setEditingRec(null); 
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
+  const cancelEdit = () => {
+    setEditingRec(null);
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
   };
 
-  const avgUnits = form.orders && form.units && parseFloat(form.orders) > 0 ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2) : null;
-  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0 ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
+  const avgUnits = (!form.restDay && form.orders && form.units && parseFloat(form.orders) > 0)
+    ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2)
+    : null;
+  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0
+    ? (parseFloat(avgUnits) - 1) * extraUnitCharge
+    : 0;
 
-  const moveDate = (days) => { 
-    const date = new Date(selectedDate + 'T12:00:00'); 
-    date.setDate(date.getDate() + days); 
-    setSelectedDate(date.toISOString().split('T')[0]); 
-    // Al cambiar la fecha, cancelamos cualquier edición y reseteamos formulario
-    setEditingRec(null); 
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
+  const moveDate = (days) => {
+    const date = new Date(selectedDate + 'T12:00:00');
+    date.setDate(date.getDate() + days);
+    setSelectedDate(date.toISOString().split('T')[0]);
+    setEditingRec(null);
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
   };
 
   return (
@@ -434,14 +472,14 @@ function VistaRegistro({ configs, months }) {
           <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
-        
+
         {/* Interruptor de descanso */}
-        <div className="bg-slate-100 rounded-2xl p-4 flex items-center justify-between">
+        <div className={`rounded-2xl p-4 flex items-center justify-between ${form.restDay ? 'bg-amber-100 border-2 border-amber-300' : 'bg-slate-100'}`}>
           <div className="flex items-center gap-3">
             <Coffee size={20} className="text-amber-600" />
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest">Día de descanso / Sin campaña</p>
-              <p className="text-[9px] text-slate-500">Activa este interruptor si la vendedora no trabajó o no hubo campañas</p>
+              <p className="text-[9px] text-slate-500">Activa este interruptor si la vendedora no trabajó o no hubo campañas. Los campos de ventas se guardarán como 0.</p>
             </div>
           </div>
           <button
@@ -458,10 +496,10 @@ function VistaRegistro({ configs, months }) {
 
         <div className="space-y-1.5">
           <Label>Vendedora → Producto</Label>
-          <select 
-            value={form.configId} 
-            onChange={e => handleProductChange(e.target.value)} 
-            disabled={!!editingRec}  // Durante edición no se puede cambiar el producto
+          <select
+            value={form.configId}
+            onChange={e => handleProductChange(e.target.value)}
+            disabled={!!editingRec}
             className={`w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none ${editingRec ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400'}`}
           >
             <option value="">Seleccionar estrategia...</option>
@@ -474,52 +512,136 @@ function VistaRegistro({ configs, months }) {
           {editingRec && <p className="text-[9px] text-amber-600 mt-1">⚠ No puedes cambiar el producto mientras editas un registro existente.</p>}
         </div>
 
-        {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1"><Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" /></div>)}
-        {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase"><ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
-        <div className="grid grid-cols-2 gap-4"><div className="bg-slate-50 p-5 rounded-2xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div><input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" /></div><div className="bg-slate-50 p-5 rounded-2xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div><input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" /></div></div>
-        {avgUnits && (<div className="text-center space-y-1"><p className="text-[10px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span></p>{extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía</p>)}{extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (<p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>)}</div>)}
-        <div className="space-y-1.5"><Label>Recaudo Bruto Total del Día</Label><input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 text-emerald-700 font-black text-3xl outline-none placeholder:text-slate-200 transition-all" /></div>
-        <button onClick={save} disabled={!form.configId || !form.orders || !form.units || !form.revenue} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}</button>
+        {selectedConfig && !selectedConfig.fixedAdSpend && (
+          <div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1">
+            <Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label>
+            <input
+              type="number"
+              value={form.adSpend}
+              onChange={e => setFormField('adSpend', e.target.value)}
+              placeholder="$ 0"
+              disabled={form.restDay}
+              className={`w-full bg-transparent font-black text-2xl outline-none placeholder:text-zinc-700 ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`}
+            />
+            {form.restDay && <p className="text-[9px] text-amber-400">Se guardará como 0 por ser día de descanso.</p>}
+          </div>
+        )}
+        {selectedConfig?.fixedAdSpend && (
+          <div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase">
+            <ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
+            <div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div>
+            <input
+              type="number"
+              value={form.orders}
+              onChange={e => setFormField('orders', e.target.value)}
+              placeholder="0"
+              disabled={form.restDay}
+              className={`w-full bg-transparent font-black text-4xl outline-none placeholder:text-slate-200 ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`}
+            />
+            {form.restDay && <p className="text-[9px] text-amber-500">Se guardará como 0.</p>}
+          </div>
+          <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
+            <div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div>
+            <input
+              type="number"
+              value={form.units}
+              onChange={e => setFormField('units', e.target.value)}
+              placeholder="0"
+              disabled={form.restDay}
+              className={`w-full bg-transparent font-black text-4xl outline-none placeholder:text-slate-200 ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`}
+            />
+            {form.restDay && <p className="text-[9px] text-amber-500">Se guardará como 0.</p>}
+          </div>
+        </div>
+
+        {!form.restDay && avgUnits && (
+          <div className="text-center space-y-1">
+            <p className="text-[10px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span></p>
+            {extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (
+              <p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía</p>
+            )}
+            {extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (
+              <p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <Label>Recaudo Bruto Total del Día</Label>
+          <input
+            type="number"
+            value={form.revenue}
+            onChange={e => setFormField('revenue', e.target.value)}
+            placeholder="$ 0"
+            disabled={form.restDay}
+            className={`w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-3xl outline-none placeholder:text-slate-200 transition-all ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`}
+          />
+          {form.restDay && <p className="text-[9px] text-amber-500 text-center">Se guardará como $0.</p>}
+        </div>
+
+        <button
+          onClick={save}
+          disabled={!form.configId}
+          className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+        >
+          <Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}
+        </button>
         {savedMsg && <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse"><CheckCircle2 size={16} /> ¡Guardado exitosamente!</div>}
       </Card>
-      {dayRecords.length > 0 && (<div className="space-y-3"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros de {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</p>{dayRecords.map(r => { 
-        const c = configs.find(x => x.id === r.configId); 
-        const eff = parseFloat(c?.effectiveness||95)/100; 
-        const ret = parseFloat(c?.returnRate||20)/100; 
-        const IER = eff*(1-ret); 
-        const orders = parseFloat(r.orders)||0; 
-        const units = parseFloat(r.units)||0; 
-        const avgU = orders > 0 ? units / orders : 1; 
-        const deliveries = orders * IER; 
-        const unitsDelivered = deliveries * avgU; 
-        return (<Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-4 ${r.restDay ? 'bg-slate-100 border-slate-200' : ''}`}>
-          <div className="flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span>
-              <span className="text-slate-300">·</span>
-              <span className="font-semibold text-sm text-slate-600">{c?.productName}</span>
-              {r.restDay && (
-                <span className="flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                  <Moon size={10} /> DESCANSO
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span>
-              <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span>
-              <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtN(deliveries)} entregas est.</span>
-              <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtN(unitsDelivered)} prod. entregados</span>
-              <span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span>
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end"><button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button><button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button></div>
-        </Card>);
-      })}</div>)}
+
+      {dayRecords.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros de {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          {dayRecords.map(r => {
+            const c = configs.find(x => x.id === r.configId);
+            const eff = parseFloat(c?.effectiveness||95)/100;
+            const ret = parseFloat(c?.returnRate||20)/100;
+            const IER = eff*(1-ret);
+            const orders = parseFloat(r.orders)||0;
+            const units = parseFloat(r.units)||0;
+            const avgU = orders > 0 ? units / orders : 1;
+            const deliveries = orders * IER;
+            const unitsDelivered = deliveries * avgU;
+            return (
+              <Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-4 ${r.restDay ? 'bg-slate-100 border-slate-200' : ''}`}>
+                <div className="flex-1 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span>
+                    <span className="text-slate-300">·</span>
+                    <span className="font-semibold text-sm text-slate-600">{c?.productName}</span>
+                    {r.restDay && (
+                      <span className="flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                        <Moon size={10} /> DESCANSO
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span>
+                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span>
+                    <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtN(deliveries)} entregas est.</span>
+                    <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtN(unitsDelivered)} prod. entregados</span>
+                    <span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button>
+                  <button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── VISTA 3: DASHBOARD (sin cambios) ────────────────────────────────────────
+// ─── VISTA 3: DASHBOARD (igual) ──────────────────────────────────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
