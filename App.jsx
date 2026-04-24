@@ -50,7 +50,6 @@ const daysBetween = (a, b) => {
 
 // ─── MOTOR DE CÁLCULO (excluye registros con restDay = true) ──────────────────
 function calcularStats(records, configs) {
-  // Filtrar registros que NO son días de descanso
   const activeRecords = records.filter(r => !r.restDay);
   
   let s = {
@@ -143,7 +142,7 @@ function calcularStats(records, configs) {
   return s;
 }
 
-// ─── COMPONENTES UI (agrego un Toggle simple) ─────────────────────────────────
+// ─── COMPONENTES UI (iguales) ─────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -179,7 +178,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (con extraUnitCharge) ─────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (sin cambios relevantes) ──────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -331,7 +330,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con interruptor de descanso) ───────────────────
+// ─── VISTA 2: REGISTRO DIARIO (CORREGIDA: descanso solo para el producto y día actual) ───
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -353,6 +352,14 @@ function VistaRegistro({ configs, months }) {
 
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Al cambiar de producto (si no estamos editando), reseteamos restDay a false
+  const handleProductChange = (value) => {
+    setFormField('configId', value);
+    if (!editingRec) {
+      setFormField('restDay', false);
+    }
+  };
+
   const save = async () => {
     if (!form.configId || !form.orders || !form.units || !form.revenue) { alert("Completa todos los campos obligatorios"); return; }
     const rec = { 
@@ -365,10 +372,17 @@ function VistaRegistro({ configs, months }) {
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
-    if (editingRec) { records = records.map(r => r.id === editingRec.id ? rec : r); await setDoc(ref, { records }); }
-    else { records = [...records, rec]; if (existing) await updateDoc(ref, { records }); else await setDoc(ref, { records }); }
+    if (editingRec) { 
+      records = records.map(r => r.id === editingRec.id ? rec : r); 
+      await setDoc(ref, { records }); 
+      setEditingRec(null);
+    } else { 
+      records = [...records, rec]; 
+      if (existing) await updateDoc(ref, { records }); 
+      else await setDoc(ref, { records }); 
+    }
+    // Resetear formulario completamente después de guardar
     setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
-    setEditingRec(null); 
     setSavedMsg(true); 
     setTimeout(() => setSavedMsg(false), 2500);
   };
@@ -384,11 +398,31 @@ function VistaRegistro({ configs, months }) {
       restDay: r.restDay || false
     }); 
   };
-  const deleteRec = async (id) => { if (!window.confirm('¿Eliminar este registro?')) return; const ref = doc(db, 'sales_months', monthId); const existing = months.find(m => m.id === monthId); const records = (existing?.records || []).filter(r => r.id !== id); await setDoc(ref, { records }); };
-  const cancelEdit = () => { setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); };
+
+  const deleteRec = async (id) => { 
+    if (!window.confirm('¿Eliminar este registro?')) return; 
+    const ref = doc(db, 'sales_months', monthId); 
+    const existing = months.find(m => m.id === monthId); 
+    const records = (existing?.records || []).filter(r => r.id !== id); 
+    await setDoc(ref, { records }); 
+  };
+
+  const cancelEdit = () => { 
+    setEditingRec(null); 
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
+  };
+
   const avgUnits = form.orders && form.units && parseFloat(form.orders) > 0 ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2) : null;
   const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0 ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
-  const moveDate = (days) => { const date = new Date(selectedDate + 'T12:00:00'); date.setDate(date.getDate() + days); setSelectedDate(date.toISOString().split('T')[0]); setEditingRec(null); };
+
+  const moveDate = (days) => { 
+    const date = new Date(selectedDate + 'T12:00:00'); 
+    date.setDate(date.getDate() + days); 
+    setSelectedDate(date.toISOString().split('T')[0]); 
+    // Al cambiar la fecha, cancelamos cualquier edición y reseteamos formulario
+    setEditingRec(null); 
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 anim-slide">
@@ -397,7 +431,7 @@ function VistaRegistro({ configs, months }) {
         {editingRec && (<div className="flex items-center gap-2 text-amber-600 text-xs font-black uppercase bg-amber-50 px-4 py-2.5 rounded-xl"><Pencil size={14} /> Editando registro · <button onClick={cancelEdit} className="text-slate-500 underline ml-auto">Cancelar</button></div>)}
         <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-4">
           <div className="flex items-center gap-3"><Calendar size={18} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Fecha del Registro · Selección libre</p><p className="text-[9px] text-zinc-600 font-semibold">Cualquier día pasado, presente o futuro</p></div></div>
-          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
+          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
         
@@ -422,7 +456,24 @@ function VistaRegistro({ configs, months }) {
           </button>
         </div>
 
-        <div className="space-y-1.5"><Label>Vendedora → Producto</Label><select value={form.configId} onChange={e => setFormField('configId', e.target.value)} className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-400 font-semibold text-sm outline-none"><option value="">Seleccionar estrategia...</option>{Object.entries(grouped).map(([v, ps]) => (<optgroup key={v} label={`── ${v.toUpperCase()} ──`}>{ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</optgroup>))}</select></div>
+        <div className="space-y-1.5">
+          <Label>Vendedora → Producto</Label>
+          <select 
+            value={form.configId} 
+            onChange={e => handleProductChange(e.target.value)} 
+            disabled={!!editingRec}  // Durante edición no se puede cambiar el producto
+            className={`w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none ${editingRec ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400'}`}
+          >
+            <option value="">Seleccionar estrategia...</option>
+            {Object.entries(grouped).map(([v, ps]) => (
+              <optgroup key={v} label={`── ${v.toUpperCase()} ──`}>
+                {ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          {editingRec && <p className="text-[9px] text-amber-600 mt-1">⚠ No puedes cambiar el producto mientras editas un registro existente.</p>}
+        </div>
+
         {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1"><Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" /></div>)}
         {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase"><ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
         <div className="grid grid-cols-2 gap-4"><div className="bg-slate-50 p-5 rounded-2xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div><input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" /></div><div className="bg-slate-50 p-5 rounded-2xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div><input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" /></div></div>
@@ -468,7 +519,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (sin cambios funcionales, ya filtra restDay en calcularStats) ───
+// ─── VISTA 3: DASHBOARD (sin cambios) ────────────────────────────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
