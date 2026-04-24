@@ -11,7 +11,7 @@ import {
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info
 } from 'lucide-react';
 
-// ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
+// ─── FIREBASE CONFIG (misma que usas) ─────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
   authDomain: "vendedoras-winner-360.firebaseapp.com",
@@ -24,7 +24,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+// ─── HELPERS (sin cambios) ────────────────────────────────────────────────────
 const fmt = (v) => new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0
 }).format(v || 0);
@@ -47,7 +47,7 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (MODIFICADO: extraUnitCharge por configuración) ─────────
+// ─── MOTOR DE CÁLCULO (con extraUnitCharge) ───────────────────────────────────
 function calcularStats(records, configs) {
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
@@ -87,7 +87,6 @@ function calcularStats(records, configs) {
     const unitsReturned      = returns_ * avgUnits;
     const unitsDelivered     = deliveries * avgUnits;
 
-    // Extra por unidad adicional (configurable por producto)
     const extraUnitCharge = parseFloat(c.extraUnitCharge) || 0;
     const extraUnits      = Math.max(avgUnits - 1, 0);
     const fleteBase       = parseFloat(c.freight) || 0;
@@ -135,11 +134,12 @@ function calcularStats(records, configs) {
   s.avgUnitsPerDelivery    = s.finalDeliveries > 0 ? s.unitsDeliveredReal / s.finalDeliveries : 0;
   s.costMercXEntrega       = s.finalDeliveries > 0 ? s.productCostTotal / s.finalDeliveries : 0;
   s.pctProductosEntregados = s.unitsRegistradas > 0 ? (s.unitsDeliveredReal / s.unitsRegistradas) * 100 : 0;
+  s.recaudoEficiencia      = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0; // % de recaudo neto sobre bruto
 
   return s;
 }
 
-// ─── COMPONENTES UI (sin cambios) ────────────────────────────────────────────
+// ─── COMPONENTES UI (iguales) ─────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -175,13 +175,13 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (agregamos extraUnitCharge) ──────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (con extraUnitCharge) ─────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
   commission: '', returnRate: '20', effectiveness: '95',
   fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
-  extraUnitCharge: ''  // Nuevo: cargo extra por unidad adicional (por pedido)
+  extraUnitCharge: ''
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -228,13 +228,10 @@ function VistaConfig({ configs, onSaved }) {
     const precio = parseFloat(form.priceSingle) || 0;
     const costo  = parseFloat(form.productCost) || 0;
     const flete  = parseFloat(form.freight) || 0;
-    const extra  = parseFloat(form.extraUnitCharge) || 0;
-    // Asumimos promedio de 1 unidad para el preview (sin extra)
     const full   = parseFloat(form.fulfillment) || 0;
     const com    = parseFloat(form.commission) || 0;
     const fijos  = parseFloat(form.fixedCosts) || 0;
     const ads    = parseFloat(form.dailyAdSpend) || 0;
-
     const ingreso = precio * IER;
     const costos  = costo + (flete / (IER || 1)) + full + com + fijos + ads;
     return ingreso - costos;
@@ -249,53 +246,22 @@ function VistaConfig({ configs, onSaved }) {
           <h2 className="text-3xl font-black italic uppercase tracking-tighter text-zinc-900">Estrategias</h2>
           <p className="text-xs text-slate-400 font-semibold mt-1 uppercase tracking-widest">Módulo 1 · Vendedoras y Productos</p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 bg-zinc-950 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"
-        >
-          <Plus size={16} /> Nueva Vendedora + Producto
-        </button>
+        <button onClick={openNew} className="flex items-center gap-2 bg-zinc-950 text-white px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"><Plus size={16} /> Nueva Vendedora + Producto</button>
       </div>
-
       {Object.keys(grouped).length === 0 ? (
-        <Card className="text-center py-16 text-slate-300">
-          <Users size={48} className="mx-auto mb-4 opacity-30" />
-          <p className="font-black uppercase text-sm">Sin estrategias aún</p>
-          <p className="text-xs mt-1">Crea la primera estrategia para comenzar</p>
-        </Card>
+        <Card className="text-center py-16 text-slate-300"><Users size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin estrategias aún</p><p className="text-xs mt-1">Crea la primera estrategia para comenzar</p></Card>
       ) : (
         <div className="space-y-4">
           {Object.entries(grouped).map(([vendedora, productos]) => (
             <Card key={vendedora} className="overflow-hidden p-0">
               <div className="flex items-center justify-between gap-3 p-5 bg-white">
-                <div
-                  onClick={() => toggleV(vendedora)}
-                  className="flex-1 flex items-center gap-3 cursor-pointer select-none"
-                >
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">
-                    {vendedora[0]?.toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="font-black text-sm uppercase tracking-wide">{vendedora}</p>
-                    <p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''} · click para {expandedV[vendedora] ? 'cerrar' : 'ver'}</p>
-                  </div>
+                <div onClick={() => toggleV(vendedora)} className="flex-1 flex items-center gap-3 cursor-pointer select-none">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{vendedora[0]?.toUpperCase()}</div>
+                  <div><p className="font-black text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''} · click para {expandedV[vendedora] ? 'cerrar' : 'ver'}</p></div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }}
-                    title={`Agregar nuevo producto a ${vendedora}`}
-                    className="flex items-center gap-1.5 bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 active:scale-95 transition-all shadow-sm"
-                  >
-                    <Plus size={14} /> + Producto
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleV(vendedora)}
-                    className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors"
-                  >
-                    {expandedV[vendedora] ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                  </button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }} className="flex items-center gap-1.5 bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 active:scale-95 transition-all shadow-sm"><Plus size={14} /> + Producto</button>
+                  <button type="button" onClick={() => toggleV(vendedora)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">{expandedV[vendedora] ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
                 </div>
               </div>
               {expandedV[vendedora] && (
@@ -309,176 +275,51 @@ function VistaConfig({ configs, onSaved }) {
                           <span className="text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
                           <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness)/100*(1-parseFloat(p.returnRate)/100)*100).toFixed(1)}%</span>
                           <span className="text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
-                          {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && (
-                            <span className="text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>
-                          )}
+                          {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
                           <span className="text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-2">
-                          <div className="text-center bg-slate-50 p-2 rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase font-black">Costo Unit</p>
-                            <p className="font-black text-xs text-slate-700">{fmt(p.productCost)}</p>
-                          </div>
-                          <div className="text-center bg-slate-50 p-2 rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase font-black">Comisión</p>
-                            <p className="font-black text-xs text-slate-700">{fmt(p.commission)}</p>
-                          </div>
-                          <div className="text-center bg-slate-50 p-2 rounded-xl">
-                            <p className="text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p>
-                            <p className="font-black text-xs text-slate-700">{fmt(p.fixedCosts)}</p>
-                          </div>
+                          <div className="text-center bg-slate-50 p-2 rounded-xl"><p className="text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-xs text-slate-700">{fmt(p.productCost)}</p></div>
+                          <div className="text-center bg-slate-50 p-2 rounded-xl"><p className="text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-xs text-slate-700">{fmt(p.commission)}</p></div>
+                          <div className="text-center bg-slate-50 p-2 rounded-xl"><p className="text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
                         </div>
                       </div>
-                      <div className="flex gap-2 justify-end">
-                        <button onClick={() => openEdit(p)} className="p-2.5 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={16} /></button>
-                        <button onClick={() => remove(p.id)} className="p-2.5 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={16} /></button>
-                      </div>
+                      <div className="flex gap-2 justify-end"><button onClick={() => openEdit(p)} className="p-2.5 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={16} /></button><button onClick={() => remove(p.id)} className="p-2.5 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={16} /></button></div>
                     </div>
                   ))}
-                  <div className="p-5 bg-slate-50/60">
-                    <button
-                      onClick={() => openNewForVendor(vendedora)}
-                      className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-50 hover:border-emerald-400 active:scale-95 transition-all"
-                    >
-                      <Plus size={16} /> Agregar nuevo producto a {vendedora}
-                    </button>
-                  </div>
+                  <div className="p-5 bg-slate-50/60"><button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-50 hover:border-emerald-400 active:scale-95 transition-all"><Plus size={16} /> Agregar nuevo producto a {vendedora}</button></div>
                 </div>
               )}
             </Card>
           ))}
         </div>
       )}
-
       {showForm && (
         <div className="fixed inset-0 bg-zinc-950/90 backdrop-blur-xl flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-3xl rounded-3xl p-8 max-h-[92vh] overflow-y-auto anim-zoom shadow-2xl">
             <div className="flex justify-between items-center mb-8 pb-6 border-b border-slate-100">
-              <div>
-                <h3 className="text-2xl font-black italic uppercase">
-                  {editId ? 'Editar' : isPrefilledVendor ? `Nuevo Producto · ${form.vendedora}` : 'Nueva'} Estrategia
-                </h3>
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
-                  {isPrefilledVendor ? `Agregando producto a vendedora existente` : 'Define parámetros de costo por producto'}
-                </p>
-              </div>
+              <div><h3 className="text-2xl font-black italic uppercase">{editId ? 'Editar' : isPrefilledVendor ? `Nuevo Producto · ${form.vendedora}` : 'Nueva'} Estrategia</h3><p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">{isPrefilledVendor ? `Agregando producto a vendedora existente` : 'Define parámetros de costo por producto'}</p></div>
               <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-slate-100 transition-colors"><X size={20} /></button>
             </div>
-            {isPrefilledVendor && (
-              <div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-2xl">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">
-                  {form.vendedora[0]?.toUpperCase()}
-                </div>
-                <div>
-                  <p className="text-xs font-black text-emerald-700 uppercase">{form.vendedora}</p>
-                  <p className="text-[9px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p>
-                </div>
-              </div>
-            )}
+            {isPrefilledVendor && (<div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-2xl"><div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{form.vendedora[0]?.toUpperCase()}</div><div><p className="text-xs font-black text-emerald-700 uppercase">{form.vendedora}</p><p className="text-[9px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p></div></div>)}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              {isPrefilledVendor ? (
-                <div className="sm:col-span-2 bg-zinc-950 text-white px-5 py-4 rounded-2xl flex items-center gap-3">
-                  <Users size={16} className="text-emerald-400 shrink-0" />
-                  <div>
-                    <p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p>
-                    <p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p>
-                  </div>
-                </div>
-              ) : (
-                <InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => set('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />
-              )}
-              <InputField
-                label="Nombre Producto"
-                value={form.productName}
-                onChange={e => set('productName', e.target.value)}
-                placeholder="Ej: CEPILLO PRO X2"
-                className={isPrefilledVendor ? 'sm:col-span-1' : ''}
-              />
-              {/* Efectividad y Devolución */}
-              <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl space-y-2">
-                <Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label>
-                <input type="number" value={form.effectiveness} onChange={e => set('effectiveness', e.target.value)}
-                  className="w-full bg-transparent font-black text-4xl text-emerald-800 outline-none" />
-                <p className="text-[9px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p>
-              </div>
-              <div className="bg-rose-50 border border-rose-100 p-5 rounded-2xl space-y-2">
-                <Label className="text-rose-600">% Devolución transportadora</Label>
-                <input type="number" value={form.returnRate} onChange={e => set('returnRate', e.target.value)}
-                  className="w-full bg-transparent font-black text-4xl text-rose-700 outline-none" />
-                <p className="text-[9px] text-rose-500 font-semibold">Del total despachado, % que regresa sin pagar</p>
-              </div>
-              <div className="sm:col-span-2 bg-zinc-950 text-white p-5 rounded-2xl flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p>
-                  <p className="text-xs text-zinc-400 mt-0.5">De cada 100 pedidos registrados, ¿cuántos se pagan?</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-4xl font-black font-mono text-emerald-400">
-                    {((parseFloat(form.effectiveness)||95)/100 * (1-(parseFloat(form.returnRate)||20)/100) * 100).toFixed(1)}%
-                  </p>
-                </div>
-              </div>
+              {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-5 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => set('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
+              <InputField label="Nombre Producto" value={form.productName} onChange={e => set('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
+              <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl space-y-2"><Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label><input type="number" value={form.effectiveness} onChange={e => set('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-4xl text-emerald-800 outline-none" /><p className="text-[9px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p></div>
+              <div className="bg-rose-50 border border-rose-100 p-5 rounded-2xl space-y-2"><Label className="text-rose-600">% Devolución transportadora</Label><input type="number" value={form.returnRate} onChange={e => set('returnRate', e.target.value)} className="w-full bg-transparent font-black text-4xl text-rose-700 outline-none" /><p className="text-[9px] text-rose-500 font-semibold">Del total despachado, % que regresa sin pagar</p></div>
+              <div className="sm:col-span-2 bg-zinc-950 text-white p-5 rounded-2xl flex items-center justify-between"><div><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p><p className="text-xs text-zinc-400 mt-0.5">De cada 100 pedidos registrados, ¿cuántos se pagan?</p></div><div className="text-right"><p className="text-4xl font-black font-mono text-emerald-400">{((parseFloat(form.effectiveness)||95)/100 * (1-(parseFloat(form.returnRate)||20)/100) * 100).toFixed(1)}%</p></div></div>
               <InputField label="Precio de Venta (1 unidad)" type="number" value={form.priceSingle} onChange={e => set('priceSingle', e.target.value)} placeholder="Ej: 79000" />
               <InputField label="Costo Unitario de Producto" type="number" value={form.productCost} onChange={e => set('productCost', e.target.value)} placeholder="Ej: 18000" />
               <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => set('freight', e.target.value)} placeholder="Ej: 9500" />
-              
-              {/* NUEVO CAMPO: Cargo extra por unidad adicional */}
-              <InputField 
-                label="Cargo extra por unidad adicional (por pedido)" 
-                type="number" 
-                value={form.extraUnitCharge} 
-                onChange={e => set('extraUnitCharge', e.target.value)} 
-                placeholder="Ej: 5000 (0 si no aplica)" 
-                helperText="Se suma al flete por cada unidad extra en un mismo pedido (ej: 2da, 3ra unidad...)"
-              />
-
+              <InputField label="Cargo extra por unidad adicional (por pedido)" type="number" value={form.extraUnitCharge} onChange={e => set('extraUnitCharge', e.target.value)} placeholder="Ej: 5000 (0 si no aplica)" />
               <InputField label="Fulfillment / Alistamiento por guía" type="number" value={form.fulfillment} onChange={e => set('fulfillment', e.target.value)} placeholder="Ej: 1500" />
               <InputField label="Comisión por Entrega Exitosa" type="number" value={form.commission} onChange={e => set('commission', e.target.value)} placeholder="Ej: 3000" />
               <InputField label="Costos Fijos Operativos por Entrega" type="number" value={form.fixedCosts} onChange={e => set('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
               <InputField label="Meta de Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => set('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
-              <div className="bg-zinc-950 text-white p-5 rounded-2xl space-y-3">
-                <div className="flex justify-between items-center">
-                  <Label className="text-zinc-500">Inversión Ads Diaria</Label>
-                  <button
-                    onClick={() => set('fixedAdSpend', !form.fixedAdSpend)}
-                    className="flex items-center gap-1.5 text-[9px] font-black uppercase"
-                  >
-                    {form.fixedAdSpend
-                      ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></>
-                      : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>
-                    }
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  value={form.dailyAdSpend}
-                  onChange={e => set('dailyAdSpend', e.target.value)}
-                  placeholder="$ 0"
-                  className="w-full bg-transparent text-emerald-400 font-black text-3xl outline-none placeholder:text-zinc-700"
-                />
-                <p className="text-[9px] text-zinc-600 font-semibold">
-                  {form.fixedAdSpend
-                    ? '✓ FIJA: Se aplica automáticamente a cada registro diario'
-                    : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}
-                </p>
-              </div>
-              {form.priceSingle && form.productCost && (
-                <div className={`sm:col-span-2 p-5 rounded-2xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Preview Utilidad Estimada por Pedido Registrado</p>
-                  <p className={`text-3xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                    {fmt(previewProfit)}
-                  </p>
-                  <p className="text-[9px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos configurados</p>
-                </div>
-              )}
+              <div className="bg-zinc-950 text-white p-5 rounded-2xl space-y-3"><div className="flex justify-between items-center"><Label className="text-zinc-500">Inversión Ads Diaria</Label><button onClick={() => set('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">{form.fixedAdSpend ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>}</button></div><input type="number" value={form.dailyAdSpend} onChange={e => set('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-3xl outline-none placeholder:text-zinc-700" /><p className="text-[9px] text-zinc-600 font-semibold">{form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}</p></div>
+              {form.priceSingle && form.productCost && (<div className={`sm:col-span-2 p-5 rounded-2xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Preview Utilidad Estimada por Pedido Registrado</p><p className={`text-3xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p><p className="text-[9px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos configurados</p></div>)}
             </div>
-            <button
-              onClick={save}
-              disabled={!form.vendedora.trim() || !form.productName.trim()}
-              className="w-full mt-8 bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
-            >
-              <Save size={18} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}
-            </button>
+            <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()} className="w-full mt-8 bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}</button>
           </div>
         </div>
       )}
@@ -486,7 +327,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (mostrar extra configurado) ─────────────────────
+// ─── VISTA 2: REGISTRO DIARIO (con extra visible) ─────────────────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '' });
@@ -501,9 +342,7 @@ function VistaRegistro({ configs, months }) {
 
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
-  const dayRecords = useMemo(() =>
-    (monthDoc?.records || []).filter(r => r.date === selectedDate)
-  , [monthDoc, selectedDate]);
+  const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
   const selectedConfig = configs.find(c => c.id === form.configId);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -511,334 +350,72 @@ function VistaRegistro({ configs, months }) {
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
-    if (!form.configId || !form.orders || !form.units || !form.revenue) {
-      alert("Completa todos los campos obligatorios");
-      return;
-    }
-
-    const rec = {
-      ...form,
-      date: selectedDate,
-      id: editingRec?.id || Date.now().toString(),
-      savedAt: Date.now()
-    };
-
+    if (!form.configId || !form.orders || !form.units || !form.revenue) { alert("Completa todos los campos obligatorios"); return; }
+    const rec = { ...form, date: selectedDate, id: editingRec?.id || Date.now().toString(), savedAt: Date.now() };
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
-
-    if (editingRec) {
-      records = records.map(r => r.id === editingRec.id ? rec : r);
-      await setDoc(ref, { records });
-    } else {
-      records = [...records, rec];
-      if (existing) await updateDoc(ref, { records });
-      else await setDoc(ref, { records });
-    }
-
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' });
-    setEditingRec(null);
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2500);
+    if (editingRec) { records = records.map(r => r.id === editingRec.id ? rec : r); await setDoc(ref, { records }); }
+    else { records = [...records, rec]; if (existing) await updateDoc(ref, { records }); else await setDoc(ref, { records }); }
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' }); setEditingRec(null); setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2500);
   };
 
-  const startEdit = (r) => {
-    setEditingRec(r);
-    setForm({
-      configId: r.configId,
-      orders: r.orders,
-      units: r.units,
-      revenue: r.revenue,
-      adSpend: r.adSpend || ''
-    });
-  };
-
-  const deleteRec = async (id) => {
-    if (!window.confirm('¿Eliminar este registro?')) return;
-    const ref = doc(db, 'sales_months', monthId);
-    const existing = months.find(m => m.id === monthId);
-    const records = (existing?.records || []).filter(r => r.id !== id);
-    await setDoc(ref, { records });
-  };
-
-  const cancelEdit = () => {
-    setEditingRec(null);
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' });
-  };
-
-  const avgUnits = form.orders && form.units && parseFloat(form.orders) > 0
-    ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2)
-    : null;
-
-  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0
-    ? (parseFloat(avgUnits) - 1) * extraUnitCharge
-    : 0;
-
-  const moveDate = (days) => {
-    const date = new Date(selectedDate + 'T12:00:00');
-    date.setDate(date.getDate() + days);
-    const newDate = date.toISOString().split('T')[0];
-    setSelectedDate(newDate);
-    setEditingRec(null);
-  };
+  const startEdit = (r) => { setEditingRec(r); setForm({ configId: r.configId, orders: r.orders, units: r.units, revenue: r.revenue, adSpend: r.adSpend || '' }); };
+  const deleteRec = async (id) => { if (!window.confirm('¿Eliminar este registro?')) return; const ref = doc(db, 'sales_months', monthId); const existing = months.find(m => m.id === monthId); const records = (existing?.records || []).filter(r => r.id !== id); await setDoc(ref, { records }); };
+  const cancelEdit = () => { setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' }); };
+  const avgUnits = form.orders && form.units && parseFloat(form.orders) > 0 ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2) : null;
+  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0 ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
+  const moveDate = (days) => { const date = new Date(selectedDate + 'T12:00:00'); date.setDate(date.getDate() + days); setSelectedDate(date.toISOString().split('T')[0]); setEditingRec(null); };
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 anim-slide">
-      <div>
-        <h2 className="text-3xl font-black italic uppercase tracking-tighter">Cierre Diario</h2>
-        <p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 2 · Registro de Operación</p>
-      </div>
-
+      <div><h2 className="text-3xl font-black italic uppercase tracking-tighter">Cierre Diario</h2><p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 2 · Registro de Operación</p></div>
       <Card className={`space-y-5 ${editingRec ? 'border-2 border-amber-400' : ''}`}>
-        {editingRec && (
-          <div className="flex items-center gap-2 text-amber-600 text-xs font-black uppercase bg-amber-50 px-4 py-2.5 rounded-xl">
-            <Pencil size={14} /> Editando registro · <button onClick={cancelEdit} className="text-slate-500 underline ml-auto">Cancelar</button>
-          </div>
-        )}
-
-        {/* SELECTOR DE FECHA 100% LIBRE */}
+        {editingRec && (<div className="flex items-center gap-2 text-amber-600 text-xs font-black uppercase bg-amber-50 px-4 py-2.5 rounded-xl"><Pencil size={14} /> Editando registro · <button onClick={cancelEdit} className="text-slate-500 underline ml-auto">Cancelar</button></div>)}
         <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-4">
-          <div className="flex items-center gap-3">
-            <Calendar size={18} className="text-emerald-400 shrink-0" />
-            <div>
-              <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                Fecha del Registro · Selección libre
-              </p>
-              <p className="text-[9px] text-zinc-600 font-semibold">
-                Cualquier día pasado, presente o futuro
-              </p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                if (e.target.value) {
-                  setSelectedDate(e.target.value);
-                  setEditingRec(null);
-                }
-              }}
-              className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-            />
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button>
-              <button onClick={() => { setSelectedDate(today()); setEditingRec(null); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button>
-              <button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button>
-            </div>
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
-            <p className="text-[10px] text-zinc-500 font-black uppercase">
-              Registrando en:{' '}
-              <span className="text-emerald-400">
-                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric'
-                })}
-              </span>
-            </p>
-          </div>
+          <div className="flex items-center gap-3"><Calendar size={18} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Fecha del Registro · Selección libre</p><p className="text-[9px] text-zinc-600 font-semibold">Cualquier día pasado, presente o futuro</p></div></div>
+          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
+          <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
-
-        <div className="space-y-1.5">
-          <Label>Vendedora → Producto</Label>
-          <select
-            value={form.configId}
-            onChange={e => setFormField('configId', e.target.value)}
-            className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-400 font-semibold text-sm outline-none"
-          >
-            <option value="">Seleccionar estrategia...</option>
-            {Object.entries(grouped).map(([v, ps]) => (
-              <optgroup key={v} label={`── ${v.toUpperCase()} ──`}>
-                {ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-
-        {selectedConfig && !selectedConfig.fixedAdSpend && (
-          <div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1">
-            <Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label>
-            <input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" />
-          </div>
-        )}
-        {selectedConfig?.fixedAdSpend && (
-          <div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase">
-            <ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
-            <div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div>
-            <input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" />
-          </div>
-          <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
-            <div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div>
-            <input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" />
-          </div>
-        </div>
-
-        {avgUnits && (
-          <div className="text-center space-y-1">
-            <p className="text-[10px] text-slate-400 font-black uppercase">
-              Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span>
-            </p>
-            {extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (
-              <p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">
-                Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía
-              </p>
-            )}
-            {extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (
-              <p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>
-            )}
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          <Label>Recaudo Bruto Total del Día</Label>
-          <input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 text-emerald-700 font-black text-3xl outline-none placeholder:text-slate-200 transition-all" />
-        </div>
-
-        <button onClick={save} disabled={!form.configId || !form.orders || !form.units || !form.revenue} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2">
-          <Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}
-        </button>
+        <div className="space-y-1.5"><Label>Vendedora → Producto</Label><select value={form.configId} onChange={e => setFormField('configId', e.target.value)} className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-400 font-semibold text-sm outline-none"><option value="">Seleccionar estrategia...</option>{Object.entries(grouped).map(([v, ps]) => (<optgroup key={v} label={`── ${v.toUpperCase()} ──`}>{ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</optgroup>))}</select></div>
+        {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1"><Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" /></div>)}
+        {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase"><ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
+        <div className="grid grid-cols-2 gap-4"><div className="bg-slate-50 p-5 rounded-2xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div><input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" /></div><div className="bg-slate-50 p-5 rounded-2xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div><input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" /></div></div>
+        {avgUnits && (<div className="text-center space-y-1"><p className="text-[10px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span></p>{extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía</p>)}{extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (<p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>)}</div>)}
+        <div className="space-y-1.5"><Label>Recaudo Bruto Total del Día</Label><input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 text-emerald-700 font-black text-3xl outline-none placeholder:text-slate-200 transition-all" /></div>
+        <button onClick={save} disabled={!form.configId || !form.orders || !form.units || !form.revenue} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}</button>
         {savedMsg && <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse"><CheckCircle2 size={16} /> ¡Guardado exitosamente!</div>}
       </Card>
-
-      {dayRecords.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-            Registros de {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </p>
-          {dayRecords.map(r => {
-            const c = configs.find(x => x.id === r.configId);
-            const eff = parseFloat(c?.effectiveness||95)/100;
-            const ret = parseFloat(c?.returnRate||20)/100;
-            const IER = eff*(1-ret);
-            const orders = parseFloat(r.orders)||0;
-            const units  = parseFloat(r.units)||0;
-            const avgU   = orders > 0 ? units / orders : 1;
-            const deliveries = orders * IER;
-            const unitsDelivered = deliveries * avgU;
-            return (
-              <Card key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="flex-1 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span>
-                    <span className="text-slate-300">·</span>
-                    <span className="font-semibold text-sm text-slate-600">{c?.productName}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span>
-                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span>
-                    <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtN(deliveries)} entregas est.</span>
-                    <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtN(unitsDelivered)} prod. entregados</span>
-                    <span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span>
-                  </div>
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button>
-                  <button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      {dayRecords.length > 0 && (<div className="space-y-3"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros de {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</p>{dayRecords.map(r => { const c = configs.find(x => x.id === r.configId); const eff = parseFloat(c?.effectiveness||95)/100; const ret = parseFloat(c?.returnRate||20)/100; const IER = eff*(1-ret); const orders = parseFloat(r.orders)||0; const units = parseFloat(r.units)||0; const avgU = orders > 0 ? units / orders : 1; const deliveries = orders * IER; const unitsDelivered = deliveries * avgU; return (<Card key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-4"><div className="flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span><span className="text-slate-300">·</span><span className="font-semibold text-sm text-slate-600">{c?.productName}</span></div><div className="flex flex-wrap gap-2"><span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span><span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span><span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtN(deliveries)} entregas est.</span><span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtN(unitsDelivered)} prod. entregados</span><span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span></div></div><div className="flex gap-2 justify-end"><button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button><button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button></div></Card>);})}</div>)}
     </div>
   );
 }
 
-// ─── VISTA 3: DASHBOARD (sin cambios funcionales, solo muestra totales ya con extra) ───
+// ─── VISTA 3: DASHBOARD (con recaudo bruto, neto y ajuste) ────────────────────
 function VistaDashboard({ configs, months }) {
-  const [filter, setFilter] = useState({
-    startDate: today(), endDate: today(),
-    vendedora: 'all', producto: 'all'
-  });
-
-  const grouped = useMemo(() => configs.reduce((a, c) => {
-    if (!a[c.vendedora]) a[c.vendedora] = [];
-    a[c.vendedora].push(c);
-    return a;
-  }, {}), [configs]);
-
+  const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
+  const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
-
-  const filteredRecords = useMemo(() => {
-    const all = months.flatMap(m => m.records || []);
-    return all.filter(r => {
-      const c = configs.find(x => x.id === r.configId);
-      if (!c) return false;
-      if (r.date < filter.startDate || r.date > filter.endDate) return false;
-      if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false;
-      if (filter.producto !== 'all' && r.configId !== filter.producto) return false;
-      return true;
-    });
-  }, [months, configs, filter]);
-
+  const filteredRecords = useMemo(() => { const all = months.flatMap(m => m.records || []); return all.filter(r => { const c = configs.find(x => x.id === r.configId); if (!c) return false; if (r.date < filter.startDate || r.date > filter.endDate) return false; if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false; if (filter.producto !== 'all' && r.configId !== filter.producto) return false; return true; }); }, [months, configs, filter]);
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
-
-  const targetProfit = useMemo(() => {
-    if (filter.producto !== 'all') {
-      const c = configs.find(x => x.id === filter.producto);
-      return parseFloat(c?.targetProfit) || 0;
-    }
-    if (filter.vendedora !== 'all') {
-      const prods = grouped[filter.vendedora] || [];
-      return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
-    }
-    return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
-  }, [filter, configs, grouped]);
-
+  const targetProfit = useMemo(() => { if (filter.producto !== 'all') { const c = configs.find(x => x.id === filter.producto); return parseFloat(c?.targetProfit) || 0; } if (filter.vendedora !== 'all') { const prods = grouped[filter.vendedora] || []; return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); } return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); }, [filter, configs, grouped]);
   const dias = daysBetween(filter.startDate, filter.endDate);
   const avgDiario = stats.net / dias;
   const proyeccion30 = avgDiario * 30;
-
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
-  if (proyeccion30 >= 1_000_000) {
-    semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
-  } else if (proyeccion30 >= targetProfit && targetProfit > 0) {
-    semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
-  }
-
+  if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
+  else if (proyeccion30 >= targetProfit && targetProfit > 0) semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
   const costItems = [
     { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas × costo unit. · devueltas no cuentan`, icon: Package },
-    { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `Incluye cargos extra configurados por unidad adicional`, icon: Truck },
+    { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `Incluye cargos extra configurados`, icon: Truck },
     { label: 'Fulfillment / Alistamiento', value: stats.totalFulfillment, note: 'Por cada guía despachada', icon: Boxes },
     { label: 'Comisiones Vendedoras', value: stats.totalCommissions, note: 'Solo sobre entregas exitosas', icon: DollarSign },
     { label: 'Costos Fijos Operativos', value: stats.totalFixedCosts, note: 'Prorrateo por entrega', icon: Activity },
     { label: 'Inversión en Publicidad', value: stats.totalAds, note: 'Meta Ads / pauta total', icon: Target },
   ];
-
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
-
-  const dayAnalysis = useMemo(() => {
-    const byDate = {};
-    filteredRecords.forEach(r => {
-      if (!byDate[r.date]) byDate[r.date] = [];
-      byDate[r.date].push(r);
-    });
-    const days = Object.entries(byDate).map(([date, recs]) => {
-      const s = calcularStats(recs, configs);
-      return { date, ...s };
-    }).sort((a, b) => a.date.localeCompare(b.date));
-    if (days.length === 0) return { days: [], best: null, worst: null, avgCpaPerDay: 0 };
-    const best  = days.reduce((a, b) => b.net > a.net ? b : a);
-    const worst = days.reduce((a, b) => b.net < a.net ? b : a);
-    const totalAdsSum   = days.reduce((s, d) => s + d.totalAds, 0);
-    const totalDelivSum = days.reduce((s, d) => s + d.finalDeliveries, 0);
-    const avgCpaPerDay  = totalDelivSum > 0 ? totalAdsSum / totalDelivSum : 0;
-    const daysWithAds   = days.filter(d => d.finalDeliveries > 0);
-    const cpaDiarioPromedio = daysWithAds.length > 0
-      ? daysWithAds.reduce((s, d) => s + d.cpaReal, 0) / daysWithAds.length
-      : 0;
-    return { days, best, worst, avgCpaPerDay, cpaDiarioPromedio };
-  }, [filteredRecords, configs]);
-
-  const fmtDate = (d) => new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
+  const ajustePorIER = stats.grossRev - stats.realRev; // Monto perdido por inefectividad + devoluciones
+  const eficienciaRecaudo = stats.recaudoEficiencia;
 
   return (
     <div className="space-y-8 anim-fade">
@@ -850,10 +427,28 @@ function VistaDashboard({ configs, months }) {
         <div className="space-y-1.5"><Label>Producto</Label><select value={filter.producto} onChange={e => setF('producto', e.target.value)} disabled={filter.vendedora === 'all'} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none disabled:opacity-40"><option value="all">TODOS</option>{filter.vendedora !== 'all' && (grouped[filter.vendedora] || []).map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select></div>
         <div className="col-span-2 md:col-span-4 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><Info size={12} className="text-slate-400" /><p className="text-[9px] font-black text-slate-400 uppercase">Analizando <span className="text-emerald-600">{dias} día{dias > 1 ? 's' : ''}</span> · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
-      {filteredRecords.length === 0 ? (
-        <Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos en este rango</p></Card>
-      ) : (
+      {filteredRecords.length === 0 ? (<Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos en este rango</p></Card>) : (
         <>
+          {/* NUEVO: Tarjeta de Recaudo Bruto, Ajuste y Neto */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="bg-white border-l-4 border-l-slate-400">
+              <Label>💰 Recaudo Bruto Total</Label>
+              <p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p>
+              <p className="text-[9px] text-slate-400 mt-1">Suma de todos los cierres diarios (sin ajustes)</p>
+            </Card>
+            <Card className="bg-amber-50 border-l-4 border-l-amber-400">
+              <Label>⚠ Ajuste por Inefectividad + Devoluciones</Label>
+              <p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p>
+              <p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde por IER</p>
+            </Card>
+            <Card className="bg-emerald-50 border-l-4 border-l-emerald-500">
+              <Label>✅ Recaudo Neto Real (después de IER)</Label>
+              <p className="text-3xl font-black font-mono text-emerald-700">{fmt(stats.realRev)}</p>
+              <p className="text-[9px] text-emerald-500 mt-1">Lo que realmente ingresa después de cancelaciones y devoluciones</p>
+            </Card>
+          </div>
+
+          {/* Resto del dashboard (embudos, costos, utilidad) se mantiene igual pero ya usan stats.realRev y stats.net */}
           <section className="space-y-3">
             <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Activity size={14} /> Embudo Operativo Contraentrega</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -895,9 +490,9 @@ function VistaDashboard({ configs, months }) {
 
 // ─── APP PRINCIPAL ─────────────────────────────────────────────────────────────
 export default function App() {
-  const [configs, setConfigs]   = useState([]);
-  const [months, setMonths]     = useState([]);
-  const [activeTab, setTab]     = useState('dashboard');
+  const [configs, setConfigs] = useState([]);
+  const [months, setMonths] = useState([]);
+  const [activeTab, setTab] = useState('dashboard');
 
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'sales_configs'), snap => setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
