@@ -8,10 +8,11 @@ import {
   TrendingUp, Package, Layers, Truck, Target, Wallet, CheckCircle2,
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
-  DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info
+  DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
+  Coffee, Moon
 } from 'lucide-react';
 
-// ─── FIREBASE CONFIG (misma que usas) ─────────────────────────────────────────
+// ─── FIREBASE CONFIG (igual) ──────────────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
   authDomain: "vendedoras-winner-360.firebaseapp.com",
@@ -47,8 +48,11 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (con extraUnitCharge) ───────────────────────────────────
+// ─── MOTOR DE CÁLCULO (excluye registros con restDay = true) ──────────────────
 function calcularStats(records, configs) {
+  // Filtrar registros que NO son días de descanso
+  const activeRecords = records.filter(r => !r.restDay);
+  
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
     realShipped: 0, estimatedReturns: 0, finalDeliveries: 0,
@@ -62,7 +66,7 @@ function calcularStats(records, configs) {
     net: 0
   };
 
-  records.forEach(r => {
+  activeRecords.forEach(r => {
     const c = configs.find(x => x.id === r.configId);
     if (!c) return;
 
@@ -134,12 +138,12 @@ function calcularStats(records, configs) {
   s.avgUnitsPerDelivery    = s.finalDeliveries > 0 ? s.unitsDeliveredReal / s.finalDeliveries : 0;
   s.costMercXEntrega       = s.finalDeliveries > 0 ? s.productCostTotal / s.finalDeliveries : 0;
   s.pctProductosEntregados = s.unitsRegistradas > 0 ? (s.unitsDeliveredReal / s.unitsRegistradas) * 100 : 0;
-  s.recaudoEficiencia      = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0; // % de recaudo neto sobre bruto
+  s.recaudoEficiencia      = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0;
 
   return s;
 }
 
-// ─── COMPONENTES UI (iguales) ─────────────────────────────────────────────────
+// ─── COMPONENTES UI (agrego un Toggle simple) ─────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -327,10 +331,10 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con extra visible) ─────────────────────────────
+// ─── VISTA 2: REGISTRO DIARIO (con interruptor de descanso) ───────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
-  const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '' });
+  const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
   const [editingRec, setEditingRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState(false);
 
@@ -351,18 +355,37 @@ function VistaRegistro({ configs, months }) {
 
   const save = async () => {
     if (!form.configId || !form.orders || !form.units || !form.revenue) { alert("Completa todos los campos obligatorios"); return; }
-    const rec = { ...form, date: selectedDate, id: editingRec?.id || Date.now().toString(), savedAt: Date.now() };
+    const rec = { 
+      ...form, 
+      date: selectedDate, 
+      id: editingRec?.id || Date.now().toString(), 
+      savedAt: Date.now(),
+      restDay: form.restDay || false 
+    };
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
     if (editingRec) { records = records.map(r => r.id === editingRec.id ? rec : r); await setDoc(ref, { records }); }
     else { records = [...records, rec]; if (existing) await updateDoc(ref, { records }); else await setDoc(ref, { records }); }
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' }); setEditingRec(null); setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2500);
+    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); 
+    setEditingRec(null); 
+    setSavedMsg(true); 
+    setTimeout(() => setSavedMsg(false), 2500);
   };
 
-  const startEdit = (r) => { setEditingRec(r); setForm({ configId: r.configId, orders: r.orders, units: r.units, revenue: r.revenue, adSpend: r.adSpend || '' }); };
+  const startEdit = (r) => { 
+    setEditingRec(r); 
+    setForm({ 
+      configId: r.configId, 
+      orders: r.orders, 
+      units: r.units, 
+      revenue: r.revenue, 
+      adSpend: r.adSpend || '',
+      restDay: r.restDay || false
+    }); 
+  };
   const deleteRec = async (id) => { if (!window.confirm('¿Eliminar este registro?')) return; const ref = doc(db, 'sales_months', monthId); const existing = months.find(m => m.id === monthId); const records = (existing?.records || []).filter(r => r.id !== id); await setDoc(ref, { records }); };
-  const cancelEdit = () => { setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '' }); };
+  const cancelEdit = () => { setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); };
   const avgUnits = form.orders && form.units && parseFloat(form.orders) > 0 ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2) : null;
   const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0 ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
   const moveDate = (days) => { const date = new Date(selectedDate + 'T12:00:00'); date.setDate(date.getDate() + days); setSelectedDate(date.toISOString().split('T')[0]); setEditingRec(null); };
@@ -377,6 +400,28 @@ function VistaRegistro({ configs, months }) {
           <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
+        
+        {/* Interruptor de descanso */}
+        <div className="bg-slate-100 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Coffee size={20} className="text-amber-600" />
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest">Día de descanso / Sin campaña</p>
+              <p className="text-[9px] text-slate-500">Activa este interruptor si la vendedora no trabajó o no hubo campañas</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setFormField('restDay', !form.restDay)}
+            className="flex items-center gap-1.5 text-[9px] font-black uppercase"
+          >
+            {form.restDay ? (
+              <><ToggleRight size={28} className="text-amber-500" /><span className="text-amber-600">DESCANSO ACTIVADO</span></>
+            ) : (
+              <><ToggleLeft size={28} className="text-slate-400" /><span className="text-slate-500">Activo</span></>
+            )}
+          </button>
+        </div>
+
         <div className="space-y-1.5"><Label>Vendedora → Producto</Label><select value={form.configId} onChange={e => setFormField('configId', e.target.value)} className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-emerald-400 font-semibold text-sm outline-none"><option value="">Seleccionar estrategia...</option>{Object.entries(grouped).map(([v, ps]) => (<optgroup key={v} label={`── ${v.toUpperCase()} ──`}>{ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</optgroup>))}</select></div>
         {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1"><Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" /></div>)}
         {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[9px] font-black bg-emerald-50 px-4 py-2.5 rounded-xl uppercase"><ToggleRight size={16} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
@@ -386,12 +431,44 @@ function VistaRegistro({ configs, months }) {
         <button onClick={save} disabled={!form.configId || !form.orders || !form.units || !form.revenue} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}</button>
         {savedMsg && <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse"><CheckCircle2 size={16} /> ¡Guardado exitosamente!</div>}
       </Card>
-      {dayRecords.length > 0 && (<div className="space-y-3"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros de {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</p>{dayRecords.map(r => { const c = configs.find(x => x.id === r.configId); const eff = parseFloat(c?.effectiveness||95)/100; const ret = parseFloat(c?.returnRate||20)/100; const IER = eff*(1-ret); const orders = parseFloat(r.orders)||0; const units = parseFloat(r.units)||0; const avgU = orders > 0 ? units / orders : 1; const deliveries = orders * IER; const unitsDelivered = deliveries * avgU; return (<Card key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-4"><div className="flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span><span className="text-slate-300">·</span><span className="font-semibold text-sm text-slate-600">{c?.productName}</span></div><div className="flex flex-wrap gap-2"><span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span><span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span><span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtN(deliveries)} entregas est.</span><span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtN(unitsDelivered)} prod. entregados</span><span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span></div></div><div className="flex gap-2 justify-end"><button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button><button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button></div></Card>);})}</div>)}
+      {dayRecords.length > 0 && (<div className="space-y-3"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros de {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}</p>{dayRecords.map(r => { 
+        const c = configs.find(x => x.id === r.configId); 
+        const eff = parseFloat(c?.effectiveness||95)/100; 
+        const ret = parseFloat(c?.returnRate||20)/100; 
+        const IER = eff*(1-ret); 
+        const orders = parseFloat(r.orders)||0; 
+        const units = parseFloat(r.units)||0; 
+        const avgU = orders > 0 ? units / orders : 1; 
+        const deliveries = orders * IER; 
+        const unitsDelivered = deliveries * avgU; 
+        return (<Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-4 ${r.restDay ? 'bg-slate-100 border-slate-200' : ''}`}>
+          <div className="flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-black text-sm text-emerald-600 uppercase">{c?.vendedora}</span>
+              <span className="text-slate-300">·</span>
+              <span className="font-semibold text-sm text-slate-600">{c?.productName}</span>
+              {r.restDay && (
+                <span className="flex items-center gap-1 text-[9px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                  <Moon size={10} /> DESCANSO
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.orders} guías</span>
+              <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">{r.units} unid. registradas</span>
+              <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg">{fmtN(deliveries)} entregas est.</span>
+              <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">{fmtN(unitsDelivered)} prod. entregados</span>
+              <span className="text-[9px] font-black bg-zinc-100 text-zinc-600 px-2 py-1 rounded-lg">{fmt(r.revenue)}</span>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end"><button onClick={() => startEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 hover:text-amber-600 text-slate-300 transition-colors"><Pencil size={16} /></button><button onClick={() => deleteRec(r.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-300 transition-colors"><Trash2 size={16} /></button></div>
+        </Card>);
+      })}</div>)}
     </div>
   );
 }
 
-// ─── VISTA 3: DASHBOARD (con recaudo bruto, neto y ajuste) ────────────────────
+// ─── VISTA 3: DASHBOARD (sin cambios funcionales, ya filtra restDay en calcularStats) ───
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -414,7 +491,7 @@ function VistaDashboard({ configs, months }) {
     { label: 'Inversión en Publicidad', value: stats.totalAds, note: 'Meta Ads / pauta total', icon: Target },
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
-  const ajustePorIER = stats.grossRev - stats.realRev; // Monto perdido por inefectividad + devoluciones
+  const ajustePorIER = stats.grossRev - stats.realRev;
   const eficienciaRecaudo = stats.recaudoEficiencia;
 
   return (
@@ -429,26 +506,11 @@ function VistaDashboard({ configs, months }) {
       </Card>
       {filteredRecords.length === 0 ? (<Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos en este rango</p></Card>) : (
         <>
-          {/* NUEVO: Tarjeta de Recaudo Bruto, Ajuste y Neto */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-white border-l-4 border-l-slate-400">
-              <Label>💰 Recaudo Bruto Total</Label>
-              <p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p>
-              <p className="text-[9px] text-slate-400 mt-1">Suma de todos los cierres diarios (sin ajustes)</p>
-            </Card>
-            <Card className="bg-amber-50 border-l-4 border-l-amber-400">
-              <Label>⚠ Ajuste por Inefectividad + Devoluciones</Label>
-              <p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p>
-              <p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde por IER</p>
-            </Card>
-            <Card className="bg-emerald-50 border-l-4 border-l-emerald-500">
-              <Label>✅ Recaudo Neto Real (después de IER)</Label>
-              <p className="text-3xl font-black font-mono text-emerald-700">{fmt(stats.realRev)}</p>
-              <p className="text-[9px] text-emerald-500 mt-1">Lo que realmente ingresa después de cancelaciones y devoluciones</p>
-            </Card>
+            <Card className="bg-white border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p><p className="text-[9px] text-slate-400 mt-1">Suma de todos los cierres diarios (sin ajustes)</p></Card>
+            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por Inefectividad + Devoluciones</Label><p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde por IER</p></Card>
+            <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real (después de IER)</Label><p className="text-3xl font-black font-mono text-emerald-700">{fmt(stats.realRev)}</p><p className="text-[9px] text-emerald-500 mt-1">Lo que realmente ingresa después de cancelaciones y devoluciones</p></Card>
           </div>
-
-          {/* Resto del dashboard (embudos, costos, utilidad) se mantiene igual pero ya usan stats.realRev y stats.net */}
           <section className="space-y-3">
             <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Activity size={14} /> Embudo Operativo Contraentrega</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
