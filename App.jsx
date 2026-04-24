@@ -639,25 +639,63 @@ function VistaRegistro({ configs, months }) {
           </div>
         )}
  
-        {/* Fecha — cualquier fecha histórica o futura */}
-        <div className="flex items-center gap-3 bg-zinc-950 px-5 py-4 rounded-2xl text-white">
-          <Calendar size={18} className="text-emerald-400" />
-          <div className="flex-1">
-            <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Fecha del Registro · Cualquier fecha</p>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={e => { if (e.target.value) setSelectedDate(e.target.value); }}
-              className="bg-transparent text-emerald-400 font-black text-base outline-none w-full cursor-pointer"
-              style={{ colorScheme: 'dark' }}
-            />
-          </div>
-          <p className="text-[9px] text-zinc-600 font-black uppercase">
-            {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-          </p>
-        </div>
+        {/* Fecha — permite registrar ventas en cualquier fecha */}
+<div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-3">
+  <div className="flex items-center gap-3">
+    <Calendar size={18} className="text-emerald-400" />
+
+    <div className="flex-1">
+      <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+        Fecha del Registro
+      </p>
+
+      <input
+        type="date"
+        value={selectedDate}
+        min="2020-01-01"
+        max="2035-12-31"
+        onChange={e => {
+          if (e.target.value) {
+            setSelectedDate(e.target.value);
+            setEditingRec(null);
+            setForm({
+              configId: '',
+              orders: '',
+              units: '',
+              revenue: '',
+              adSpend: ''
+            });
+          }
+        }}
+        className="w-full mt-1 bg-white text-zinc-950 font-black text-base outline-none rounded-xl px-4 py-3 cursor-pointer"
+      />
+    </div>
+  </div>
+
+  <div className="flex items-center justify-between gap-3">
+    <button
+      type="button"
+      onClick={() => setSelectedDate(today())}
+      className="bg-white/10 text-emerald-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all"
+    >
+      Hoy
+    </button>
+
+    <p className="text-[10px] text-zinc-500 font-black uppercase">
+      Registrando en:{" "}
+      <span className="text-emerald-400">
+        {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        })}
+      </span>
+    </p>
+  </div>
+</div>
  
-        <div className="space-y-1.5">
+       <div className="space-y-1.5">
           <Label>Vendedora → Producto</Label>
           <select
             value={form.configId}
