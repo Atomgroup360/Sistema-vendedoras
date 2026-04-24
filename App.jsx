@@ -307,21 +307,32 @@ function VistaConfig({ configs, onSaved }) {
         <div className="space-y-4">
           {Object.entries(grouped).map(([vendedora, productos]) => (
             <Card key={vendedora} className="overflow-hidden p-0">
-              <button
-                onClick={() => toggleV(vendedora)}
-                className="w-full flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
+              <div className="w-full flex items-center justify-between gap-3 p-6 hover:bg-slate-50 transition-colors">
+                <button
+                  onClick={() => toggleV(vendedora)}
+                  className="flex-1 flex items-center gap-3 text-left"
+                >
                   <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm">
                     {vendedora[0]?.toUpperCase()}
                   </div>
-                  <div className="text-left">
+                  <div>
                     <p className="font-black text-sm uppercase tracking-wide">{vendedora}</p>
                     <p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p>
                   </div>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openNewForVendor(vendedora)}
+                    className="flex items-center gap-1.5 bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 active:scale-95 transition-all shadow-sm"
+                  >
+                    <Plus size={14} /> Producto
+                  </button>
+                  <button onClick={() => toggleV(vendedora)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">
+                    {expandedV[vendedora] ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  </button>
                 </div>
-                {expandedV[vendedora] ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
-              </button>
+              </div>
  
               {expandedV[vendedora] && (
                 <div className="border-t border-slate-100 divide-y divide-slate-100">
@@ -363,7 +374,7 @@ function VistaConfig({ configs, onSaved }) {
                       onClick={() => openNewForVendor(vendedora)}
                       className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-emerald-50 hover:border-emerald-400 active:scale-95 transition-all"
                     >
-                      <Plus size={16} /> Agregar producto a {vendedora}
+                      <Plus size={16} /> Agregar nuevo producto a {vendedora}
                     </button>
                   </div>
                 </div>
