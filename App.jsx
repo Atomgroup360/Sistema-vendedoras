@@ -48,7 +48,7 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (incluye AOV) ───────────────────────────────────────────
+// ─── MOTOR DE CÁLCULO (incluye AOV y CPA Equilibrio ponderado) ────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
@@ -62,8 +62,12 @@ function calcularStats(records, configs) {
     productCostTotal: 0, totalCommissions: 0, totalFixedCosts: 0, totalAds: 0,
     realRev: 0,
     net: 0,
-    aov: 0
+    aov: 0,
+    cpaEquilibrioPonderado: 0
   };
+
+  let totalCpaEquilibrioPonderado = 0;
+  let totalOrdenesParaCpaEq = 0;
 
   activeRecords.forEach(r => {
     const c = configs.find(x => x.id === r.configId);
@@ -119,6 +123,11 @@ function calcularStats(records, configs) {
     s.totalFixedCosts       += fixedCosts;
     s.totalAds              += ads;
     s.realRev               += realRevenue;
+
+    // Acumular para CPA equilibrio ponderado
+    const cpaEq = parseFloat(c.cpaEquilibrio) || 0;
+    totalCpaEquilibrioPonderado += cpaEq * orders;
+    totalOrdenesParaCpaEq += orders;
   });
 
   s.net = s.realRev
@@ -139,6 +148,7 @@ function calcularStats(records, configs) {
   s.pctProductosEntregados = s.unitsRegistradas > 0 ? (s.unitsDeliveredReal / s.unitsRegistradas) * 100 : 0;
   s.recaudoEficiencia      = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0;
   s.aov                    = s.grossOrd > 0 ? s.grossRev / s.grossOrd : 0;
+  s.cpaEquilibrioPonderado = totalOrdenesParaCpaEq > 0 ? totalCpaEquilibrioPonderado / totalOrdenesParaCpaEq : 0;
 
   return s;
 }
@@ -179,13 +189,14 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (igual) ───────────────────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (con CPA Equilibrio) ──────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
   commission: '', returnRate: '20', effectiveness: '95',
   fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
-  extraUnitCharge: ''
+  extraUnitCharge: '',
+  cpaEquilibrio: ''   // Nuevo campo
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -281,6 +292,7 @@ function VistaConfig({ configs, onSaved }) {
                           <span className="text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
                           {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
                           <span className="text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
+                          {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-2">
                           <div className="text-center bg-slate-50 p-2 rounded-xl"><p className="text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-xs text-slate-700">{fmt(p.productCost)}</p></div>
@@ -320,6 +332,7 @@ function VistaConfig({ configs, onSaved }) {
               <InputField label="Comisión por Entrega Exitosa" type="number" value={form.commission} onChange={e => set('commission', e.target.value)} placeholder="Ej: 3000" />
               <InputField label="Costos Fijos Operativos por Entrega" type="number" value={form.fixedCosts} onChange={e => set('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
               <InputField label="Meta de Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => set('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
+              <InputField label="CPA Equilibrio (por pedido)" type="number" value={form.cpaEquilibrio} onChange={e => set('cpaEquilibrio', e.target.value)} placeholder="Ej: 15000" helperText="Costo de adquisición máximo para ser rentable" />
               <div className="bg-zinc-950 text-white p-5 rounded-2xl space-y-3"><div className="flex justify-between items-center"><Label className="text-zinc-500">Inversión Ads Diaria</Label><button onClick={() => set('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">{form.fixedAdSpend ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>}</button></div><input type="number" value={form.dailyAdSpend} onChange={e => set('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-3xl outline-none placeholder:text-zinc-700" /><p className="text-[9px] text-zinc-600 font-semibold">{form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}</p></div>
               {form.priceSingle && form.productCost && (<div className={`sm:col-span-2 p-5 rounded-2xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Preview Utilidad Estimada por Pedido Registrado</p><p className={`text-3xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p><p className="text-[9px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos configurados</p></div>)}
             </div>
@@ -331,7 +344,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con validación de duplicados) ──────────────────
+// ─── VISTA 2: REGISTRO DIARIO (sin cambios relevantes) ────────────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -596,7 +609,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON AOV) ─────────────────────────────────────────────
+// ─── VISTA 3: DASHBOARD (CON CPA EQUILIBRIO Y COLOR DINÁMICO) ─────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -641,6 +654,20 @@ function VistaDashboard({ configs, months }) {
   if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
   else if (proyeccion30 >= targetProfit && targetProfit > 0) semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
 
+  // Determinar color del CPA según comparación con equilibrio
+  let cpaColor = '';
+  let cpaMensaje = '';
+  if (stats.cpaReal > stats.cpaEquilibrioPonderado) {
+    cpaColor = 'bg-red-100 border-red-500 text-red-700';
+    cpaMensaje = '⚠️ CPA por encima del equilibrio → No rentable';
+  } else if (stats.cpaReal <= stats.cpaEquilibrioPonderado * 0.75) {
+    cpaColor = 'bg-green-100 border-green-500 text-green-700';
+    cpaMensaje = '🚀 CPA excelente (25%+ por debajo) → ESCALAR';
+  } else {
+    cpaColor = 'bg-yellow-100 border-yellow-500 text-yellow-700';
+    cpaMensaje = '✅ CPA por debajo del equilibrio → Rentable';
+  }
+
   const costItems = [
     { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas × costo unit. · devueltas no cuentan`, icon: Package },
     { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `Incluye cargos extra configurados`, icon: Truck },
@@ -667,17 +694,36 @@ function VistaDashboard({ configs, months }) {
         <Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p><p className="text-[9px] mt-1">Los días de descanso no generan métricas.</p></Card>
       ) : (
         <>
+          {/* Tarjeta especial de CPA comparativo */}
+          <div className={`rounded-2xl p-5 border-2 ${cpaColor} shadow-md transition-all`}>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label>
+                <p className="text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p>
+                <p className="text-[9px] font-semibold mt-1">Costo por adquisición real (Ads / Entregas)</p>
+              </div>
+              <div className="text-center">
+                <Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label>
+                <p className="text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p>
+                <p className="text-[9px] font-semibold">Basado en la configuración de cada producto</p>
+              </div>
+              <div className="text-right">
+                <div className="inline-block px-4 py-2 rounded-xl bg-white/50 backdrop-blur-sm">
+                  <p className="text-[10px] font-black uppercase tracking-wider">{cpaMensaje}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-white border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p><p className="text-[9px] text-slate-400 mt-1">Suma de todos los cierres diarios (sin ajustes)</p></Card>
             <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por Inefectividad + Devoluciones</Label><p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde por IER</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real (después de IER)</Label><p className="text-3xl font-black font-mono text-emerald-700">{fmt(stats.realRev)}</p><p className="text-[9px] text-emerald-500 mt-1">Lo que realmente ingresa después de cancelaciones y devoluciones</p></Card>
           </div>
 
-          {/* Nueva fila de métricas clave incluido AOV */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Stat label="AOV (Valor Promedio Venta)" value={fmt(stats.aov)} sub={`Sobre ${fmtN(stats.grossOrd)} pedidos brutos`} highlight />
             <Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Sobre ${fmtN(stats.finalDeliveries)} entregas`} />
-            <Stat label="CPA Real x Entrega" value={fmt(stats.cpaReal)} sub="Costo adquisición real" />
             <Stat label="ROAS Real" value={`${fmtDec(stats.roas, 4)}x`} sub="Ingreso neto / ads" />
             <Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,4)}%`} accent />
           </div>
