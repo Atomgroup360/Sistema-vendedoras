@@ -48,10 +48,9 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (excluye registros con restDay = true) ──────────────────
+// ─── MOTOR DE CÁLCULO (excluye restDay) ───────────────────────────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
-  
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
     realShipped: 0, estimatedReturns: 0, finalDeliveries: 0,
@@ -178,7 +177,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN ────────────────────────────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (sin cambios) ────────────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -330,12 +329,13 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (CON INTERRUPTOR DE DESCANSO FUNCIONAL) ─────────
+// ─── VISTA 2: REGISTRO DIARIO (CON VALIDACIÓN DE DUPLICADOS) ──────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
   const [editingRec, setEditingRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -357,12 +357,26 @@ function VistaRegistro({ configs, months }) {
     if (!editingRec) {
       setFormField('restDay', false);
     }
+    setErrorMsg(''); // Limpiar error al cambiar producto
   };
 
   const save = async () => {
+    setErrorMsg('');
     if (!form.configId) {
       alert("Debes seleccionar una vendedora y producto.");
       return;
+    }
+
+    // Verificar duplicado SOLO si NO estamos editando
+    if (!editingRec) {
+      const exists = dayRecords.some(r => r.configId === form.configId);
+      if (exists) {
+        const config = configs.find(c => c.id === form.configId);
+        const vendorName = config?.vendedora || 'Desconocida';
+        const productName = config?.productName || 'Desconocido';
+        setErrorMsg(`❌ Ya existe un registro para ${vendorName} - ${productName} en esta fecha. Puedes editarlo o eliminarlo.`);
+        return;
+      }
     }
 
     let orders = form.orders;
@@ -427,6 +441,7 @@ function VistaRegistro({ configs, months }) {
       adSpend: r.adSpend || '',
       restDay: r.restDay || false
     });
+    setErrorMsg('');
   };
 
   const deleteRec = async (id) => {
@@ -435,11 +450,13 @@ function VistaRegistro({ configs, months }) {
     const existing = months.find(m => m.id === monthId);
     const records = (existing?.records || []).filter(r => r.id !== id);
     await setDoc(ref, { records });
+    if (editingRec?.id === id) cancelEdit();
   };
 
   const cancelEdit = () => {
     setEditingRec(null);
     setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
   };
 
   const avgUnits = (!form.restDay && form.orders && form.units && parseFloat(form.orders) > 0)
@@ -455,6 +472,7 @@ function VistaRegistro({ configs, months }) {
     setSelectedDate(date.toISOString().split('T')[0]);
     setEditingRec(null);
     setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
   };
 
   return (
@@ -462,9 +480,16 @@ function VistaRegistro({ configs, months }) {
       <div><h2 className="text-3xl font-black italic uppercase tracking-tighter">Cierre Diario</h2><p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 2 · Registro de Operación</p></div>
       <Card className={`space-y-5 ${editingRec ? 'border-2 border-amber-400' : ''}`}>
         {editingRec && (<div className="flex items-center gap-2 text-amber-600 text-xs font-black uppercase bg-amber-50 px-4 py-2.5 rounded-xl"><Pencil size={14} /> Editando registro · <button onClick={cancelEdit} className="text-slate-500 underline ml-auto">Cancelar</button></div>)}
+        
+        {errorMsg && (
+          <div className="flex items-center gap-2 text-rose-600 text-xs font-black uppercase bg-rose-50 px-4 py-2.5 rounded-xl border border-rose-200">
+            <AlertTriangle size={14} /> {errorMsg}
+          </div>
+        )}
+
         <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-4">
           <div className="flex items-center gap-3"><Calendar size={18} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Fecha del Registro · Selección libre</p><p className="text-[9px] text-zinc-600 font-semibold">Cualquier día pasado, presente o futuro</p></div></div>
-          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
+          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
 
@@ -570,7 +595,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CORREGIDO: proyección basada en días activos) ─────────
+// ─── VISTA 3: DASHBOARD (CORREGIDO: proyección días activos) ──────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -590,7 +615,6 @@ function VistaDashboard({ configs, months }) {
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
 
-  // DÍAS ACTIVOS: fechas únicas con al menos un registro activo (no descanso)
   const activeDays = useMemo(() => {
     const activeRecords = filteredRecords.filter(r => !r.restDay);
     const uniqueDates = new Set(activeRecords.map(r => r.date));
