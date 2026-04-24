@@ -47,7 +47,7 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO ─────────────────────────────────────────────────────────
+// ─── MOTOR DE CÁLCULO (MODIFICADO: extraUnitCharge por configuración) ─────────
 function calcularStats(records, configs) {
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
@@ -87,8 +87,12 @@ function calcularStats(records, configs) {
     const unitsReturned      = returns_ * avgUnits;
     const unitsDelivered     = deliveries * avgUnits;
 
-    const extraUnits     = Math.max(avgUnits - 1, 0);
-    const fleteUnit      = (parseFloat(c.freight) || 0) + extraUnits * 5000;
+    // Extra por unidad adicional (configurable por producto)
+    const extraUnitCharge = parseFloat(c.extraUnitCharge) || 0;
+    const extraUnits      = Math.max(avgUnits - 1, 0);
+    const fleteBase       = parseFloat(c.freight) || 0;
+    const fleteUnit       = fleteBase + extraUnits * extraUnitCharge;
+
     const freightTotal   = shipped * fleteUnit;
     const fulfillTotal   = shipped * (parseFloat(c.fulfillment) || 0);
     const mercanciaNeto  = (parseFloat(c.productCost) || 0) * unitsDelivered;
@@ -135,7 +139,7 @@ function calcularStats(records, configs) {
   return s;
 }
 
-// ─── COMPONENTES UI ──────────────────────────────────────────────────────────
+// ─── COMPONENTES UI (sin cambios) ────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -171,12 +175,13 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (sin cambios) ────────────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (agregamos extraUnitCharge) ──────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
   commission: '', returnRate: '20', effectiveness: '95',
-  fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true
+  fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
+  extraUnitCharge: ''  // Nuevo: cargo extra por unidad adicional (por pedido)
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -223,6 +228,8 @@ function VistaConfig({ configs, onSaved }) {
     const precio = parseFloat(form.priceSingle) || 0;
     const costo  = parseFloat(form.productCost) || 0;
     const flete  = parseFloat(form.freight) || 0;
+    const extra  = parseFloat(form.extraUnitCharge) || 0;
+    // Asumimos promedio de 1 unidad para el preview (sin extra)
     const full   = parseFloat(form.fulfillment) || 0;
     const com    = parseFloat(form.commission) || 0;
     const fijos  = parseFloat(form.fixedCosts) || 0;
@@ -302,6 +309,9 @@ function VistaConfig({ configs, onSaved }) {
                           <span className="text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
                           <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness)/100*(1-parseFloat(p.returnRate)/100)*100).toFixed(1)}%</span>
                           <span className="text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
+                          {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && (
+                            <span className="text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>
+                          )}
                           <span className="text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-2">
@@ -384,6 +394,7 @@ function VistaConfig({ configs, onSaved }) {
                 placeholder="Ej: CEPILLO PRO X2"
                 className={isPrefilledVendor ? 'sm:col-span-1' : ''}
               />
+              {/* Efectividad y Devolución */}
               <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl space-y-2">
                 <Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label>
                 <input type="number" value={form.effectiveness} onChange={e => set('effectiveness', e.target.value)}
@@ -410,6 +421,17 @@ function VistaConfig({ configs, onSaved }) {
               <InputField label="Precio de Venta (1 unidad)" type="number" value={form.priceSingle} onChange={e => set('priceSingle', e.target.value)} placeholder="Ej: 79000" />
               <InputField label="Costo Unitario de Producto" type="number" value={form.productCost} onChange={e => set('productCost', e.target.value)} placeholder="Ej: 18000" />
               <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => set('freight', e.target.value)} placeholder="Ej: 9500" />
+              
+              {/* NUEVO CAMPO: Cargo extra por unidad adicional */}
+              <InputField 
+                label="Cargo extra por unidad adicional (por pedido)" 
+                type="number" 
+                value={form.extraUnitCharge} 
+                onChange={e => set('extraUnitCharge', e.target.value)} 
+                placeholder="Ej: 5000 (0 si no aplica)" 
+                helperText="Se suma al flete por cada unidad extra en un mismo pedido (ej: 2da, 3ra unidad...)"
+              />
+
               <InputField label="Fulfillment / Alistamiento por guía" type="number" value={form.fulfillment} onChange={e => set('fulfillment', e.target.value)} placeholder="Ej: 1500" />
               <InputField label="Comisión por Entrega Exitosa" type="number" value={form.commission} onChange={e => set('commission', e.target.value)} placeholder="Ej: 3000" />
               <InputField label="Costos Fijos Operativos por Entrega" type="number" value={form.fixedCosts} onChange={e => set('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
@@ -464,7 +486,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (VERSIÓN MEJORADA - FECHA 100% LIBRE) ───────────
+// ─── VISTA 2: REGISTRO DIARIO (mostrar extra configurado) ─────────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '' });
@@ -484,6 +506,7 @@ function VistaRegistro({ configs, months }) {
   , [monthDoc, selectedDate]);
 
   const selectedConfig = configs.find(c => c.id === form.configId);
+  const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
 
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -547,6 +570,10 @@ function VistaRegistro({ configs, months }) {
     ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2)
     : null;
 
+  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0
+    ? (parseFloat(avgUnits) - 1) * extraUnitCharge
+    : 0;
+
   const moveDate = (days) => {
     const date = new Date(selectedDate + 'T12:00:00');
     date.setDate(date.getDate() + days);
@@ -582,7 +609,6 @@ function VistaRegistro({ configs, months }) {
               </p>
             </div>
           </div>
-
           <div className="space-y-3">
             <input
               type="date"
@@ -595,29 +621,12 @@ function VistaRegistro({ configs, months }) {
               }}
               className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300"
             />
-
             <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => moveDate(-1)}
-                className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition"
-              >
-                Día anterior
-              </button>
-              <button
-                onClick={() => { setSelectedDate(today()); setEditingRec(null); }}
-                className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition"
-              >
-                Hoy
-              </button>
-              <button
-                onClick={() => moveDate(1)}
-                className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition"
-              >
-                Día siguiente
-              </button>
+              <button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button>
+              <button onClick={() => { setSelectedDate(today()); setEditingRec(null); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button>
+              <button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button>
             </div>
           </div>
-
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3">
             <p className="text-[10px] text-zinc-500 font-black uppercase">
               Registrando en:{' '}
@@ -652,11 +661,7 @@ function VistaRegistro({ configs, months }) {
         {selectedConfig && !selectedConfig.fixedAdSpend && (
           <div className="bg-zinc-950 text-white px-5 py-4 rounded-2xl space-y-1">
             <Label className="text-zinc-500">Inversión Ads de Hoy (MANUAL)</Label>
-            <input
-              type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)}
-              placeholder="$ 0"
-              className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700"
-            />
+            <input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" />
           </div>
         )}
         {selectedConfig?.fixedAdSpend && (
@@ -668,51 +673,39 @@ function VistaRegistro({ configs, months }) {
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
             <div className="flex items-center gap-2 text-slate-400"><Package size={14} /><Label>Total Guías</Label></div>
-            <input
-              type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)}
-              placeholder="0"
-              className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200"
-            />
+            <input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" />
           </div>
           <div className="bg-slate-50 p-5 rounded-2xl space-y-1">
             <div className="flex items-center gap-2 text-slate-400"><Layers size={14} /><Label>Total Unidades</Label></div>
-            <input
-              type="number" value={form.units} onChange={e => setFormField('units', e.target.value)}
-              placeholder="0"
-              className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200"
-            />
+            <input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" className="w-full bg-transparent font-black text-4xl text-slate-900 outline-none placeholder:text-slate-200" />
           </div>
         </div>
 
         {avgUnits && (
-          <p className="text-[10px] text-slate-400 font-black uppercase text-center">
-            Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span>
-            {parseFloat(avgUnits) > 1 && <span className="text-amber-500 ml-2">· Flete +{fmt((parseFloat(avgUnits)-1)*5000)} extra/guía</span>}
-          </p>
+          <div className="text-center space-y-1">
+            <p className="text-[10px] text-slate-400 font-black uppercase">
+              Promedio: <span className="text-emerald-600">{avgUnits} unidades/guía</span>
+            </p>
+            {extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (
+              <p className="text-[9px] font-bold text-yellow-600 bg-yellow-50 inline-block px-3 py-1 rounded-full">
+                Extra por unidad adicional: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)} extra por guía
+              </p>
+            )}
+            {extraUnitCharge === 0 && parseFloat(avgUnits) > 1 && (
+              <p className="text-[9px] text-amber-500 font-semibold">⚠ Sin cargo extra por múltiples unidades (configurado en 0)</p>
+            )}
+          </div>
         )}
 
         <div className="space-y-1.5">
           <Label>Recaudo Bruto Total del Día</Label>
-          <input
-            type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)}
-            placeholder="$ 0"
-            className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 text-emerald-700 font-black text-3xl outline-none placeholder:text-slate-200 transition-all"
-          />
+          <input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" className="w-full px-6 py-5 rounded-2xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 text-emerald-700 font-black text-3xl outline-none placeholder:text-slate-200 transition-all" />
         </div>
 
-        <button
-          onClick={save}
-          disabled={!form.configId || !form.orders || !form.units || !form.revenue}
-          className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
-        >
+        <button onClick={save} disabled={!form.configId || !form.orders || !form.units || !form.revenue} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2">
           <Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}
         </button>
-
-        {savedMsg && (
-          <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse">
-            <CheckCircle2 size={16} /> ¡Guardado exitosamente!
-          </div>
-        )}
+        {savedMsg && <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse"><CheckCircle2 size={16} /> ¡Guardado exitosamente!</div>}
       </Card>
 
       {dayRecords.length > 0 && (
@@ -759,7 +752,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (sin cambios) ───────────────────────────────────────
+// ─── VISTA 3: DASHBOARD (sin cambios funcionales, solo muestra totales ya con extra) ───
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({
     startDate: today(), endDate: today(),
@@ -813,7 +806,7 @@ function VistaDashboard({ configs, months }) {
 
   const costItems = [
     { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas × costo unit. · devueltas no cuentan`, icon: Package },
-    { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `${fmtN(stats.realShipped)} guías desp. × flete unit`, icon: Truck },
+    { label: 'Fletes Totales (ida+vuelta)', value: stats.totalFreightCost, note: `Incluye cargos extra configurados por unidad adicional`, icon: Truck },
     { label: 'Fulfillment / Alistamiento', value: stats.totalFulfillment, note: 'Por cada guía despachada', icon: Boxes },
     { label: 'Comisiones Vendedoras', value: stats.totalCommissions, note: 'Solo sobre entregas exitosas', icon: DollarSign },
     { label: 'Costos Fijos Operativos', value: stats.totalFixedCosts, note: 'Prorrateo por entrega', icon: Activity },
@@ -849,194 +842,50 @@ function VistaDashboard({ configs, months }) {
 
   return (
     <div className="space-y-8 anim-fade">
-      <div>
-        <h2 className="text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2>
-        <p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p>
-      </div>
-
+      <div><h2 className="text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
       <Card className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="space-y-1.5">
-          <Label><Calendar size={11} className="inline mr-1" />Desde</Label>
-          <input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)}
-            className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" />
-        </div>
-        <div className="space-y-1.5">
-          <Label><Calendar size={11} className="inline mr-1" />Hasta</Label>
-          <input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)}
-            className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Vendedora</Label>
-          <select value={filter.vendedora} onChange={e => setF('vendedora', e.target.value) || setF('producto', 'all')}
-            className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none">
-            <option value="all">TODAS</option>
-            {Object.keys(grouped).map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Producto</Label>
-          <select value={filter.producto} onChange={e => setF('producto', e.target.value)}
-            disabled={filter.vendedora === 'all'}
-            className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none disabled:opacity-40">
-            <option value="all">TODOS</option>
-            {filter.vendedora !== 'all' && (grouped[filter.vendedora] || []).map(p =>
-              <option key={p.id} value={p.id}>{p.productName}</option>
-            )}
-          </select>
-        </div>
-        <div className="col-span-2 md:col-span-4 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl">
-          <Info size={12} className="text-slate-400" />
-          <p className="text-[9px] font-black text-slate-400 uppercase">
-            Analizando <span className="text-emerald-600">{dias} día{dias > 1 ? 's' : ''}</span> ·
-            Proyección a 30 días = promedio diario × 30
-          </p>
-        </div>
+        <div className="space-y-1.5"><Label><Calendar size={11} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" /></div>
+        <div className="space-y-1.5"><Label><Calendar size={11} className="inline mr-1" />Hasta</Label><input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" /></div>
+        <div className="space-y-1.5"><Label>Vendedora</Label><select value={filter.vendedora} onChange={e => setF('vendedora', e.target.value) || setF('producto', 'all')} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none"><option value="all">TODAS</option>{Object.keys(grouped).map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
+        <div className="space-y-1.5"><Label>Producto</Label><select value={filter.producto} onChange={e => setF('producto', e.target.value)} disabled={filter.vendedora === 'all'} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none disabled:opacity-40"><option value="all">TODOS</option>{filter.vendedora !== 'all' && (grouped[filter.vendedora] || []).map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select></div>
+        <div className="col-span-2 md:col-span-4 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><Info size={12} className="text-slate-400" /><p className="text-[9px] font-black text-slate-400 uppercase">Analizando <span className="text-emerald-600">{dias} día{dias > 1 ? 's' : ''}</span> · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
-
       {filteredRecords.length === 0 ? (
-        <Card className="text-center py-16 text-slate-300">
-          <BarChart3 size={48} className="mx-auto mb-4 opacity-30" />
-          <p className="font-black uppercase text-sm">Sin datos en este rango</p>
-        </Card>
+        <Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos en este rango</p></Card>
       ) : (
         <>
           <section className="space-y-3">
-            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1">
-              <Activity size={14} /> Embudo Operativo Contraentrega
-            </h3>
+            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Activity size={14} /> Embudo Operativo Contraentrega</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="border-l-4 border-l-slate-300">
-                <Label>Pedidos Registrados</Label>
-                <p className="text-3xl font-black font-mono">{fmtN(stats.grossOrd)}</p>
-                <p className="text-[9px] text-slate-400 mt-1 font-semibold">{fmtN(stats.grossUnits)} unidades totales</p>
-              </Card>
-              <Card className="border-l-4 border-l-blue-400">
-                <Label>Guías Despachadas</Label>
-                <p className="text-3xl font-black font-mono text-blue-600">{fmtN(stats.realShipped)}</p>
-                <p className="text-[9px] text-slate-400 mt-1 font-semibold">EFF aplicada · -{fmtN(stats.grossOrd - stats.realShipped)} por cancel/cobertura</p>
-              </Card>
-              <Card className="border-l-4 border-l-rose-400">
-                <Label>Devoluciones Est.</Label>
-                <p className="text-3xl font-black font-mono text-rose-500">{fmtN(stats.estimatedReturns)}</p>
-                <p className="text-[9px] text-slate-400 mt-1 font-semibold">Flete de ida perdido en estas</p>
-              </Card>
-              <Card className="border-l-4 border-l-emerald-500">
-                <Label>Entregas Finales</Label>
-                <p className="text-3xl font-black font-mono text-emerald-600">{fmtN(stats.finalDeliveries)}</p>
-                <p className="text-[9px] text-emerald-500 mt-1 font-semibold">IER {fmtDec(stats.ierGlobal, 4)}% del total registrado</p>
-              </Card>
+              <Card className="border-l-4 border-l-slate-300"><Label>Pedidos Registrados</Label><p className="text-3xl font-black font-mono">{fmtN(stats.grossOrd)}</p><p className="text-[9px] text-slate-400 mt-1 font-semibold">{fmtN(stats.grossUnits)} unidades totales</p></Card>
+              <Card className="border-l-4 border-l-blue-400"><Label>Guías Despachadas</Label><p className="text-3xl font-black font-mono text-blue-600">{fmtN(stats.realShipped)}</p><p className="text-[9px] text-slate-400 mt-1 font-semibold">EFF aplicada · -{fmtN(stats.grossOrd - stats.realShipped)} por cancel/cobertura</p></Card>
+              <Card className="border-l-4 border-l-rose-400"><Label>Devoluciones Est.</Label><p className="text-3xl font-black font-mono text-rose-500">{fmtN(stats.estimatedReturns)}</p><p className="text-[9px] text-slate-400 mt-1 font-semibold">Flete de ida perdido en estas</p></Card>
+              <Card className="border-l-4 border-l-emerald-500"><Label>Entregas Finales</Label><p className="text-3xl font-black font-mono text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[9px] text-emerald-500 mt-1 font-semibold">IER {fmtDec(stats.ierGlobal, 4)}% del total registrado</p></Card>
             </div>
-
-            <div className="mt-2">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.18em] flex items-center gap-1.5 ml-1 mb-3">
-                <Layers size={11} /> Embudo de Productos (unidades físicas)
-              </p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm border-l-4 border-l-slate-200">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Productos Registrados</p>
-                  <p className="text-2xl font-black font-mono text-slate-800">{fmtN(stats.unitsRegistradas)}</p>
-                  <p className="text-[9px] text-slate-400 mt-1 font-semibold">Prom. <span className="text-slate-600">{fmtDec(stats.avgUnitsPerOrder, 4)} unid/pedido</span></p>
-                </div>
-                <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm border-l-4 border-l-blue-300">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Productos Enviados</p>
-                  <p className="text-2xl font-black font-mono text-blue-600">{fmtN(stats.unitsShippedReal)}</p>
-                  <p className="text-[9px] text-slate-400 mt-1 font-semibold">-{fmtN(stats.unitsRegistradas - stats.unitsShippedReal)} por inefectividad</p>
-                </div>
-                <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 border-l-4 border-l-rose-400">
-                  <p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1">Devueltos a Bodega</p>
-                  <p className="text-2xl font-black font-mono text-rose-500">{fmtN(stats.unitsReturnedReal)}</p>
-                  <p className="text-[9px] text-rose-400 mt-1 font-semibold">Regresan al stock · NO son pérdida</p>
-                </div>
-                <div className="bg-emerald-500 rounded-2xl p-4 text-white relative overflow-hidden">
-                  <CheckCircle2 className="absolute -bottom-3 -right-3 opacity-15" size={56} />
-                  <p className="text-[9px] font-black text-emerald-100 uppercase tracking-widest mb-1">Productos Entregados</p>
-                  <p className="text-2xl font-black font-mono text-white">{fmtN(stats.unitsDeliveredReal)}</p>
-                  <p className="text-[9px] text-emerald-100 mt-1 font-semibold">Prom. <span className="font-black">{fmtDec(stats.avgUnitsPerDelivery, 4)} unid/entrega</span></p>
-                  <div className="mt-2 bg-emerald-600/50 rounded-xl px-2 py-1">
-                    <p className="text-[9px] font-black text-emerald-100">{fmtDec(stats.pctProductosEntregados, 4)}% de productos registrados llegaron</p>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Flujo de productos: de registrados a entregados</p>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase"><span>Registrados</span><span>{fmtN(stats.unitsRegistradas)} unidades (100%)</span></div>
-                  <div className="h-2.5 bg-slate-100 rounded-full"><div className="h-full bg-slate-300 rounded-full" style={{width:'100%'}} /></div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[8px] font-black text-blue-400 uppercase"><span>Enviados (× efectividad)</span><span>{fmtN(stats.unitsShippedReal)} unid. · {stats.unitsRegistradas > 0 ? fmtDec(stats.unitsShippedReal/stats.unitsRegistradas*100,4) : 0}%</span></div>
-                  <div className="h-2.5 bg-blue-50 rounded-full overflow-hidden"><div className="h-full bg-blue-400 rounded-full transition-all duration-700" style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.unitsShippedReal/stats.unitsRegistradas*100,100)}%` : '0%'}} /></div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[8px] font-black text-emerald-600 uppercase"><span>Entregados y Pagados (× IER)</span><span>{fmtN(stats.unitsDeliveredReal)} unid. · {fmtDec(stats.pctProductosEntregados,4)}%</span></div>
-                  <div className="h-2.5 bg-emerald-50 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.pctProductosEntregados,100)}%` : '0%'}} /></div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[8px] font-black text-rose-400 uppercase"><span>Devueltos a Bodega</span><span>{fmtN(stats.unitsReturnedReal)} unid. · {stats.unitsRegistradas > 0 ? fmtDec(stats.unitsReturnedReal/stats.unitsRegistradas*100,4) : 0}%</span></div>
-                  <div className="h-2.5 bg-rose-50 rounded-full overflow-hidden"><div className="h-full bg-rose-400 rounded-full transition-all duration-700" style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.unitsReturnedReal/stats.unitsRegistradas*100,100)}%` : '0%'}} /></div>
-                </div>
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-50">
-                  <div className="text-center"><p className="text-[8px] font-black text-slate-400 uppercase">Prom. Unid/Pedido</p><p className="text-sm font-black text-slate-700 font-mono">{fmtDec(stats.avgUnitsPerOrder, 4)}</p></div>
-                  <div className="text-center"><p className="text-[8px] font-black text-slate-400 uppercase">Prom. Unid/Entrega Real</p><p className="text-sm font-black text-emerald-600 font-mono">{fmtDec(stats.avgUnitsPerDelivery, 4)}</p></div>
-                  <div className="text-center"><p className="text-[8px] font-black text-slate-400 uppercase">Costo Merc/Entrega</p><p className="text-sm font-black text-slate-700 font-mono">{fmt(stats.costMercXEntrega)}</p></div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Calculator size={14} /> Radiografía de Costos Reales</h3>
-            <Card className="space-y-0 p-0 overflow-hidden">
-              {costItems.map((item, i) => (
-                <div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0"><item.icon size={14} /></div>
-                  <div className="flex-1"><p className="text-xs font-black text-slate-700">{item.label}</p><p className="text-[9px] text-slate-400 font-semibold">{item.note}</p></div>
-                  <p className="font-black font-mono text-sm text-slate-900">{fmt(item.value)}</p>
-                </div>
-              ))}
-              <div className="flex items-center gap-4 px-6 py-4 bg-slate-900 text-white"><div className="flex-1"><p className="text-xs font-black uppercase tracking-widest">Total Costos</p></div><p className="font-black font-mono text-lg text-rose-400">{fmt(totalCostos)}</p></div>
-            </Card>
+            <div className="mt-2"><p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.18em] flex items-center gap-1.5 ml-1 mb-3"><Layers size={11} /> Embudo de Productos (unidades físicas)</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Sobre ${fmtN(stats.finalDeliveries)} entregas`} />
-              <Stat label="CPA Real x Entrega" value={fmt(stats.cpaReal)} sub="Costo adquisición real" />
-              <Stat label="ROAS Real" value={`${fmtDec(stats.roas, 4)}x`} sub="Ingreso neto / ads" />
-              <Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,4)}%`} accent />
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm border-l-4 border-l-slate-200"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Productos Registrados</p><p className="text-2xl font-black font-mono text-slate-800">{fmtN(stats.unitsRegistradas)}</p><p className="text-[9px] text-slate-400 mt-1 font-semibold">Prom. <span className="text-slate-600">{fmtDec(stats.avgUnitsPerOrder, 4)} unid/pedido</span></p></div>
+              <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm border-l-4 border-l-blue-300"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Productos Enviados</p><p className="text-2xl font-black font-mono text-blue-600">{fmtN(stats.unitsShippedReal)}</p><p className="text-[9px] text-slate-400 mt-1 font-semibold">-{fmtN(stats.unitsRegistradas - stats.unitsShippedReal)} por inefectividad</p></div>
+              <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 border-l-4 border-l-rose-400"><p className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-1">Devueltos a Bodega</p><p className="text-2xl font-black font-mono text-rose-500">{fmtN(stats.unitsReturnedReal)}</p><p className="text-[9px] text-rose-400 mt-1 font-semibold">Regresan al stock · NO son pérdida</p></div>
+              <div className="bg-emerald-500 rounded-2xl p-4 text-white relative overflow-hidden"><CheckCircle2 className="absolute -bottom-3 -right-3 opacity-15" size={56} /><p className="text-[9px] font-black text-emerald-100 uppercase tracking-widest mb-1">Productos Entregados</p><p className="text-2xl font-black font-mono text-white">{fmtN(stats.unitsDeliveredReal)}</p><p className="text-[9px] text-emerald-100 mt-1 font-semibold">Prom. <span className="font-black">{fmtDec(stats.avgUnitsPerDelivery, 4)} unid/entrega</span></p><div className="mt-2 bg-emerald-600/50 rounded-xl px-2 py-1"><p className="text-[9px] font-black text-emerald-100">{fmtDec(stats.pctProductosEntregados, 4)}% de productos registrados llegaron</p></div></div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Stat label="Costo Mercancía Total" value={fmt(stats.productCostTotal)} sub={`Sobre ${fmtN(stats.unitsDeliveredReal)} unid. entregadas`} highlight />
-              <Stat label="Costo Merc. x Unidad Entregada" value={fmt(stats.costMercXEntrega)} sub={`Prom. ${fmtDec(stats.avgUnitsPerDelivery,4)} unid/entrega × costo`} highlight />
-              <Stat label="Unidades Devueltas (stock)" value={fmtN(stats.unitsReturnedReal)} sub="No generan costo de mercancía" dark={false} />
-            </div>
+            <div className="mt-3 bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-3"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Flujo de productos: de registrados a entregados</p>
+              <div className="space-y-1"><div className="flex justify-between text-[8px] font-black text-slate-400 uppercase"><span>Registrados</span><span>{fmtN(stats.unitsRegistradas)} unidades (100%)</span></div><div className="h-2.5 bg-slate-100 rounded-full"><div className="h-full bg-slate-300 rounded-full" style={{width:'100%'}} /></div></div>
+              <div className="space-y-1"><div className="flex justify-between text-[8px] font-black text-blue-400 uppercase"><span>Enviados (× efectividad)</span><span>{fmtN(stats.unitsShippedReal)} unid. · {stats.unitsRegistradas > 0 ? fmtDec(stats.unitsShippedReal/stats.unitsRegistradas*100,4) : 0}%</span></div><div className="h-2.5 bg-blue-50 rounded-full overflow-hidden"><div className="h-full bg-blue-400 rounded-full transition-all duration-700" style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.unitsShippedReal/stats.unitsRegistradas*100,100)}%` : '0%'}} /></div></div>
+              <div className="space-y-1"><div className="flex justify-between text-[8px] font-black text-emerald-600 uppercase"><span>Entregados y Pagados (× IER)</span><span>{fmtN(stats.unitsDeliveredReal)} unid. · {fmtDec(stats.pctProductosEntregados,4)}%</span></div><div className="h-2.5 bg-emerald-50 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.pctProductosEntregados,100)}%` : '0%'}} /></div></div>
+              <div className="space-y-1"><div className="flex justify-between text-[8px] font-black text-rose-400 uppercase"><span>Devueltos a Bodega</span><span>{fmtN(stats.unitsReturnedReal)} unid. · {stats.unitsRegistradas > 0 ? fmtDec(stats.unitsReturnedReal/stats.unitsRegistradas*100,4) : 0}%</span></div><div className="h-2.5 bg-rose-50 rounded-full overflow-hidden"><div className="h-full bg-rose-400 rounded-full transition-all duration-700" style={{width: stats.unitsRegistradas > 0 ? `${Math.min(stats.unitsReturnedReal/stats.unitsRegistradas*100,100)}%` : '0%'}} /></div></div>
+              <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-50"><div className="text-center"><p className="text-[8px] font-black text-slate-400 uppercase">Prom. Unid/Pedido</p><p className="text-sm font-black text-slate-700 font-mono">{fmtDec(stats.avgUnitsPerOrder, 4)}</p></div><div className="text-center"><p className="text-[8px] font-black text-slate-400 uppercase">Prom. Unid/Entrega Real</p><p className="text-sm font-black text-emerald-600 font-mono">{fmtDec(stats.avgUnitsPerDelivery, 4)}</p></div><div className="text-center"><p className="text-[8px] font-black text-slate-400 uppercase">Costo Merc/Entrega</p><p className="text-sm font-black text-slate-700 font-mono">{fmt(stats.costMercXEntrega)}</p></div></div>
+            </div></div>
           </section>
-
-          <section className="space-y-3">
-            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><TrendingUp size={14} /> Utilidad y Proyección</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card dark className="space-y-4">
-                <Label className="text-zinc-500">Utilidad Neta Período</Label>
-                <p className={`text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p>
-                <div className="grid grid-cols-2 gap-3 pt-4 border-t border-zinc-800">
-                  <div><p className="text-[9px] text-zinc-500 font-black uppercase">Ingresos Reales</p><p className="font-black text-white font-mono">{fmt(stats.realRev)}</p></div>
-                  <div><p className="text-[9px] text-zinc-500 font-black uppercase">Total Costos</p><p className="font-black text-rose-400 font-mono">{fmt(totalCostos)}</p></div>
-                  <div><p className="text-[9px] text-zinc-500 font-black uppercase">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div>
-                  <div><p className="text-[9px] text-zinc-500 font-black uppercase">Profit / Día</p><p className="font-black text-white font-mono">{fmt(avgDiario)}</p></div>
-                </div>
-              </Card>
-              <div className={`rounded-3xl p-6 text-white space-y-4 shadow-2xl relative overflow-hidden ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}>
-                <TrendingUp className="absolute -bottom-4 -right-4 opacity-10" size={120} />
-                <div><p className="text-[9px] font-black opacity-60 uppercase tracking-widest">Proyección 30 Días</p><p className="text-[9px] font-semibold opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div>
-                <p className="text-4xl font-black font-mono tracking-tighter">{fmt(proyeccion30)}</p>
-                <div className="bg-white/20 px-4 py-3 rounded-2xl"><p className="text-lg font-black uppercase tracking-wider">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && (<p className="text-[9px] font-semibold opacity-70 mt-0.5">Meta: {fmt(targetProfit)} · 1M excelente</p>)}</div>
-                <div className="grid grid-cols-2 gap-3 text-[9px] font-black uppercase opacity-60"><div>Días analizados: <span className="text-white opacity-100">{dias}</span></div><div>IER: <span className="text-white opacity-100">{fmtDec(stats.ierGlobal,4)}%</span></div></div>
-              </div>
-            </div>
-            {targetProfit > 0 && (
-              <Card className="space-y-3">
-                <div className="flex justify-between items-center"><Label>Avance vs Meta Mensual</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 4)}% de la meta</span></div>
-                <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div>
-                <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase"><span>$0</span><span>Meta {fmt(targetProfit)}</span><span className="text-emerald-500">Excelente $1.000.000+</span></div>
-              </Card>
-            )}
+          <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Calculator size={14} /> Radiografía de Costos Reales</h3>
+            <Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"><div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0"><item.icon size={14} /></div><div className="flex-1"><p className="text-xs font-black text-slate-700">{item.label}</p><p className="text-[9px] text-slate-400 font-semibold">{item.note}</p></div><p className="font-black font-mono text-sm text-slate-900">{fmt(item.value)}</p></div>))}<div className="flex items-center gap-4 px-6 py-4 bg-slate-900 text-white"><div className="flex-1"><p className="text-xs font-black uppercase tracking-widest">Total Costos</p></div><p className="font-black font-mono text-lg text-rose-400">{fmt(totalCostos)}</p></div></Card>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Sobre ${fmtN(stats.finalDeliveries)} entregas`} /><Stat label="CPA Real x Entrega" value={fmt(stats.cpaReal)} sub="Costo adquisición real" /><Stat label="ROAS Real" value={`${fmtDec(stats.roas, 4)}x`} sub="Ingreso neto / ads" /><Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,4)}%`} accent /></div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><Stat label="Costo Mercancía Total" value={fmt(stats.productCostTotal)} sub={`Sobre ${fmtN(stats.unitsDeliveredReal)} unid. entregadas`} highlight /><Stat label="Costo Merc. x Unidad Entregada" value={fmt(stats.costMercXEntrega)} sub={`Prom. ${fmtDec(stats.avgUnitsPerDelivery,4)} unid/entrega × costo`} highlight /><Stat label="Unidades Devueltas (stock)" value={fmtN(stats.unitsReturnedReal)} sub="No generan costo de mercancía" dark={false} /></div>
+          </section>
+          <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><TrendingUp size={14} /> Utilidad y Proyección</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card dark className="space-y-4"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-3 pt-4 border-t border-zinc-800"><div><p className="text-[9px] text-zinc-500 font-black uppercase">Ingresos Reales</p><p className="font-black text-white font-mono">{fmt(stats.realRev)}</p></div><div><p className="text-[9px] text-zinc-500 font-black uppercase">Total Costos</p><p className="font-black text-rose-400 font-mono">{fmt(totalCostos)}</p></div><div><p className="text-[9px] text-zinc-500 font-black uppercase">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[9px] text-zinc-500 font-black uppercase">Profit / Día</p><p className="font-black text-white font-mono">{fmt(avgDiario)}</p></div></div></Card>
+            <div className={`rounded-3xl p-6 text-white space-y-4 shadow-2xl relative overflow-hidden ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><TrendingUp className="absolute -bottom-4 -right-4 opacity-10" size={120} /><div><p className="text-[9px] font-black opacity-60 uppercase tracking-widest">Proyección 30 Días</p><p className="text-[9px] font-semibold opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-4xl font-black font-mono tracking-tighter">{fmt(proyeccion30)}</p><div className="bg-white/20 px-4 py-3 rounded-2xl"><p className="text-lg font-black uppercase tracking-wider">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && (<p className="text-[9px] font-semibold opacity-70 mt-0.5">Meta: {fmt(targetProfit)} · 1M excelente</p>)}</div><div className="grid grid-cols-2 gap-3 text-[9px] font-black uppercase opacity-60"><div>Días analizados: <span className="text-white opacity-100">{dias}</span></div><div>IER: <span className="text-white opacity-100">{fmtDec(stats.ierGlobal,4)}%</span></div></div></div></div>
+            {targetProfit > 0 && (<Card className="space-y-3"><div className="flex justify-between items-center"><Label>Avance vs Meta Mensual</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 4)}% de la meta</span></div><div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div><div className="flex justify-between text-[9px] font-black text-slate-400 uppercase"><span>$0</span><span>Meta {fmt(targetProfit)}</span><span className="text-emerald-500">Excelente $1.000.000+</span></div></Card>)}
           </section>
         </>
       )}
@@ -1051,12 +900,8 @@ export default function App() {
   const [activeTab, setTab]     = useState('dashboard');
 
   useEffect(() => {
-    const u1 = onSnapshot(collection(db, 'sales_configs'), snap =>
-      setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const u2 = onSnapshot(collection(db, 'sales_months'), snap =>
-      setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
+    const u1 = onSnapshot(collection(db, 'sales_configs'), snap => setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const u2 = onSnapshot(collection(db, 'sales_months'), snap => setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => { u1(); u2(); };
   }, []);
 
@@ -1070,33 +915,9 @@ export default function App() {
     <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
       <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40, boxShadow: '0 4px 32px rgba(0,0,0,0.4)' }}>
         <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <p style={{ fontFamily: "'DM Sans', sans-serif", fontStyle: 'italic', fontWeight: 900, fontSize: '1.1rem', color: '#10b981', textTransform: 'uppercase', letterSpacing: '-0.03em', lineHeight: 1 }}>
-              Winner System 360
-            </p>
-            <p style={{ fontSize: '0.55rem', fontWeight: 700, color: '#3f3f46', textTransform: 'uppercase', letterSpacing: '0.2em', marginTop: '0.2rem' }}>
-              Control Ventas · Contraentrega CO
-            </p>
-          </div>
+          <div><p style={{ fontFamily: "'DM Sans', sans-serif", fontStyle: 'italic', fontWeight: 900, fontSize: '1.1rem', color: '#10b981', textTransform: 'uppercase', letterSpacing: '-0.03em', lineHeight: 1 }}>Winner System 360</p><p style={{ fontSize: '0.55rem', fontWeight: 700, color: '#3f3f46', textTransform: 'uppercase', letterSpacing: '0.2em', marginTop: '0.2rem' }}>Control Ventas · Contraentrega CO</p></div>
           <nav style={{ display: 'flex', gap: '0.25rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem', borderRadius: '1rem', border: '1px solid rgba(255,255,255,0.08)' }}>
-            {tabs.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.4rem',
-                  padding: '0.5rem 1rem', borderRadius: '0.75rem', border: 'none',
-                  background: activeTab === t.id ? '#10b981' : 'transparent',
-                  color: activeTab === t.id ? '#09090b' : '#71717a',
-                  fontFamily: "'DM Sans', sans-serif", fontWeight: 900, fontSize: '0.6rem',
-                  textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <t.icon size={14} />
-                <span style={{ display: window.innerWidth < 640 ? 'none' : 'inline' }}>{t.label}</span>
-              </button>
-            ))}
+            {tabs.map(t => (<button key={t.id} onClick={() => setTab(t.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', borderRadius: '0.75rem', border: 'none', background: activeTab === t.id ? '#10b981' : 'transparent', color: activeTab === t.id ? '#09090b' : '#71717a', fontFamily: "'DM Sans', sans-serif", fontWeight: 900, fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', transition: 'all 0.2s' }}><t.icon size={14} /><span style={{ display: window.innerWidth < 640 ? 'none' : 'inline' }}>{t.label}</span></button>))}
           </nav>
         </div>
       </header>
