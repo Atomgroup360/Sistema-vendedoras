@@ -48,7 +48,7 @@ const daysBetween = (a, b) => {
   return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
 };
 
-// ─── MOTOR DE CÁLCULO (incluye AOV y CPA Equilibrio ponderado) ────────────────
+// ─── MOTOR DE CÁLCULO (incluye AOV y CPA Equilibrio) ───────────────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
@@ -196,7 +196,7 @@ const EMPTY_CONFIG = {
   commission: '', returnRate: '20', effectiveness: '95',
   fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
   extraUnitCharge: '',
-  cpaEquilibrio: ''   // Nuevo campo
+  cpaEquilibrio: ''
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -219,7 +219,7 @@ function VistaConfig({ configs, onSaved }) {
     setShowForm(true);
   };
   const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
@@ -319,21 +319,21 @@ function VistaConfig({ configs, onSaved }) {
             </div>
             {isPrefilledVendor && (<div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-5 py-4 rounded-2xl"><div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{form.vendedora[0]?.toUpperCase()}</div><div><p className="text-xs font-black text-emerald-700 uppercase">{form.vendedora}</p><p className="text-[9px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p></div></div>)}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-5 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => set('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
-              <InputField label="Nombre Producto" value={form.productName} onChange={e => set('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
-              <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl space-y-2"><Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label><input type="number" value={form.effectiveness} onChange={e => set('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-4xl text-emerald-800 outline-none" /><p className="text-[9px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p></div>
-              <div className="bg-rose-50 border border-rose-100 p-5 rounded-2xl space-y-2"><Label className="text-rose-600">% Devolución transportadora</Label><input type="number" value={form.returnRate} onChange={e => set('returnRate', e.target.value)} className="w-full bg-transparent font-black text-4xl text-rose-700 outline-none" /><p className="text-[9px] text-rose-500 font-semibold">Del total despachado, % que regresa sin pagar</p></div>
+              {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-5 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
+              <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
+              <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl space-y-2"><Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label><input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-4xl text-emerald-800 outline-none" /><p className="text-[9px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p></div>
+              <div className="bg-rose-50 border border-rose-100 p-5 rounded-2xl space-y-2"><Label className="text-rose-600">% Devolución transportadora</Label><input type="number" value={form.returnRate} onChange={e => setField('returnRate', e.target.value)} className="w-full bg-transparent font-black text-4xl text-rose-700 outline-none" /><p className="text-[9px] text-rose-500 font-semibold">Del total despachado, % que regresa sin pagar</p></div>
               <div className="sm:col-span-2 bg-zinc-950 text-white p-5 rounded-2xl flex items-center justify-between"><div><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p><p className="text-xs text-zinc-400 mt-0.5">De cada 100 pedidos registrados, ¿cuántos se pagan?</p></div><div className="text-right"><p className="text-4xl font-black font-mono text-emerald-400">{((parseFloat(form.effectiveness)||95)/100 * (1-(parseFloat(form.returnRate)||20)/100) * 100).toFixed(1)}%</p></div></div>
-              <InputField label="Precio de Venta (1 unidad)" type="number" value={form.priceSingle} onChange={e => set('priceSingle', e.target.value)} placeholder="Ej: 79000" />
-              <InputField label="Costo Unitario de Producto" type="number" value={form.productCost} onChange={e => set('productCost', e.target.value)} placeholder="Ej: 18000" />
-              <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => set('freight', e.target.value)} placeholder="Ej: 9500" />
-              <InputField label="Cargo extra por unidad adicional (por pedido)" type="number" value={form.extraUnitCharge} onChange={e => set('extraUnitCharge', e.target.value)} placeholder="Ej: 5000 (0 si no aplica)" />
-              <InputField label="Fulfillment / Alistamiento por guía" type="number" value={form.fulfillment} onChange={e => set('fulfillment', e.target.value)} placeholder="Ej: 1500" />
-              <InputField label="Comisión por Entrega Exitosa" type="number" value={form.commission} onChange={e => set('commission', e.target.value)} placeholder="Ej: 3000" />
-              <InputField label="Costos Fijos Operativos por Entrega" type="number" value={form.fixedCosts} onChange={e => set('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
-              <InputField label="Meta de Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => set('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
-              <InputField label="CPA Equilibrio (por pedido)" type="number" value={form.cpaEquilibrio} onChange={e => set('cpaEquilibrio', e.target.value)} placeholder="Ej: 15000" helperText="Costo de adquisición máximo para ser rentable" />
-              <div className="bg-zinc-950 text-white p-5 rounded-2xl space-y-3"><div className="flex justify-between items-center"><Label className="text-zinc-500">Inversión Ads Diaria</Label><button onClick={() => set('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">{form.fixedAdSpend ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>}</button></div><input type="number" value={form.dailyAdSpend} onChange={e => set('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-3xl outline-none placeholder:text-zinc-700" /><p className="text-[9px] text-zinc-600 font-semibold">{form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}</p></div>
+              <InputField label="Precio de Venta (1 unidad)" type="number" value={form.priceSingle} onChange={e => setField('priceSingle', e.target.value)} placeholder="Ej: 79000" />
+              <InputField label="Costo Unitario de Producto" type="number" value={form.productCost} onChange={e => setField('productCost', e.target.value)} placeholder="Ej: 18000" />
+              <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => setField('freight', e.target.value)} placeholder="Ej: 9500" />
+              <InputField label="Cargo extra por unidad adicional (por pedido)" type="number" value={form.extraUnitCharge} onChange={e => setField('extraUnitCharge', e.target.value)} placeholder="Ej: 5000 (0 si no aplica)" />
+              <InputField label="Fulfillment / Alistamiento por guía" type="number" value={form.fulfillment} onChange={e => setField('fulfillment', e.target.value)} placeholder="Ej: 1500" />
+              <InputField label="Comisión por Entrega Exitosa" type="number" value={form.commission} onChange={e => setField('commission', e.target.value)} placeholder="Ej: 3000" />
+              <InputField label="Costos Fijos Operativos por Entrega" type="number" value={form.fixedCosts} onChange={e => setField('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
+              <InputField label="Meta de Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => setField('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
+              <InputField label="CPA Equilibrio (por pedido)" type="number" value={form.cpaEquilibrio} onChange={e => setField('cpaEquilibrio', e.target.value)} placeholder="Ej: 15000" />
+              <div className="bg-zinc-950 text-white p-5 rounded-2xl space-y-3"><div className="flex justify-between items-center"><Label className="text-zinc-500">Inversión Ads Diaria</Label><button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">{form.fixedAdSpend ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>}</button></div><input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-3xl outline-none placeholder:text-zinc-700" /><p className="text-[9px] text-zinc-600 font-semibold">{form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}</p></div>
               {form.priceSingle && form.productCost && (<div className={`sm:col-span-2 p-5 rounded-2xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Preview Utilidad Estimada por Pedido Registrado</p><p className={`text-3xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p><p className="text-[9px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos configurados</p></div>)}
             </div>
             <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()} className="w-full mt-8 bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}</button>
@@ -344,49 +344,74 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (sin cambios relevantes) ────────────────────────
+// ─── VISTA 2: REGISTRO DIARIO (CON VENDEDORA Y PRODUCTO EN DOS SELECTS) ─────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
-  const [form, setForm] = useState({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+  const [selectedVendor, setSelectedVendor] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [form, setForm] = useState({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
   const [editingRec, setEditingRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Agrupar configs por vendedora
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
     a[c.vendedora].push(c);
     return a;
   }, {}), [configs]);
 
+  // Lista de vendedoras únicas
+  const vendors = useMemo(() => Object.keys(grouped).sort(), [grouped]);
+
+  // Productos de la vendedora seleccionada
+  const productsOfVendor = useMemo(() => {
+    if (!selectedVendor) return [];
+    return grouped[selectedVendor] || [];
+  }, [selectedVendor, grouped]);
+
+  // Configuración completa del producto seleccionado
+  const selectedConfig = useMemo(() => {
+    if (!selectedProductId) return null;
+    return configs.find(c => c.id === selectedProductId);
+  }, [selectedProductId, configs]);
+
+  const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
+
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
-  const selectedConfig = configs.find(c => c.id === form.configId);
-  const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
-
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleProductChange = (value) => {
-    setFormField('configId', value);
-    if (!editingRec) {
-      setFormField('restDay', false);
-    }
+  // Al cambiar de vendedora, reseteamos producto y formulario
+  const handleVendorChange = (vendor) => {
+    setSelectedVendor(vendor);
+    setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
+  };
+
+  // Al cambiar de producto, reseteamos el resto del formulario (excepto restDay que se mantiene en false)
+  const handleProductChange = (productId) => {
+    setSelectedProductId(productId);
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setErrorMsg('');
   };
 
   const save = async () => {
     setErrorMsg('');
-    if (!form.configId) {
-      alert("Debes seleccionar una vendedora y producto.");
+    if (!selectedVendor || !selectedProductId) {
+      alert("Debes seleccionar una vendedora y un producto.");
       return;
     }
 
+    // Verificar duplicado SOLO si NO estamos editando
     if (!editingRec) {
-      const exists = dayRecords.some(r => r.configId === form.configId);
+      const exists = dayRecords.some(r => r.configId === selectedProductId);
       if (exists) {
-        const config = configs.find(c => c.id === form.configId);
-        const vendorName = config?.vendedora || 'Desconocida';
+        const config = configs.find(c => c.id === selectedProductId);
+        const vendorName = config?.vendedora || selectedVendor;
         const productName = config?.productName || 'Desconocido';
         setErrorMsg(`❌ Ya existe un registro para ${vendorName} - ${productName} en esta fecha. Puedes editarlo o eliminarlo.`);
         return;
@@ -415,7 +440,7 @@ function VistaRegistro({ configs, months }) {
     }
 
     const rec = {
-      configId: form.configId,
+      configId: selectedProductId,
       orders: orders,
       units: units,
       revenue: revenue,
@@ -440,22 +465,29 @@ function VistaRegistro({ configs, months }) {
       else await setDoc(ref, { records });
     }
 
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    // Resetear todo después de guardar
+    setSelectedVendor('');
+    setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
   };
 
   const startEdit = (r) => {
-    setEditingRec(r);
-    setForm({
-      configId: r.configId,
-      orders: r.orders,
-      units: r.units,
-      revenue: r.revenue,
-      adSpend: r.adSpend || '',
-      restDay: r.restDay || false
-    });
-    setErrorMsg('');
+    const config = configs.find(c => c.id === r.configId);
+    if (config) {
+      setSelectedVendor(config.vendedora);
+      setSelectedProductId(r.configId);
+      setForm({
+        orders: r.orders,
+        units: r.units,
+        revenue: r.revenue,
+        adSpend: r.adSpend || '',
+        restDay: r.restDay || false
+      });
+      setEditingRec(r);
+      setErrorMsg('');
+    }
   };
 
   const deleteRec = async (id) => {
@@ -469,7 +501,9 @@ function VistaRegistro({ configs, months }) {
 
   const cancelEdit = () => {
     setEditingRec(null);
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setSelectedVendor('');
+    setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setErrorMsg('');
   };
 
@@ -485,7 +519,9 @@ function VistaRegistro({ configs, months }) {
     date.setDate(date.getDate() + days);
     setSelectedDate(date.toISOString().split('T')[0]);
     setEditingRec(null);
-    setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setSelectedVendor('');
+    setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setErrorMsg('');
   };
 
@@ -503,7 +539,7 @@ function VistaRegistro({ configs, months }) {
 
         <div className="bg-zinc-950 px-5 py-4 rounded-2xl text-white space-y-4">
           <div className="flex items-center gap-3"><Calendar size={18} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Fecha del Registro · Selección libre</p><p className="text-[9px] text-zinc-600 font-semibold">Cualquier día pasado, presente o futuro</p></div></div>
-          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setForm({ configId: '', orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
+          <div className="space-y-3"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-base rounded-xl px-4 py-3 cursor-pointer border-2 border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300" /><div className="grid grid-cols-3 gap-2"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-400 transition">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-3 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-white/20 transition">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3"><p className="text-[10px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
         </div>
 
@@ -520,13 +556,33 @@ function VistaRegistro({ configs, months }) {
           </button>
         </div>
 
+        {/* Selector de Vendedora */}
         <div className="space-y-1.5">
-          <Label>Vendedora → Producto</Label>
-          <select value={form.configId} onChange={e => handleProductChange(e.target.value)} disabled={!!editingRec} className={`w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none ${editingRec ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400'}`}>
-            <option value="">Seleccionar estrategia...</option>
-            {Object.entries(grouped).map(([v, ps]) => (<optgroup key={v} label={`── ${v.toUpperCase()} ──`}>{ps.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</optgroup>))}
+          <Label>Vendedora</Label>
+          <select
+            value={selectedVendor}
+            onChange={(e) => handleVendorChange(e.target.value)}
+            disabled={!!editingRec}
+            className="w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none bg-slate-50 border-2 border-transparent focus:border-emerald-400 disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            <option value="">Seleccionar vendedora...</option>
+            {vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}
           </select>
-          {editingRec && <p className="text-[9px] text-amber-600 mt-1">⚠ No puedes cambiar el producto mientras editas un registro existente.</p>}
+        </div>
+
+        {/* Selector de Producto (solo se habilita si hay vendedora seleccionada) */}
+        <div className="space-y-1.5">
+          <Label>Producto</Label>
+          <select
+            value={selectedProductId}
+            onChange={(e) => handleProductChange(e.target.value)}
+            disabled={!selectedVendor || !!editingRec}
+            className="w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none bg-slate-50 border-2 border-transparent focus:border-emerald-400 disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            <option value="">Seleccionar producto...</option>
+            {productsOfVendor.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}
+          </select>
+          {editingRec && <p className="text-[9px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas un registro existente.</p>}
         </div>
 
         {selectedConfig && !selectedConfig.fixedAdSpend && (
@@ -565,7 +621,7 @@ function VistaRegistro({ configs, months }) {
           {form.restDay && <p className="text-[9px] text-amber-500 text-center">Se guardará como $0.</p>}
         </div>
 
-        <button onClick={save} disabled={!form.configId} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}</button>
+        <button onClick={save} disabled={!selectedVendor || !selectedProductId} className="w-full bg-emerald-500 text-zinc-950 py-5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editingRec ? 'Actualizar Registro' : 'Guardar Cierre Diario'}</button>
         {savedMsg && <div className="flex items-center justify-center gap-2 text-emerald-600 text-xs font-black uppercase animate-pulse"><CheckCircle2 size={16} /> ¡Guardado exitosamente!</div>}
       </Card>
 
@@ -609,7 +665,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON CPA EQUILIBRIO Y COLOR DINÁMICO) ─────────────────
+// ─── VISTA 3: DASHBOARD (igual que antes, con CPA equilibrio) ─────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -654,7 +710,6 @@ function VistaDashboard({ configs, months }) {
   if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
   else if (proyeccion30 >= targetProfit && targetProfit > 0) semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
 
-  // Determinar color del CPA según comparación con equilibrio
   let cpaColor = '';
   let cpaMensaje = '';
   if (stats.cpaReal > stats.cpaEquilibrioPonderado) {
@@ -694,40 +749,24 @@ function VistaDashboard({ configs, months }) {
         <Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p><p className="text-[9px] mt-1">Los días de descanso no generan métricas.</p></Card>
       ) : (
         <>
-          {/* Tarjeta especial de CPA comparativo */}
           <div className={`rounded-2xl p-5 border-2 ${cpaColor} shadow-md transition-all`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div>
-                <Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label>
-                <p className="text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p>
-                <p className="text-[9px] font-semibold mt-1">Costo por adquisición real (Ads / Entregas)</p>
-              </div>
-              <div className="text-center">
-                <Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label>
-                <p className="text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p>
-                <p className="text-[9px] font-semibold">Basado en la configuración de cada producto</p>
-              </div>
-              <div className="text-right">
-                <div className="inline-block px-4 py-2 rounded-xl bg-white/50 backdrop-blur-sm">
-                  <p className="text-[10px] font-black uppercase tracking-wider">{cpaMensaje}</p>
-                </div>
-              </div>
+              <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[9px] font-semibold mt-1">Costo por adquisición real (Ads / Entregas)</p></div>
+              <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label><p className="text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p><p className="text-[9px] font-semibold">Basado en la configuración de cada producto</p></div>
+              <div className="text-right"><div className="inline-block px-4 py-2 rounded-xl bg-white/50 backdrop-blur-sm"><p className="text-[10px] font-black uppercase tracking-wider">{cpaMensaje}</p></div></div>
             </div>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-white border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p><p className="text-[9px] text-slate-400 mt-1">Suma de todos los cierres diarios (sin ajustes)</p></Card>
             <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por Inefectividad + Devoluciones</Label><p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde por IER</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real (después de IER)</Label><p className="text-3xl font-black font-mono text-emerald-700">{fmt(stats.realRev)}</p><p className="text-[9px] text-emerald-500 mt-1">Lo que realmente ingresa después de cancelaciones y devoluciones</p></Card>
           </div>
-
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Stat label="AOV (Valor Promedio Venta)" value={fmt(stats.aov)} sub={`Sobre ${fmtN(stats.grossOrd)} pedidos brutos`} highlight />
             <Stat label="Flete Real x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`Sobre ${fmtN(stats.finalDeliveries)} entregas`} />
             <Stat label="ROAS Real" value={`${fmtDec(stats.roas, 4)}x`} sub="Ingreso neto / ads" />
             <Stat label="Recaudo Neto Real" value={fmt(stats.realRev)} sub={`Bruto × IER ${fmtDec(stats.ierGlobal,4)}%`} accent />
           </div>
-
           <section className="space-y-3">
             <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Activity size={14} /> Embudo Operativo Contraentrega</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
