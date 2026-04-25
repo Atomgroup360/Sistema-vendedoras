@@ -42,13 +42,7 @@ const fmtN = (v) => new Intl.NumberFormat('es-CO', {
 
 const today = () => new Date().toISOString().split('T')[0];
 
-const daysBetween = (a, b) => {
-  const d1 = new Date(a + 'T00:00:00');
-  const d2 = new Date(b + 'T00:00:00');
-  return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
-};
-
-// ─── MOTOR DE CÁLCULO (con AOV, CPA equilibrio y ahora también stats por vendedora) ──
+// ─── MOTOR DE CÁLCULO (global, ranking y detalle temporal) ───────────────────
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
@@ -63,13 +57,15 @@ function calcularStats(records, configs) {
     realRev: 0,
     net: 0,
     aov: 0,
-    cpaEquilibrioPonderado: 0
+    cpaEquilibrioPonderado: 0,
+    rankingVendedoras: [],
+    detalleProductos: [] // solo para fechas
   };
-  // Nuevo: stats por vendedora
-  const vendedorasStats = {};
 
   let totalCpaEquilibrioPonderado = 0;
   let totalOrdenesParaCpaEq = 0;
+  const vendedorasStats = {};
+  const productosFechas = {}; // clave: configId
 
   activeRecords.forEach(r => {
     const c = configs.find(x => x.id === r.configId);
@@ -106,6 +102,7 @@ function calcularStats(records, configs) {
     const fixedCosts     = deliveries * (parseFloat(c.fixedCosts) || 0);
     const realRevenue    = revenue * IER;
 
+    // Globales
     s.grossOrd              += orders;
     s.grossUnits            += units;
     s.grossRev              += revenue;
@@ -124,33 +121,43 @@ function calcularStats(records, configs) {
     s.totalAds              += ads;
     s.realRev               += realRevenue;
 
-    // Acumular CPA equilibrio ponderado
+    // CPA equilibrio ponderado
     const cpaEq = parseFloat(c.cpaEquilibrio) || 0;
     totalCpaEquilibrioPonderado += cpaEq * orders;
     totalOrdenesParaCpaEq += orders;
 
-    // --- Estadísticas por vendedora ---
+    // Estadísticas por vendedora
     const vendor = c.vendedora;
     if (!vendedorasStats[vendor]) {
       vendedorasStats[vendor] = {
         vendedora: vendor,
         pedidos: 0,
-        recaudoBruto: 0,
         recaudoNeto: 0,
         utilidad: 0,
-        ierPromedio: 0,
-        totalDeliveries: 0,
         totalGrossOrd: 0,
         totalIER: 0
       };
     }
     vendedorasStats[vendor].pedidos += orders;
-    vendedorasStats[vendor].recaudoBruto += revenue;
     vendedorasStats[vendor].recaudoNeto += realRevenue;
     vendedorasStats[vendor].utilidad += (realRevenue - mercanciaNeto - freightTotal - fulfillTotal - commissions - fixedCosts - ads);
-    vendedorasStats[vendor].totalDeliveries += deliveries;
     vendedorasStats[vendor].totalGrossOrd += orders;
     vendedorasStats[vendor].totalIER += IER * orders;
+
+    // Fechas por producto
+    if (!productosFechas[r.configId]) {
+      productosFechas[r.configId] = {
+        configId: r.configId,
+        vendedora: c.vendedora,
+        productName: c.productName,
+        primerRegistro: r.date,
+        ultimoRegistro: r.date
+      };
+    } else {
+      const p = productosFechas[r.configId];
+      if (r.date < p.primerRegistro) p.primerRegistro = r.date;
+      if (r.date > p.ultimoRegistro) p.ultimoRegistro = r.date;
+    }
   });
 
   s.net = s.realRev
@@ -160,6 +167,7 @@ function calcularStats(records, configs) {
         - s.totalCommissions
         - s.totalFixedCosts
         - s.totalAds;
+
   s.ierGlobal = s.grossOrd > 0 ? (s.finalDeliveries / s.grossOrd) * 100 : 0;
   s.freteRealXEntrega = s.finalDeliveries > 0 ? s.totalFreightCost / s.finalDeliveries : 0;
   s.cpaReal = s.finalDeliveries > 0 ? s.totalAds / s.finalDeliveries : 0;
@@ -172,19 +180,21 @@ function calcularStats(records, configs) {
   s.aov                    = s.grossOrd > 0 ? s.grossRev / s.grossOrd : 0;
   s.cpaEquilibrioPonderado = totalOrdenesParaCpaEq > 0 ? totalCpaEquilibrioPonderado / totalOrdenesParaCpaEq : 0;
 
-  // Calcular IER promedio para cada vendedora
+  // Ranking de vendedoras (ordenado por utilidad)
   const rankingData = Object.values(vendedorasStats).map(v => ({
     ...v,
     ierPromedio: v.totalGrossOrd > 0 ? (v.totalIER / v.totalGrossOrd) * 100 : 0
   }));
-  // Ordenar por utilidad (mejor rendimiento)
   rankingData.sort((a, b) => b.utilidad - a.utilidad);
   s.rankingVendedoras = rankingData;
+
+  // Detalle temporal de productos (solo fechas)
+  s.detalleProductos = Object.values(productosFechas).sort((a, b) => a.vendedora.localeCompare(b.vendedora) || a.productName.localeCompare(b.productName));
 
   return s;
 }
 
-// ─── COMPONENTES UI (iguales) ────────────────────────────────────────────────
+// ─── COMPONENTES UI ──────────────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -220,7 +230,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (con CPA Equilibrio) ─────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (con CPA Equilibrio y extraUnitCharge) ─────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -375,7 +385,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (CON BANNER DE ÚLTIMO DÍA Y CONTROL DE OMISIONES) ───
+// ─── VISTA 2: REGISTRO DIARIO (con control de omisiones y último día) ─────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(today());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -399,13 +409,13 @@ function VistaRegistro({ configs, months }) {
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
-  // ---- Control de omisiones y último día registrado (excluye descansos) ----
+  // Control de omisiones y último día registrado (excluye descansos)
   const { ultimoDia, diasFaltantes } = useMemo(() => {
     let maxDate = null;
     const fechasConRegistros = new Set();
     months.forEach(month => {
       month.records?.forEach(record => {
-        if (!record.restDay) { // solo días activos
+        if (!record.restDay) {
           fechasConRegistros.add(record.date);
           if (record.date > (maxDate || '')) maxDate = record.date;
         }
@@ -424,7 +434,6 @@ function VistaRegistro({ configs, months }) {
       }
       current.setDate(current.getDate() + 1);
     }
-    // Formatear fechas faltantes
     const diasFaltantesFormateados = allDates.map(d => ({
       fecha: d,
       nombre: new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -434,16 +443,13 @@ function VistaRegistro({ configs, months }) {
 
   const diferenciaDias = ultimoDia ? Math.floor((new Date(today()) - new Date(ultimoDia)) / (1000 * 60 * 60 * 24)) : null;
 
-  // --- Resto de lógica de formulario (similar a la versión anterior) ---
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
   const handleVendorChange = (vendor) => {
     setSelectedVendor(vendor);
     setSelectedProductId('');
     setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setErrorMsg('');
   };
-
   const handleProductChange = (productId) => {
     setSelectedProductId(productId);
     setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -546,7 +552,7 @@ function VistaRegistro({ configs, months }) {
     <div className="max-w-2xl mx-auto space-y-6 anim-slide">
       <div><h2 className="text-3xl font-black italic uppercase tracking-tighter">Cierre Diario</h2><p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 2 · Registro de Operación</p></div>
 
-      {/* BANNER DE ÚLTIMO DÍA Y OMISIONES */}
+      {/* BANNER ÚLTIMO DÍA Y OMISIONES */}
       {ultimoDia && (
         <div className={`rounded-2xl p-4 border-l-8 shadow-sm ${diferenciaDias > 1 ? 'bg-amber-50 border-amber-400 text-amber-800' : 'bg-blue-50 border-blue-400 text-blue-800'}`}>
           <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
@@ -618,11 +624,21 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON RANKING DE VENDEDORAS) ───────────────────────────
+// ─── VISTA 3: DASHBOARD (REORGANIZADO CON SECCIONES COLAPSABLES) ────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
+
+  // Estados para colapsar secciones
+  const [openSections, setOpenSections] = useState({
+    embudo: false,
+    costos: false,
+    ranking: false,
+    proyeccion: false,
+    analisisProductos: false
+  });
+  const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const filteredRecords = useMemo(() => { 
     const all = months.flatMap(m => m.records || []); 
@@ -644,7 +660,6 @@ function VistaDashboard({ configs, months }) {
   }, [filteredRecords]);
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
-
   const targetProfit = useMemo(() => { 
     if (filter.producto !== 'all') { 
       const c = configs.find(x => x.id === filter.producto); 
@@ -674,10 +689,10 @@ function VistaDashboard({ configs, months }) {
   }
 
   const costItems = [
-    { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas × costo unit.`, icon: Package },
+    { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas`, icon: Package },
     { label: 'Fletes Totales', value: stats.totalFreightCost, note: `Incluye cargos extra`, icon: Truck },
     { label: 'Fulfillment', value: stats.totalFulfillment, note: 'Por guía despachada', icon: Boxes },
-    { label: 'Comisiones', value: stats.totalCommissions, note: 'Solo sobre entregas exitosas', icon: DollarSign },
+    { label: 'Comisiones', value: stats.totalCommissions, note: 'Solo entregas exitosas', icon: DollarSign },
     { label: 'Costos Fijos', value: stats.totalFixedCosts, note: 'Prorrateo por entrega', icon: Activity },
     { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads', icon: Target },
   ];
@@ -685,9 +700,25 @@ function VistaDashboard({ configs, months }) {
   const ajustePorIER = stats.grossRev - stats.realRev;
   const eficienciaRecaudo = stats.recaudoEficiencia;
 
+  const SectionHeader = ({ title, icon: Icon, section, totalItems = null }) => (
+    <button
+      onClick={() => toggleSection(section)}
+      className="w-full flex items-center justify-between py-3 px-4 bg-slate-100 hover:bg-slate-200 rounded-2xl transition-colors"
+    >
+      <div className="flex items-center gap-2">
+        <Icon size={16} className="text-emerald-600" />
+        <span className="text-xs font-black uppercase tracking-widest text-slate-700">{title}</span>
+        {totalItems !== null && totalItems > 0 && <span className="text-[9px] font-black bg-slate-300 text-slate-700 px-1.5 py-0.5 rounded-full">{totalItems}</span>}
+      </div>
+      {openSections[section] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+    </button>
+  );
+
   return (
     <div className="space-y-8 anim-fade">
       <div><h2 className="text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
+
+      {/* Filtros siempre visibles */}
       <Card className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="space-y-1.5"><Label><Calendar size={11} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" /></div>
         <div className="space-y-1.5"><Label><Calendar size={11} className="inline mr-1" />Hasta</Label><input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-emerald-300" /></div>
@@ -700,7 +731,7 @@ function VistaDashboard({ configs, months }) {
         <Card className="text-center py-16 text-slate-300"><BarChart3 size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card>
       ) : (
         <>
-          {/* Tarjeta de comparación CPA */}
+          {/* Resumen rápido - siempre visible */}
           <div className={`rounded-2xl p-5 border-2 ${cpaColor} shadow-md transition-all`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[9px] font-semibold mt-1">Costo por adquisición real</p></div>
@@ -709,7 +740,6 @@ function VistaDashboard({ configs, months }) {
             </div>
           </div>
 
-          {/* Tarjetas de resumen rápido */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-white border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-3xl font-black font-mono text-slate-800">{fmt(stats.grossRev)}</p></Card>
             <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-3xl font-black font-mono text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[9px] text-amber-500 mt-1">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde</p></Card>
@@ -720,63 +750,141 @@ function VistaDashboard({ configs, months }) {
             <Stat label="AOV" value={fmt(stats.aov)} sub={`${fmtN(stats.grossOrd)} pedidos`} highlight />
             <Stat label="Flete x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`${fmtN(stats.finalDeliveries)} entregas`} />
             <Stat label="ROAS" value={`${fmtDec(stats.roas, 4)}x`} />
-            <Stat label="Recaudo Neto" value={fmt(stats.realRev)} sub={`IER ${fmtDec(stats.ierGlobal,4)}%`} accent />
+            <Stat label="Utilidad Neta" value={fmt(stats.net)} sub={`${stats.net >= 0 ? '💰' : '⚠️'}`} />
+            <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días activos`} highlight />
           </div>
 
-          {/* NUEVA TABLA: RANKING DE VENDEDORAS */}
-          <section className="space-y-3">
-            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Award size={14} /> Ranking de Vendedoras</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-100 text-[8px] font-black uppercase tracking-widest text-slate-500">
-                  <tr>
-                    <th className="p-3 rounded-l-2xl">#</th>
-                    <th className="p-3">Vendedora</th>
-                    <th className="p-3 text-right">Pedidos</th>
-                    <th className="p-3 text-right">Recaudo Neto</th>
-                    <th className="p-3 text-right">Utilidad</th>
-                    <th className="p-3 text-right">IER</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {stats.rankingVendedoras?.map((v, idx) => (
-                    <tr key={v.vendedora} className="hover:bg-slate-50 transition-colors text-sm">
-                      <td className="p-3 font-black text-emerald-600">{idx+1}</td>
-                      <td className="p-3 font-bold uppercase">{v.vendedora}</td>
-                      <td className="p-3 text-right font-mono">{fmtN(v.pedidos)}</td>
-                      <td className="p-3 text-right font-mono">{fmt(v.recaudoNeto)}</td>
-                      <td className={`p-3 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
-                      <td className="p-3 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {(!stats.rankingVendedoras || stats.rankingVendedoras.length === 0) && (
-              <p className="text-center text-slate-400 text-xs py-6">No hay datos para generar ranking en este período.</p>
+          {/* SECCIÓN COLAPSABLE: EMBUDO OPERATIVO Y PRODUCTOS */}
+          <div className="space-y-2">
+            <SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />
+            {openSections.embudo && (
+              <Card>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div><Label>Pedidos Registrados</Label><p className="text-2xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[9px]">{fmtN(stats.grossUnits)} unidades</p></div>
+                  <div><Label>Guías Despachadas</Label><p className="text-2xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div>
+                  <div><Label>Devoluciones Est.</Label><p className="text-2xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div>
+                  <div><Label>Entregas Finales</Label><p className="text-2xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[9px]">IER {fmtDec(stats.ierGlobal,4)}%</p></div>
+                </div>
+                <div className="mt-4 p-4 bg-slate-50 rounded-2xl">
+                  <p className="text-[9px] font-black uppercase mb-2">📦 Unidades físicas</p>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                    <div><span className="text-[9px] text-slate-500">Registradas:</span> <span className="font-black ml-1">{fmtN(stats.unitsRegistradas)}</span></div>
+                    <div><span className="text-[9px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div>
+                    <div><span className="text-[9px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div>
+                    <div><span className="text-[9px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div>
+                    <div><span className="text-[9px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados,1)}%</span></div>
+                  </div>
+                </div>
+              </Card>
             )}
-          </section>
+          </div>
 
-          {/* Resto del dashboard (embudos, costos, utilidad) - igual que antes pero resumido por espacio, se mantiene la funcionalidad completa */}
-          <section className="space-y-3">
-            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Activity size={14} /> Embudo Operativo</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="border-l-4 border-l-slate-300"><Label>Pedidos Registrados</Label><p className="text-3xl font-black font-mono">{fmtN(stats.grossOrd)}</p><p className="text-[9px] text-slate-400">{fmtN(stats.grossUnits)} unidades</p></Card>
-              <Card className="border-l-4 border-l-blue-400"><Label>Guías Despachadas</Label><p className="text-3xl font-black font-mono text-blue-600">{fmtN(stats.realShipped)}</p></Card>
-              <Card className="border-l-4 border-l-rose-400"><Label>Devoluciones Est.</Label><p className="text-3xl font-black font-mono text-rose-500">{fmtN(stats.estimatedReturns)}</p></Card>
-              <Card className="border-l-4 border-l-emerald-500"><Label>Entregas Finales</Label><p className="text-3xl font-black font-mono text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[9px]">IER {fmtDec(stats.ierGlobal,4)}%</p></Card>
-            </div>
-          </section>
+          {/* SECCIÓN COLAPSABLE: RADIOGRAFÍA DE COSTOS */}
+          <div className="space-y-2">
+            <SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />
+            {openSections.costos && (
+              <Card className="space-y-0 p-0 overflow-hidden">
+                {costItems.map((item,i) => (
+                  <div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-slate-50 last:border-0">
+                    <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={14} /></div>
+                    <div className="flex-1"><p className="text-xs font-black">{item.label}</p><p className="text-[9px] text-slate-400">{item.note}</p></div>
+                    <p className="font-black font-mono text-sm">{fmt(item.value)}</p>
+                  </div>
+                ))}
+                <div className="flex items-center gap-4 px-6 py-4 bg-slate-900 text-white">
+                  <div className="flex-1"><p className="text-xs font-black uppercase">Total Costos</p></div>
+                  <p className="font-black font-mono text-lg text-rose-400">{fmt(totalCostos)}</p>
+                </div>
+              </Card>
+            )}
+          </div>
 
-          <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><Calculator size={14} /> Radiografía de Costos</h3>
-            <Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-slate-50 last:border-0"><div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={14} /></div><div className="flex-1"><p className="text-xs font-black">{item.label}</p><p className="text-[9px] text-slate-400">{item.note}</p></div><p className="font-black font-mono text-sm">{fmt(item.value)}</p></div>))}<div className="flex items-center gap-4 px-6 py-4 bg-slate-900 text-white"><div className="flex-1"><p className="text-xs font-black uppercase">Total Costos</p></div><p className="font-black font-mono text-lg text-rose-400">{fmt(totalCostos)}</p></div></Card>
-          </section>
+          {/* SECCIÓN COLAPSABLE: RANKING DE VENDEDORAS */}
+          <div className="space-y-2">
+            <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
+            {openSections.ranking && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-100 text-[8px] font-black uppercase tracking-widest text-slate-500">
+                    <tr><th className="p-3 rounded-l-2xl">#</th><th className="p-3">Vendedora</th><th className="p-3 text-right">Pedidos</th><th className="p-3 text-right">Recaudo Neto</th><th className="p-3 text-right">Utilidad</th><th className="p-3 text-right">IER</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stats.rankingVendedoras?.map((v, idx) => (
+                      <tr key={v.vendedora} className="hover:bg-slate-50 transition-colors text-sm">
+                        <td className="p-3 font-black text-emerald-600">{idx+1}</td>
+                        <td className="p-3 font-bold uppercase">{v.vendedora}</td>
+                        <td className="p-3 text-right font-mono">{fmtN(v.pedidos)}</td>
+                        <td className="p-3 text-right font-mono">{fmt(v.recaudoNeto)}</td>
+                        <td className={`p-3 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
+                        <td className="p-3 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {(!stats.rankingVendedoras || stats.rankingVendedoras.length === 0) && <p className="text-center text-slate-400 text-xs py-6">No hay datos para ranking.</p>}
+              </div>
+            )}
+          </div>
 
-          <section className="space-y-3"><h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] flex items-center gap-2 ml-1"><TrendingUp size={14} /> Utilidad y Proyección</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card dark className="space-y-4"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-3 pt-4"><div><p className="text-[9px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div><div><p className="text-[9px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div><div><p className="text-[9px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[9px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div></div></Card>
-            <div className={`rounded-3xl p-6 text-white shadow-2xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><TrendingUp className="absolute -bottom-4 -right-4 opacity-10" size={120} /><div><p className="text-[9px] font-black opacity-60">Proyección 30 Días</p><p className="text-[9px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-4xl font-black">{fmt(proyeccion30)}</p><div className="bg-white/20 px-4 py-3 rounded-2xl mt-2"><p className="text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[9px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div><div className="flex justify-between text-[9px] font-black opacity-60 mt-4"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal,4)}%</span></div></div></div>
-            {targetProfit > 0 && (<Card className="space-y-3"><div className="flex justify-between"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 4)}%</span></div><div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div></Card>)}
-          </section>
+          {/* SECCIÓN COLAPSABLE: UTILIDAD Y PROYECCIÓN */}
+          <div className="space-y-2">
+            <SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />
+            {openSections.proyeccion && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card dark className="space-y-4">
+                  <Label className="text-zinc-500">Utilidad Neta Período</Label>
+                  <p className={`text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p>
+                  <div className="grid grid-cols-2 gap-3 pt-4 border-t border-zinc-800">
+                    <div><p className="text-[9px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div>
+                    <div><p className="text-[9px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div>
+                    <div><p className="text-[9px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div>
+                    <div><p className="text-[9px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div>
+                  </div>
+                </Card>
+                <div className={`rounded-3xl p-6 text-white shadow-2xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}>
+                  <div><p className="text-[9px] font-black opacity-60">Proyección 30 Días</p><p className="text-[9px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div>
+                  <p className="text-4xl font-black">{fmt(proyeccion30)}</p>
+                  <div className="bg-white/20 px-4 py-3 rounded-2xl mt-2"><p className="text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[9px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div>
+                  <div className="flex justify-between text-[9px] font-black opacity-60 mt-4"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal,4)}%</span></div>
+                </div>
+                {targetProfit > 0 && (
+                  <Card className="col-span-2">
+                    <div className="flex justify-between"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 4)}%</span></div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden mt-2"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div>
+                  </Card>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* SECCIÓN COLAPSABLE: ANÁLISIS TEMPORAL POR PRODUCTO (SOLO FECHAS) */}
+          <div className="space-y-2">
+            <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
+            {openSections.analisisProductos && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead className="bg-slate-100 text-[8px] font-black uppercase tracking-widest text-slate-500">
+                    <tr><th className="p-3">Vendedora</th><th className="p-3">Producto</th><th className="p-3">Primer registro</th><th className="p-3">Último registro</th><th className="p-3">Días activos</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stats.detalleProductos.map(p => {
+                      const diasActivos = Math.floor((new Date(p.ultimoRegistro + 'T12:00:00') - new Date(p.primerRegistro + 'T12:00:00')) / (1000*60*60*24)) + 1;
+                      return (
+                        <tr key={p.configId} className="hover:bg-slate-50">
+                          <td className="p-3 font-bold uppercase">{p.vendedora}</td>
+                          <td className="p-3 font-semibold">{p.productName}</td>
+                          <td className="p-3 font-mono text-xs">{new Date(p.primerRegistro + 'T12:00:00').toLocaleDateString('es-CO')}</td>
+                          <td className="p-3 font-mono text-xs">{new Date(p.ultimoRegistro + 'T12:00:00').toLocaleDateString('es-CO')}</td>
+                          <td className="p-3 font-mono text-xs">{diasActivos} días</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {(!stats.detalleProductos || stats.detalleProductos.length === 0) && <p className="text-center text-slate-400 text-xs py-6">No hay productos en este período.</p>}
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
