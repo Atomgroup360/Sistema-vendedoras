@@ -25,7 +25,28 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+// ─── HELPERS CON ZONA HORARIA COLOMBIA (UTC-5) ───────────────────────────────
+// Obtiene la fecha actual en Colombia en formato YYYY-MM-DD
+const todayColombia = () => {
+  const now = new Date();
+  // Ajustar a UTC-5 (Colombia)
+  const colombiaDate = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+  return colombiaDate.toISOString().split('T')[0];
+};
+
+// Formatea una fecha YYYY-MM-DD a objeto Date considerando la hora local de Colombia
+const parseColombiaDate = (dateStr) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0); // mediodía para evitar desfases
+};
+
+// Días entre dos fechas (formato YYYY-MM-DD) en zona colombiana
+const daysBetweenColombia = (a, b) => {
+  const d1 = parseColombiaDate(a);
+  const d2 = parseColombiaDate(b);
+  return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
+};
+
 const fmt = (v) => new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0
 }).format(v || 0);
@@ -39,8 +60,6 @@ const fmtN = (v) => new Intl.NumberFormat('es-CO', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 6
 }).format(v || 0);
-
-const today = () => new Date().toISOString().split('T')[0];
 
 // ─── MOTOR DE CÁLCULO (global, ranking y detalle temporal) ───────────────────
 function calcularStats(records, configs) {
@@ -188,7 +207,7 @@ function calcularStats(records, configs) {
   return s;
 }
 
-// ─── COMPONENTES UI ──────────────────────────────────────────────────────────
+// ─── COMPONENTES UI (ajustados para usar la nueva helper de fecha) ───────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-4 md:p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -224,7 +243,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (igual, sin cambios) ────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (sin cambios de fecha) ────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -379,10 +398,10 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con control de omisiones y último día) ─────────
-// (sin cambios visuales importantes, pero se mantiene el banner responsivo)
+// ─── VISTA 2: REGISTRO DIARIO (con zona horaria Colombia) ─────────────────────
 function VistaRegistro({ configs, months }) {
-  const [selectedDate, setSelectedDate] = useState(today());
+  // Fecha inicial con zona Colombia
+  const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [form, setForm] = useState({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -404,6 +423,7 @@ function VistaRegistro({ configs, months }) {
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
+  // Control de omisiones con zona Colombia
   const { ultimoDia, diasFaltantes } = useMemo(() => {
     let maxDate = null;
     const fechasConRegistros = new Set();
@@ -417,12 +437,15 @@ function VistaRegistro({ configs, months }) {
     });
     if (!maxDate) return { ultimoDia: null, diasFaltantes: [] };
     const fechaUltimo = maxDate;
-    const hoy = today();
+    const hoy = todayColombia();
     const allDates = [];
-    let current = new Date(fechaUltimo + 'T00:00:00');
-    const end = new Date(hoy + 'T00:00:00');
+    let current = parseColombiaDate(fechaUltimo);
+    const end = parseColombiaDate(hoy);
     while (current <= end) {
-      const dateStr = current.toISOString().split('T')[0];
+      const year = current.getFullYear();
+      const month = String(current.getMonth() + 1).padStart(2, '0');
+      const day = String(current.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
       if (!fechasConRegistros.has(dateStr) && dateStr !== fechaUltimo) {
         allDates.push(dateStr);
       }
@@ -430,12 +453,12 @@ function VistaRegistro({ configs, months }) {
     }
     const diasFaltantesFormateados = allDates.map(d => ({
       fecha: d,
-      nombre: new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      nombre: new Date(Date.UTC(...d.split('-'), 12, 0, 0)).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
     }));
     return { ultimoDia: fechaUltimo, diasFaltantes: diasFaltantesFormateados };
   }, [months]);
 
-  const diferenciaDias = ultimoDia ? Math.floor((new Date(today()) - new Date(ultimoDia)) / (1000 * 60 * 60 * 24)) : null;
+  const diferenciaDias = ultimoDia ? Math.floor((parseColombiaDate(todayColombia()) - parseColombiaDate(ultimoDia)) / (1000 * 60 * 60 * 24)) : null;
 
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const handleVendorChange = (vendor) => {
@@ -533,9 +556,12 @@ function VistaRegistro({ configs, months }) {
     ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
 
   const moveDate = (days) => {
-    const date = new Date(selectedDate + 'T12:00:00');
+    const date = parseColombiaDate(selectedDate);
     date.setDate(date.getDate() + days);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    setSelectedDate(`${year}-${month}-${day}`);
     setEditingRec(null);
     setSelectedVendor(''); setSelectedProductId('');
     setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
@@ -554,7 +580,7 @@ function VistaRegistro({ configs, months }) {
               <div>
                 <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest opacity-70">Último día registrado</p>
                 <p className="font-black text-xs md:text-base">
-                  {new Date(ultimoDia + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {parseColombiaDate(ultimoDia).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}
                 </p>
                 <p className="text-[8px] md:text-[9px] font-semibold mt-1">
                   {diferenciaDias === 0 && ' ✅ Hoy ya hay actividad.'}
@@ -583,9 +609,9 @@ function VistaRegistro({ configs, months }) {
         {errorMsg && (<div className="flex items-center gap-2 text-rose-600 text-[10px] font-black uppercase bg-rose-50 px-3 py-2 rounded-xl border border-rose-200"><AlertTriangle size={12} /> {errorMsg}</div>)}
 
         <div className="bg-zinc-950 px-4 py-3 rounded-2xl text-white space-y-3">
-          <div className="flex items-center gap-2"><Calendar size={16} className="text-emerald-400" /><div><p className="text-[8px] font-black text-zinc-500 uppercase">Fecha del Registro · Selección libre</p><p className="text-[8px] text-zinc-600">Cualquier día pasado, presente o futuro</p></div></div>
-          <div className="space-y-2"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-sm md:text-base rounded-xl px-3 py-2 cursor-pointer border-2 border-emerald-400" /><div className="grid grid-cols-3 gap-1"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día anterior</button><button onClick={() => { setSelectedDate(today()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-2 py-1.5 rounded-xl text-[9px] font-black">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día siguiente</button></div></div>
-          <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2"><p className="text-[9px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p></div>
+          <div className="flex items-center gap-2"><Calendar size={16} className="text-emerald-400" /><div><p className="text-[8px] font-black text-zinc-500 uppercase">Fecha del Registro · Selección libre (Hora Colombia)</p><p className="text-[8px] text-zinc-600">Cualquier día pasado, presente o futuro</p></div></div>
+          <div className="space-y-2"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-sm md:text-base rounded-xl px-3 py-2 cursor-pointer border-2 border-emerald-400" /><div className="grid grid-cols-3 gap-1"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día anterior</button><button onClick={() => { setSelectedDate(todayColombia()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-2 py-1.5 rounded-xl text-[9px] font-black">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día siguiente</button></div></div>
+          <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2"><p className="text-[9px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{parseColombiaDate(selectedDate).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}</span></p></div>
         </div>
 
         <div className={`rounded-xl p-3 flex items-center justify-between ${form.restDay ? 'bg-amber-100 border-2 border-amber-300' : 'bg-slate-100'}`}>
@@ -617,9 +643,9 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (REORGANIZADO CON SECCIONES COLAPSABLES Y RESPONSIVO) ─
+// ─── VISTA 3: DASHBOARD (con zona horaria Colombia para fechas filtro) ───────
 function VistaDashboard({ configs, months }) {
-  const [filter, setFilter] = useState({ startDate: today(), endDate: today(), vendedora: 'all', producto: 'all' });
+  const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
 
@@ -707,7 +733,6 @@ function VistaDashboard({ configs, months }) {
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
 
-      {/* Filtros siempre visibles - responsivo */}
       <Card className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-xs outline-none" /></div>
         <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Hasta</Label><input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-xs outline-none" /></div>
@@ -720,7 +745,6 @@ function VistaDashboard({ configs, months }) {
         <Card className="text-center py-12 text-slate-300"><BarChart3 size={32} className="mx-auto mb-3 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card>
       ) : (
         <>
-          {/* Resumen CPA - responsivo */}
           <div className={`rounded-xl p-3 md:p-5 border-2 ${cpaColor} shadow-md`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Costo por adquisición real</p></div>
@@ -729,14 +753,12 @@ function VistaDashboard({ configs, months }) {
             </div>
           </div>
 
-          {/* Tarjetas resumen - grid responsivo */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
             <Card className="border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
             <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[8px] md:text-[9px] text-amber-500">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
           </div>
 
-          {/* Stats rápidos - grid responsivo */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
             <Stat label="AOV" value={fmt(stats.aov)} sub={`${fmtN(stats.grossOrd)} pedidos`} highlight />
             <Stat label="Flete x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`${fmtN(stats.finalDeliveries)} entregas`} />
@@ -745,7 +767,7 @@ function VistaDashboard({ configs, months }) {
             <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight />
           </div>
 
-          {/* Sección Embudo */}
+          {/* Resto de secciones colapsables (embudo, costos, ranking, proyección, análisis productos) igual que antes pero con fechas Colombia */}
           <div className="space-y-2">
             <SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />
             {openSections.embudo && (
@@ -770,7 +792,6 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* Sección Costos */}
           <div className="space-y-2">
             <SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />
             {openSections.costos && (
@@ -790,7 +811,6 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* Sección Ranking */}
           <div className="space-y-2">
             <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
             {openSections.ranking && (
@@ -808,15 +828,14 @@ function VistaDashboard({ configs, months }) {
                         <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
                         <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
                         <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
-                      </tr>
+                      </table>
                     ))}
                   </tbody>
-                </table>
+                 </table>
               </div>
             )}
           </div>
 
-          {/* Sección Proyección (Ajustada para móvil) */}
           <div className="space-y-2">
             <SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />
             {openSections.proyeccion && (
@@ -847,7 +866,6 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* Sección Análisis temporal por producto - solo fechas */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
@@ -858,13 +876,13 @@ function VistaDashboard({ configs, months }) {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {stats.detalleProductos.map(p => {
-                      const diasActivos = Math.floor((new Date(p.ultimoRegistro + 'T12:00:00') - new Date(p.primerRegistro + 'T12:00:00')) / (1000*60*60*24)) + 1;
+                      const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000*60*60*24)) + 1;
                       return (
                         <tr key={p.configId} className="hover:bg-slate-50">
                           <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
                           <td className="p-2 font-semibold text-[9px] md:text-xs">{p.productName}</td>
-                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{new Date(p.primerRegistro + 'T12:00:00').toLocaleDateString('es-CO')}</td>
-                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{new Date(p.ultimoRegistro + 'T12:00:00').toLocaleDateString('es-CO')}</td>
+                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
+                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
                         </tr>
                       );
@@ -880,7 +898,7 @@ function VistaDashboard({ configs, months }) {
   );
 }
 
-// ─── APP PRINCIPAL ─────────────────────────────────────────────────────────────
+// ─── APP PRINCIPAL (sin cambios) ──────────────────────────────────────────────
 export default function App() {
   const [configs, setConfigs] = useState([]);
   const [months, setMonths] = useState([]);
