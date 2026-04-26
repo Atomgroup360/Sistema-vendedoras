@@ -9,7 +9,7 @@ import {
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
-  Coffee, Moon, ShoppingCart, Award, ListChecks, CalendarDays
+  Coffee, Moon, Award, ListChecks, CalendarDays
 } from 'lucide-react';
 
 // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
@@ -26,25 +26,15 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // ─── HELPERS CON ZONA HORARIA COLOMBIA (UTC-5) ───────────────────────────────
-// Obtiene la fecha actual en Colombia en formato YYYY-MM-DD
 const todayColombia = () => {
   const now = new Date();
-  // Ajustar a UTC-5 (Colombia)
   const colombiaDate = new Date(now.getTime() - 5 * 60 * 60 * 1000);
   return colombiaDate.toISOString().split('T')[0];
 };
 
-// Formatea una fecha YYYY-MM-DD a objeto Date considerando la hora local de Colombia
 const parseColombiaDate = (dateStr) => {
   const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day, 12, 0, 0); // mediodía para evitar desfases
-};
-
-// Días entre dos fechas (formato YYYY-MM-DD) en zona colombiana
-const daysBetweenColombia = (a, b) => {
-  const d1 = parseColombiaDate(a);
-  const d2 = parseColombiaDate(b);
-  return Math.ceil(Math.abs(d2 - d1) / 86400000) + 1;
+  return new Date(year, month - 1, day, 12, 0, 0);
 };
 
 const fmt = (v) => new Intl.NumberFormat('es-CO', {
@@ -90,54 +80,54 @@ function calcularStats(records, configs) {
     const c = configs.find(x => x.id === r.configId);
     if (!c) return;
 
-    const eff     = Math.min(Math.max(parseFloat(c.effectiveness) || 95, 0), 100) / 100;
-    const ret     = Math.min(Math.max(parseFloat(c.returnRate)   || 20, 0), 100) / 100;
-    const IER     = eff * (1 - ret);
+    const eff = Math.min(Math.max(parseFloat(c.effectiveness) || 95, 0), 100) / 100;
+    const ret = Math.min(Math.max(parseFloat(c.returnRate) || 20, 0), 100) / 100;
+    const IER = eff * (1 - ret);
 
-    const orders  = parseFloat(r.orders)  || 0;
-    const units   = parseFloat(r.units)   || 0;
+    const orders = parseFloat(r.orders) || 0;
+    const units = parseFloat(r.units) || 0;
     const revenue = parseFloat(r.revenue) || 0;
-    const ads     = parseFloat(r.adSpend) > 0
-                      ? parseFloat(r.adSpend)
-                      : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
+    const ads = parseFloat(r.adSpend) > 0
+      ? parseFloat(r.adSpend)
+      : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
 
-    const avgUnits     = orders > 0 ? units / orders : 1;
-    const shipped      = orders * eff;
-    const returns_     = shipped * ret;
-    const deliveries   = shipped * (1 - ret);
-    const unitsRegistradas   = units;
-    const unitsShipped       = shipped * avgUnits;
-    const unitsReturned      = returns_ * avgUnits;
-    const unitsDelivered     = deliveries * avgUnits;
+    const avgUnits = orders > 0 ? units / orders : 1;
+    const shipped = orders * eff;
+    const returns_ = shipped * ret;
+    const deliveries = shipped * (1 - ret);
+    const unitsRegistradas = units;
+    const unitsShipped = shipped * avgUnits;
+    const unitsReturned = returns_ * avgUnits;
+    const unitsDelivered = deliveries * avgUnits;
 
     const extraUnitCharge = parseFloat(c.extraUnitCharge) || 0;
-    const extraUnits      = Math.max(avgUnits - 1, 0);
-    const fleteBase       = parseFloat(c.freight) || 0;
-    const fleteUnit       = fleteBase + extraUnits * extraUnitCharge;
-    const freightTotal   = shipped * fleteUnit;
-    const fulfillTotal   = shipped * (parseFloat(c.fulfillment) || 0);
-    const mercanciaNeto  = (parseFloat(c.productCost) || 0) * unitsDelivered;
-    const commissions    = deliveries * (parseFloat(c.commission) || 0);
-    const fixedCosts     = deliveries * (parseFloat(c.fixedCosts) || 0);
-    const realRevenue    = revenue * IER;
+    const extraUnits = Math.max(avgUnits - 1, 0);
+    const fleteBase = parseFloat(c.freight) || 0;
+    const fleteUnit = fleteBase + extraUnits * extraUnitCharge;
+    const freightTotal = shipped * fleteUnit;
+    const fulfillTotal = shipped * (parseFloat(c.fulfillment) || 0);
+    const mercanciaNeto = (parseFloat(c.productCost) || 0) * unitsDelivered;
+    const commissions = deliveries * (parseFloat(c.commission) || 0);
+    const fixedCosts = deliveries * (parseFloat(c.fixedCosts) || 0);
+    const realRevenue = revenue * IER;
 
-    s.grossOrd              += orders;
-    s.grossUnits            += units;
-    s.grossRev              += revenue;
-    s.realShipped           += shipped;
-    s.estimatedReturns      += returns_;
-    s.finalDeliveries       += deliveries;
-    s.unitsRegistradas      += unitsRegistradas;
-    s.unitsShippedReal      += unitsShipped;
-    s.unitsReturnedReal     += unitsReturned;
-    s.unitsDeliveredReal    += unitsDelivered;
-    s.totalFreightCost      += freightTotal;
-    s.totalFulfillment      += fulfillTotal;
-    s.productCostTotal      += mercanciaNeto;
-    s.totalCommissions      += commissions;
-    s.totalFixedCosts       += fixedCosts;
-    s.totalAds              += ads;
-    s.realRev               += realRevenue;
+    s.grossOrd += orders;
+    s.grossUnits += units;
+    s.grossRev += revenue;
+    s.realShipped += shipped;
+    s.estimatedReturns += returns_;
+    s.finalDeliveries += deliveries;
+    s.unitsRegistradas += unitsRegistradas;
+    s.unitsShippedReal += unitsShipped;
+    s.unitsReturnedReal += unitsReturned;
+    s.unitsDeliveredReal += unitsDelivered;
+    s.totalFreightCost += freightTotal;
+    s.totalFulfillment += fulfillTotal;
+    s.productCostTotal += mercanciaNeto;
+    s.totalCommissions += commissions;
+    s.totalFixedCosts += fixedCosts;
+    s.totalAds += ads;
+    s.realRev += realRevenue;
 
     const cpaEq = parseFloat(c.cpaEquilibrio) || 0;
     totalCpaEquilibrioPonderado += cpaEq * orders;
@@ -176,23 +166,23 @@ function calcularStats(records, configs) {
   });
 
   s.net = s.realRev
-        - s.productCostTotal
-        - s.totalFreightCost
-        - s.totalFulfillment
-        - s.totalCommissions
-        - s.totalFixedCosts
-        - s.totalAds;
+    - s.productCostTotal
+    - s.totalFreightCost
+    - s.totalFulfillment
+    - s.totalCommissions
+    - s.totalFixedCosts
+    - s.totalAds;
 
   s.ierGlobal = s.grossOrd > 0 ? (s.finalDeliveries / s.grossOrd) * 100 : 0;
   s.freteRealXEntrega = s.finalDeliveries > 0 ? s.totalFreightCost / s.finalDeliveries : 0;
   s.cpaReal = s.finalDeliveries > 0 ? s.totalAds / s.finalDeliveries : 0;
-  s.roas    = s.totalAds > 0 ? s.realRev / s.totalAds : 0;
-  s.avgUnitsPerOrder       = s.grossOrd > 0 ? s.grossUnits / s.grossOrd : 0;
-  s.avgUnitsPerDelivery    = s.finalDeliveries > 0 ? s.unitsDeliveredReal / s.finalDeliveries : 0;
-  s.costMercXEntrega       = s.finalDeliveries > 0 ? s.productCostTotal / s.finalDeliveries : 0;
+  s.roas = s.totalAds > 0 ? s.realRev / s.totalAds : 0;
+  s.avgUnitsPerOrder = s.grossOrd > 0 ? s.grossUnits / s.grossOrd : 0;
+  s.avgUnitsPerDelivery = s.finalDeliveries > 0 ? s.unitsDeliveredReal / s.finalDeliveries : 0;
+  s.costMercXEntrega = s.finalDeliveries > 0 ? s.productCostTotal / s.finalDeliveries : 0;
   s.pctProductosEntregados = s.unitsRegistradas > 0 ? (s.unitsDeliveredReal / s.unitsRegistradas) * 100 : 0;
-  s.recaudoEficiencia      = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0;
-  s.aov                    = s.grossOrd > 0 ? s.grossRev / s.grossOrd : 0;
+  s.recaudoEficiencia = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0;
+  s.aov = s.grossOrd > 0 ? s.grossRev / s.grossOrd : 0;
   s.cpaEquilibrioPonderado = totalOrdenesParaCpaEq > 0 ? totalCpaEquilibrioPonderado / totalOrdenesParaCpaEq : 0;
 
   const rankingData = Object.values(vendedorasStats).map(v => ({
@@ -207,7 +197,7 @@ function calcularStats(records, configs) {
   return s;
 }
 
-// ─── COMPONENTES UI (ajustados para usar la nueva helper de fecha) ───────────
+// ─── COMPONENTES UI ──────────────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-4 md:p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
@@ -243,7 +233,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (sin cambios de fecha) ────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (con CPA Equilibrio y extraUnitCharge) ─────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -254,10 +244,10 @@ const EMPTY_CONFIG = {
 };
 
 function VistaConfig({ configs, onSaved }) {
-  const [showForm, setShowForm]     = useState(false);
-  const [editId, setEditId]         = useState(null);
-  const [form, setForm]             = useState(EMPTY_CONFIG);
-  const [expandedV, setExpandedV]   = useState({});
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(EMPTY_CONFIG);
+  const [expandedV, setExpandedV] = useState({});
 
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -295,14 +285,14 @@ function VistaConfig({ configs, onSaved }) {
     const ret = parseFloat(form.returnRate) / 100 || 0.20;
     const IER = eff * (1 - ret);
     const precio = parseFloat(form.priceSingle) || 0;
-    const costo  = parseFloat(form.productCost) || 0;
-    const flete  = parseFloat(form.freight) || 0;
-    const full   = parseFloat(form.fulfillment) || 0;
-    const com    = parseFloat(form.commission) || 0;
-    const fijos  = parseFloat(form.fixedCosts) || 0;
-    const ads    = parseFloat(form.dailyAdSpend) || 0;
+    const costo = parseFloat(form.productCost) || 0;
+    const flete = parseFloat(form.freight) || 0;
+    const full = parseFloat(form.fulfillment) || 0;
+    const com = parseFloat(form.commission) || 0;
+    const fijos = parseFloat(form.fixedCosts) || 0;
+    const ads = parseFloat(form.dailyAdSpend) || 0;
     const ingreso = precio * IER;
-    const costos  = costo + (flete / (IER || 1)) + full + com + fijos + ads;
+    const costos = costo + (flete / (IER || 1)) + full + com + fijos + ads;
     return ingreso - costos;
   }, [form]);
 
@@ -342,7 +332,7 @@ function VistaConfig({ configs, onSaved }) {
                         <div className="flex flex-wrap gap-1.5">
                           <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
                           <span className="text-[8px] md:text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
-                          <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness)/100*(1-parseFloat(p.returnRate)/100)*100).toFixed(1)}%</span>
+                          <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
                           <span className="text-[8px] md:text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
                           {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
                           <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
@@ -377,7 +367,7 @@ function VistaConfig({ configs, onSaved }) {
               <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
               <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl space-y-1"><Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label><input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-3xl text-emerald-800 outline-none" /><p className="text-[8px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p></div>
               <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl space-y-1"><Label className="text-rose-600">% Devolución transportadora</Label><input type="number" value={form.returnRate} onChange={e => setField('returnRate', e.target.value)} className="w-full bg-transparent font-black text-3xl text-rose-700 outline-none" /><p className="text-[8px] text-rose-500 font-semibold">Del total despachado, % que regresa sin pagar</p></div>
-              <div className="sm:col-span-2 bg-zinc-950 text-white p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3"><div><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p><p className="text-xs text-zinc-400 mt-0.5">De cada 100 pedidos registrados, ¿cuántos se pagan?</p></div><div className="text-right"><p className="text-3xl font-black font-mono text-emerald-400">{((parseFloat(form.effectiveness)||95)/100 * (1-(parseFloat(form.returnRate)||20)/100) * 100).toFixed(1)}%</p></div></div>
+              <div className="sm:col-span-2 bg-zinc-950 text-white p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3"><div><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p><p className="text-xs text-zinc-400 mt-0.5">De cada 100 pedidos registrados, ¿cuántos se pagan?</p></div><div className="text-right"><p className="text-3xl font-black font-mono text-emerald-400">{((parseFloat(form.effectiveness) || 95) / 100 * (1 - (parseFloat(form.returnRate) || 20) / 100) * 100).toFixed(1)}%</p></div></div>
               <InputField label="Precio de Venta (1 unidad)" type="number" value={form.priceSingle} onChange={e => setField('priceSingle', e.target.value)} placeholder="Ej: 79000" />
               <InputField label="Costo Unitario de Producto" type="number" value={form.productCost} onChange={e => setField('productCost', e.target.value)} placeholder="Ej: 18000" />
               <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => setField('freight', e.target.value)} placeholder="Ej: 9500" />
@@ -398,9 +388,8 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con zona horaria Colombia) ─────────────────────
+// ─── VISTA 2: REGISTRO DIARIO (con control de omisiones y último día) ─────────
 function VistaRegistro({ configs, months }) {
-  // Fecha inicial con zona Colombia
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -423,7 +412,6 @@ function VistaRegistro({ configs, months }) {
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
-  // Control de omisiones con zona Colombia
   const { ultimoDia, diasFaltantes } = useMemo(() => {
     let maxDate = null;
     const fechasConRegistros = new Set();
@@ -453,7 +441,7 @@ function VistaRegistro({ configs, months }) {
     }
     const diasFaltantesFormateados = allDates.map(d => ({
       fecha: d,
-      nombre: new Date(Date.UTC(...d.split('-'), 12, 0, 0)).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
+      nombre: parseColombiaDate(d).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
     }));
     return { ultimoDia: fechaUltimo, diasFaltantes: diasFaltantesFormateados };
   }, [months]);
@@ -630,7 +618,7 @@ function VistaRegistro({ configs, months }) {
           <div className="bg-slate-50 p-3 rounded-xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Layers size={12} /><Label className="!mb-0">Total Unidades</Label></div><input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} />{form.restDay && <p className="text-[7px] text-amber-500">→ 0</p>}</div>
         </div>
 
-        {!form.restDay && avgUnits && (<div className="text-center space-y-0.5"><p className="text-[9px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unid/guía</span></p>{extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[8px] font-bold text-yellow-600">Extra: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits)-1)} = {fmt(extraPerGuide)}</p>)}</div>)}
+        {!form.restDay && avgUnits && (<div className="text-center space-y-0.5"><p className="text-[9px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unid/guía</span></p>{extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[8px] font-bold text-yellow-600">Extra: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits) - 1)} = {fmt(extraPerGuide)}</p>)}</div>)}
 
         <div className="space-y-1.5"><Label>Recaudo Bruto Total del Día</Label><input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`} />{form.restDay && <p className="text-[8px] text-amber-500 text-center">→ 0</p>}</div>
 
@@ -638,12 +626,12 @@ function VistaRegistro({ configs, months }) {
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
 
-      {dayRecords.length > 0 && (<div className="space-y-2"><p className="text-[9px] font-black text-slate-400 uppercase ml-1">Registros del día</p>{dayRecords.map(r => { const c = configs.find(x => x.id === r.configId); const eff = parseFloat(c?.effectiveness||95)/100; const ret = parseFloat(c?.returnRate||20)/100; const IER = eff*(1-ret); const orders = parseFloat(r.orders)||0; const units = parseFloat(r.units)||0; const avgU = orders > 0 ? units / orders : 1; const deliveries = orders * IER; const unitsDelivered = deliveries * avgU; return (<Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 ${r.restDay ? 'bg-slate-100' : ''}`}><div className="flex-1"><div className="flex flex-wrap items-center gap-1"><span className="font-black text-emerald-600 text-xs">{c?.vendedora}</span><span className="text-slate-300">·</span><span className="font-semibold text-xs">{c?.productName}</span>{r.restDay && <span className="text-[8px] font-black bg-amber-100 text-amber-700 px-1 rounded-full"><Moon size={8} /> DESCANSO</span>}</div><div className="flex flex-wrap gap-1 mt-1"><span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.orders} guías</span><span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.units} unid</span><span className="text-[8px] font-black bg-emerald-50 px-1.5 py-0.5 rounded">{fmtN(deliveries)} entregas</span><span className="text-[8px] font-black bg-blue-50 px-1.5 py-0.5 rounded">{fmtN(unitsDelivered)} prod.</span><span className="text-[8px] font-black bg-zinc-100 px-1.5 py-0.5 rounded">{fmt(r.revenue)}</span></div></div><div className="flex gap-1 justify-end"><button onClick={() => startEdit(r)} className="p-1.5 rounded hover:bg-amber-50"><Pencil size={12} /></button><button onClick={() => deleteRec(r.id)} className="p-1.5 rounded hover:bg-rose-50"><Trash2 size={12} /></button></div></Card>);})}</div>)}
+      {dayRecords.length > 0 && (<div className="space-y-2"><p className="text-[9px] font-black text-slate-400 uppercase ml-1">Registros del día</p>{dayRecords.map(r => { const c = configs.find(x => x.id === r.configId); const eff = parseFloat(c?.effectiveness || 95) / 100; const ret = parseFloat(c?.returnRate || 20) / 100; const IER = eff * (1 - ret); const orders = parseFloat(r.orders) || 0; const units = parseFloat(r.units) || 0; const avgU = orders > 0 ? units / orders : 1; const deliveries = orders * IER; const unitsDelivered = deliveries * avgU; return (<Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 ${r.restDay ? 'bg-slate-100' : ''}`}><div className="flex-1"><div className="flex flex-wrap items-center gap-1"><span className="font-black text-emerald-600 text-xs">{c?.vendedora}</span><span className="text-slate-300">·</span><span className="font-semibold text-xs">{c?.productName}</span>{r.restDay && <span className="text-[8px] font-black bg-amber-100 text-amber-700 px-1 rounded-full"><Moon size={8} /> DESCANSO</span>}</div><div className="flex flex-wrap gap-1 mt-1"><span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.orders} guías</span><span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.units} unid</span><span className="text-[8px] font-black bg-emerald-50 px-1.5 py-0.5 rounded">{fmtN(deliveries)} entregas</span><span className="text-[8px] font-black bg-blue-50 px-1.5 py-0.5 rounded">{fmtN(unitsDelivered)} prod.</span><span className="text-[8px] font-black bg-zinc-100 px-1.5 py-0.5 rounded">{fmt(r.revenue)}</span></div></div><div className="flex gap-1 justify-end"><button onClick={() => startEdit(r)} className="p-1.5 rounded hover:bg-amber-50"><Pencil size={12} /></button><button onClick={() => deleteRec(r.id)} className="p-1.5 rounded hover:bg-rose-50"><Trash2 size={12} /></button></div></Card>);})}</div>)}
     </div>
   );
 }
 
-// ─── VISTA 3: DASHBOARD (con zona horaria Colombia para fechas filtro) ───────
+// ─── VISTA 3: DASHBOARD (CON SECCIONES COLAPSABLES Y CORREGIDO) ──────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -658,16 +646,16 @@ function VistaDashboard({ configs, months }) {
   });
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
-  const filteredRecords = useMemo(() => { 
-    const all = months.flatMap(m => m.records || []); 
-    return all.filter(r => { 
-      const c = configs.find(x => x.id === r.configId); 
-      if (!c) return false; 
-      if (r.date < filter.startDate || r.date > filter.endDate) return false; 
-      if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false; 
-      if (filter.producto !== 'all' && r.configId !== filter.producto) return false; 
-      return true; 
-    }); 
+  const filteredRecords = useMemo(() => {
+    const all = months.flatMap(m => m.records || []);
+    return all.filter(r => {
+      const c = configs.find(x => x.id === r.configId);
+      if (!c) return false;
+      if (r.date < filter.startDate || r.date > filter.endDate) return false;
+      if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false;
+      if (filter.producto !== 'all' && r.configId !== filter.producto) return false;
+      return true;
+    });
   }, [months, configs, filter]);
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
@@ -678,16 +666,16 @@ function VistaDashboard({ configs, months }) {
   }, [filteredRecords]);
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
-  const targetProfit = useMemo(() => { 
-    if (filter.producto !== 'all') { 
-      const c = configs.find(x => x.id === filter.producto); 
-      return parseFloat(c?.targetProfit) || 0; 
-    } 
-    if (filter.vendedora !== 'all') { 
-      const prods = grouped[filter.vendedora] || []; 
-      return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); 
-    } 
-    return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); 
+  const targetProfit = useMemo(() => {
+    if (filter.producto !== 'all') {
+      const c = configs.find(x => x.id === filter.producto);
+      return parseFloat(c?.targetProfit) || 0;
+    }
+    if (filter.vendedora !== 'all') {
+      const prods = grouped[filter.vendedora] || [];
+      return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
+    }
+    return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
   }, [filter, configs, grouped]);
 
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
@@ -755,7 +743,7 @@ function VistaDashboard({ configs, months }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
             <Card className="border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
-            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[8px] md:text-[9px] text-amber-500">{fmtDec(eficienciaRecaudo,1)}% del bruto se pierde</p></Card>
+            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[8px] md:text-[9px] text-amber-500">{fmtDec(eficienciaRecaudo, 1)}% del bruto se pierde</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
           </div>
 
@@ -767,7 +755,7 @@ function VistaDashboard({ configs, months }) {
             <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight />
           </div>
 
-          {/* Resto de secciones colapsables (embudo, costos, ranking, proyección, análisis productos) igual que antes pero con fechas Colombia */}
+          {/* SECCIÓN EMBUDO OPERATIVO */}
           <div className="space-y-2">
             <SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />
             {openSections.embudo && (
@@ -776,7 +764,7 @@ function VistaDashboard({ configs, months }) {
                   <div><Label>Pedidos Registrados</Label><p className="text-xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[8px]">{fmtN(stats.grossUnits)} unidades</p></div>
                   <div><Label>Guías Despachadas</Label><p className="text-xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div>
                   <div><Label>Devoluciones Est.</Label><p className="text-xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div>
-                  <div><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px]">IER {fmtDec(stats.ierGlobal,2)}%</p></div>
+                  <div><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px]">IER {fmtDec(stats.ierGlobal, 2)}%</p></div>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl">
                   <p className="text-[8px] font-black uppercase mb-2">📦 Unidades físicas</p>
@@ -785,18 +773,19 @@ function VistaDashboard({ configs, months }) {
                     <div><span className="text-[8px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div>
                     <div><span className="text-[8px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div>
                     <div><span className="text-[8px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div>
-                    <div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados,1)}%</span></div>
+                    <div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados, 1)}%</span></div>
                   </div>
                 </div>
               </Card>
             )}
           </div>
 
+          {/* SECCIÓN RADIOGRAFÍA DE COSTOS */}
           <div className="space-y-2">
             <SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />
             {openSections.costos && (
               <Card className="space-y-0 p-0 overflow-hidden">
-                {costItems.map((item,i) => (
+                {costItems.map((item, i) => (
                   <div key={i} className="flex items-center gap-2 md:gap-4 px-4 py-3 border-b border-slate-50 last:border-0">
                     <div className="w-6 h-6 md:w-8 md:h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={12} /></div>
                     <div className="flex-1"><p className="text-[11px] md:text-xs font-black">{item.label}</p><p className="text-[7px] md:text-[9px] text-slate-400">{item.note}</p></div>
@@ -811,7 +800,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-                   {/* SECCIÓN RANKING DE VENDEDORAS */}
+          {/* SECCIÓN RANKING DE VENDEDORAS */}
           <div className="space-y-2">
             <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
             {openSections.ranking && (
@@ -834,9 +823,7 @@ function VistaDashboard({ configs, months }) {
                         <td className="p-2 font-bold uppercase">{v.vendedora}</td>
                         <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
                         <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
-                        <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                          {fmt(v.utilidad)}
-                        </td>
+                        <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
                         <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
                       </tr>
                     ))}
@@ -853,9 +840,7 @@ function VistaDashboard({ configs, months }) {
               <div className="flex flex-col md:grid md:grid-cols-2 gap-4">
                 <Card dark className="space-y-3">
                   <Label className="text-zinc-500">Utilidad Neta Período</Label>
-                  <p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {fmt(stats.net)}
-                  </p>
+                  <p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p>
                   <div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs">
                     <div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div>
                     <div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div>
@@ -925,6 +910,57 @@ function VistaDashboard({ configs, months }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+export default function App() {
+  const [configs, setConfigs] = useState([]);
+  const [months, setMonths] = useState([]);
+  const [activeTab, setTab] = useState('dashboard');
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db, 'sales_configs'), snap => setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const u2 = onSnapshot(collection(db, 'sales_months'), snap => setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return () => { u1(); u2(); };
+  }, []);
+
+  const tabs = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { id: 'records', icon: ClipboardList, label: 'Cierres' },
+    { id: 'config', icon: Settings, label: 'Estrategias' },
+  ];
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
+      <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40 }}>
+        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0.75rem 1rem' }}>
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="font-black italic text-emerald-400 text-sm md:text-base">Winner System 360</p>
+              <p className="text-[9px] md:text-[10px] font-bold text-zinc-500 tracking-widest">Control Ventas · Contraentrega CO</p>
+            </div>
+            <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+              {tabs.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
+                >
+                  <t.icon size={12} />
+                  <span className="hidden sm:inline">{t.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+      </header>
+      <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
+        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
+        {activeTab === 'records' && <VistaRegistro configs={configs} months={months} />}
+        {activeTab === 'config' && <VistaConfig configs={configs} />}
+      </main>
     </div>
   );
 }
