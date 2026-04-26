@@ -811,38 +811,51 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
+                   {/* SECCIÓN RANKING DE VENDEDORAS */}
           <div className="space-y-2">
             <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
             {openSections.ranking && (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs md:text-sm">
                   <thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500">
-                    <tr><th className="p-2 rounded-l-xl">#</th><th className="p-2">Vendedora</th><th className="p-2 text-right">Pedidos</th><th className="p-2 text-right">Recaudo Neto</th><th className="p-2 text-right">Utilidad</th><th className="p-2 text-right">IER</th></tr>
+                    <tr>
+                      <th className="p-2 rounded-l-xl">#</th>
+                      <th className="p-2">Vendedora</th>
+                      <th className="p-2 text-right">Pedidos</th>
+                      <th className="p-2 text-right">Recaudo Neto</th>
+                      <th className="p-2 text-right">Utilidad</th>
+                      <th className="p-2 text-right">IER</th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {stats.rankingVendedoras?.map((v, idx) => (
                       <tr key={v.vendedora} className="hover:bg-slate-50">
-                        <td className="p-2 font-black text-emerald-600">{idx+1}</td>
+                        <td className="p-2 font-black text-emerald-600">{idx + 1}</td>
                         <td className="p-2 font-bold uppercase">{v.vendedora}</td>
                         <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
                         <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
-                        <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
+                        <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                          {fmt(v.utilidad)}
+                        </td>
                         <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
-                      </table>
+                      </tr>
                     ))}
                   </tbody>
-                 </table>
+                </table>
               </div>
             )}
           </div>
 
+          {/* SECCIÓN UTILIDAD Y PROYECCIÓN */}
           <div className="space-y-2">
             <SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />
             {openSections.proyeccion && (
               <div className="flex flex-col md:grid md:grid-cols-2 gap-4">
                 <Card dark className="space-y-3">
                   <Label className="text-zinc-500">Utilidad Neta Período</Label>
-                  <p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p>
+                  <p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {fmt(stats.net)}
+                  </p>
                   <div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs">
                     <div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div>
                     <div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div>
@@ -853,30 +866,48 @@ function VistaDashboard({ configs, months }) {
                 <div className={`rounded-2xl p-4 text-white shadow-xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}>
                   <div><p className="text-[8px] font-black opacity-60">Proyección 30 Días</p><p className="text-[8px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div>
                   <p className="text-2xl md:text-4xl font-black">{fmt(proyeccion30)}</p>
-                  <div className="bg-white/20 px-3 py-2 rounded-xl mt-2"><p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div>
-                  <div className="flex justify-between text-[8px] font-black opacity-60 mt-3"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal,2)}%</span></div>
+                  <div className="bg-white/20 px-3 py-2 rounded-xl mt-2">
+                    <p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>
+                    {targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}
+                  </div>
+                  <div className="flex justify-between text-[8px] font-black opacity-60 mt-3">
+                    <span>Días activos: {activeDays}</span>
+                    <span>IER: {fmtDec(stats.ierGlobal, 2)}%</span>
+                  </div>
                 </div>
                 {targetProfit > 0 && (
                   <Card className="col-span-2">
-                    <div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div>
+                    <div className="flex justify-between text-xs">
+                      <Label>Avance vs Meta</Label>
+                      <span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1">
+                      <div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} />
+                    </div>
                   </Card>
                 )}
               </div>
             )}
           </div>
 
+          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                   <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
-                    <tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Días activos</th></tr>
+                    <tr>
+                      <th className="p-2">Vendedora</th>
+                      <th className="p-2">Producto</th>
+                      <th className="p-2">Primer registro</th>
+                      <th className="p-2">Último registro</th>
+                      <th className="p-2">Días activos</th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {stats.detalleProductos.map(p => {
-                      const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000*60*60*24)) + 1;
+                      const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
                       return (
                         <tr key={p.configId} className="hover:bg-slate-50">
                           <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
@@ -894,57 +925,6 @@ function VistaDashboard({ configs, months }) {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-// ─── APP PRINCIPAL (sin cambios) ──────────────────────────────────────────────
-export default function App() {
-  const [configs, setConfigs] = useState([]);
-  const [months, setMonths] = useState([]);
-  const [activeTab, setTab] = useState('dashboard');
-
-  useEffect(() => {
-    const u1 = onSnapshot(collection(db, 'sales_configs'), snap => setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const u2 = onSnapshot(collection(db, 'sales_months'), snap => setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    return () => { u1(); u2(); };
-  }, []);
-
-  const tabs = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { id: 'records',   icon: ClipboardList,   label: 'Cierres'   },
-    { id: 'config',    icon: Settings,         label: 'Estrategias' },
-  ];
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
-      <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40 }}>
-        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0.75rem 1rem' }}>
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="font-black italic text-emerald-400 text-sm md:text-base">Winner System 360</p>
-              <p className="text-[9px] md:text-[10px] font-bold text-zinc-500 tracking-widest">Control Ventas · Contraentrega CO</p>
-            </div>
-            <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
-              {tabs.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
-                >
-                  <t.icon size={12} />
-                  <span className="hidden sm:inline">{t.label}</span>
-                </button>
-              ))}
-            </nav>
-          </div>
-        </div>
-      </header>
-      <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
-        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
-        {activeTab === 'records'   && <VistaRegistro  configs={configs} months={months} />}
-        {activeTab === 'config'    && <VistaConfig    configs={configs} />}
-      </main>
     </div>
   );
 }
