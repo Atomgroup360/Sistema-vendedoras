@@ -11,19 +11,12 @@ import {
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
   Coffee, Moon, Award, ListChecks, CalendarDays
 } from 'lucide-react';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import Login from './src/components/Login';
+import { db } from './src/firebase';
 
-// ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyCAGEmzg7k6RCOoqOPqcpOVgws4W2pasDg",
-  authDomain: "vendedoras-winner-360.firebaseapp.com",
-  projectId: "vendedoras-winner-360",
-  storageBucket: "vendedoras-winner-360.firebasestorage.app",
-  messagingSenderId: "460355470202",
-  appId: "1:460355470202:web:bfa880f95d25192e814cc3"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// ─── FIREBASE CONFIG (ya no es necesaria, se importa desde firebase.js) ───
+// La configuración ahora está en src/firebase.js
 
 // ─── HELPERS CON ZONA HORARIA COLOMBIA (UTC-5) ───────────────────────────────
 const todayColombia = () => {
@@ -233,7 +226,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (con CPA Equilibrio y extraUnitCharge) ─────────────
+// ─── VISTA 1: CONFIGURACIÓN ───────────────────────────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -631,7 +624,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON SECCIONES COLAPSABLES Y CORREGIDO) ──────────────
+// ─── VISTA 3: DASHBOARD (CON SECCIONES COLAPSABLES) ──────────────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -914,17 +907,35 @@ function VistaDashboard({ configs, months }) {
   );
 }
 
-// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+// ─── APP PRINCIPAL (CON LOGIN INTEGRADO) ──────────────────────────────────────
 export default function App() {
+  const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
   const [months, setMonths] = useState([]);
   const [activeTab, setTab] = useState('dashboard');
 
   useEffect(() => {
-    const u1 = onSnapshot(collection(db, 'sales_configs'), snap => setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const u2 = onSnapshot(collection(db, 'sales_months'), snap => setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    if (!user) return;
+    const u1 = onSnapshot(collection(db, 'sales_configs'), snap =>
+      setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    const u2 = onSnapshot(collection(db, 'sales_months'), snap =>
+      setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
     return () => { u1(); u2(); };
-  }, []);
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <p className="text-slate-400">Cargando...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   const tabs = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -941,18 +952,26 @@ export default function App() {
               <p className="font-black italic text-emerald-400 text-sm md:text-base">Winner System 360</p>
               <p className="text-[9px] md:text-[10px] font-bold text-zinc-500 tracking-widest">Control Ventas · Contraentrega CO</p>
             </div>
-            <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
-              {tabs.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
-                >
-                  <t.icon size={12} />
-                  <span className="hidden sm:inline">{t.label}</span>
-                </button>
-              ))}
-            </nav>
+            <div className="flex items-center gap-3">
+              <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
+                  >
+                    <t.icon size={12} />
+                    <span className="hidden sm:inline">{t.label}</span>
+                  </button>
+                ))}
+              </nav>
+              <button
+                onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase"
+              >
+                Salir
+              </button>
+            </div>
           </div>
         </div>
       </header>
