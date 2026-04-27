@@ -672,7 +672,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON FILTRO INTELIGENTE DE PRODUCTOS ACTIVOS) ────────
+// ─── VISTA 3: DASHBOARD (CORREGIDO - FILTRO POR PRODUCTO FUNCIONAL) ──────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -687,26 +687,29 @@ function VistaDashboard({ configs, months }) {
   });
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
-  // Obtener todos los registros filtrados por fecha y vendedora
+  // FILTRO DE REGISTROS: aplica fecha, vendedora y producto
   const filteredRecords = useMemo(() => {
     const all = months.flatMap(m => m.records || []);
     return all.filter(r => {
       const c = configs.find(x => x.id === r.configId);
       if (!c) return false;
+      // Filtro por fecha
       if (r.date < filter.startDate || r.date > filter.endDate) return false;
+      // Filtro por vendedora
       if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false;
+      // Filtro por producto (NUEVO)
+      if (filter.producto !== 'all' && r.configId !== filter.producto) return false;
       return true;
     });
   }, [months, configs, filter]);
 
-  // Productos activos que TIENEN registros en el rango de fechas (filtrando también por vendedora si está seleccionada)
+  // Productos disponibles para el selector (con registros en el rango + vendedora seleccionada)
   const productosConRegistros = useMemo(() => {
     const productosMap = new Map();
+    // Usamos filteredRecords para que ya tenga los filtros de fecha y vendedora
     filteredRecords.forEach(r => {
       const c = configs.find(x => x.id === r.configId);
       if (c && !productosMap.has(r.configId)) {
-        // Solo mostrar productos que están activos O que tienen registros históricos (para poder verlos aunque estén desactivados)
-        // En el selector, mostraremos solo los que tienen registros en el período
         productosMap.set(r.configId, {
           id: r.configId,
           vendedora: c.vendedora,
@@ -715,9 +718,7 @@ function VistaDashboard({ configs, months }) {
         });
       }
     });
-    // Si hay vendedora específica, ya el filteredRecords solo incluye sus productos
     const productosArray = Array.from(productosMap.values());
-    // Ordenar por vendedora y luego por nombre
     productosArray.sort((a, b) => a.vendedora.localeCompare(b.vendedora) || a.productName.localeCompare(b.productName));
     return productosArray;
   }, [filteredRecords, configs]);
@@ -799,19 +800,37 @@ function VistaDashboard({ configs, months }) {
       <Card className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-xs outline-none" /></div>
         <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Hasta</Label><input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-xs outline-none" /></div>
-        <div className="space-y-1"><Label>Vendedora</Label><select value={filter.vendedora} onChange={e => setF('vendedora', e.target.value) || setF('producto', 'all')} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-[10px] md:text-xs outline-none"><option value="all">TODAS</option>{Object.keys(grouped).map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
+        <div className="space-y-1"><Label>Vendedora</Label>
+          <select value={filter.vendedora} onChange={e => setF('vendedora', e.target.value) || setF('producto', 'all')} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-[10px] md:text-xs outline-none">
+            <option value="all">TODAS</option>
+            {Object.keys(grouped).map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}
+          </select>
+        </div>
         <div className="space-y-1"><Label>Producto</Label>
-          <select value={filter.producto} onChange={e => setF('producto', e.target.value)} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-[10px] md:text-xs outline-none">
+          <select 
+            value={filter.producto} 
+            onChange={e => setF('producto', e.target.value)} 
+            className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-[10px] md:text-xs outline-none"
+            disabled={productosConRegistros.length === 0}
+          >
             <option value="all">TODOS LOS PRODUCTOS</option>
             {productosConRegistros.map(p => (
-              <option key={p.id} value={p.id}>{p.vendedora} - {p.productName}</option>
+              <option key={p.id} value={p.id}>
+                {p.vendedora} - {p.productName} {!p.activo ? '(INACTIVO)' : ''}
+              </option>
             ))}
           </select>
           {productosConRegistros.length === 0 && (
             <p className="text-[8px] text-amber-500 mt-1">No hay productos con registros en este período</p>
           )}
         </div>
-        <div className="col-span-2 md:col-span-4 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl"><Info size={12} className="text-slate-400 shrink-0" /><p className="text-[8px] md:text-[9px] font-black text-slate-400">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · Proyección a 30 días = promedio diario × 30</p></div>
+        <div className="col-span-2 md:col-span-4 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl">
+          <Info size={12} className="text-slate-400 shrink-0" />
+          <p className="text-[8px] md:text-[9px] font-black text-slate-400">
+            Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · 
+            {filter.producto !== 'all' ? ` Producto específico seleccionado` : ` Todos los productos`}
+          </p>
+        </div>
       </Card>
 
       {/* Advertencia de producto desactivado */}
@@ -823,7 +842,11 @@ function VistaDashboard({ configs, months }) {
       )}
 
       {filteredRecords.length === 0 || activeDays === 0 ? (
-        <Card className="text-center py-12 text-slate-300"><BarChart3 size={32} className="mx-auto mb-3 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card>
+        <Card className="text-center py-12 text-slate-300">
+          <BarChart3 size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="font-black uppercase text-sm">Sin datos activos en este rango</p>
+          {filter.producto !== 'all' && <p className="text-[9px] mt-1">El producto seleccionado no tiene registros en este período</p>}
+        </Card>
       ) : (
         <>
           <div className={`rounded-xl p-3 md:p-5 border-2 ${cpaColor} shadow-md`}>
@@ -1016,83 +1039,6 @@ function VistaDashboard({ configs, months }) {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-// ─── APP PRINCIPAL (CON BOTÓN DE CERRAR SESIÓN) ───────────────────────────────
-export default function App() {
-  const { user, loading } = useAuth();
-  const [configs, setConfigs] = useState([]);
-  const [months, setMonths] = useState([]);
-  const [activeTab, setTab] = useState('dashboard');
-
-  useEffect(() => {
-    if (!user) return;
-    const u1 = onSnapshot(collection(db, 'sales_configs'), snap =>
-      setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    const u2 = onSnapshot(collection(db, 'sales_months'), snap =>
-      setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    return () => { u1(); u2(); };
-  }, [user]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        <p className="text-slate-400">Cargando...</p>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Login />;
-  }
-
-  const tabs = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { id: 'records', icon: ClipboardList, label: 'Cierres' },
-    { id: 'config', icon: Settings, label: 'Estrategias' },
-  ];
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
-      <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40 }}>
-        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0.75rem 1rem' }}>
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="font-black italic text-emerald-400 text-sm md:text-base">Winner System 360</p>
-              <p className="text-[9px] md:text-[10px] font-bold text-zinc-500 tracking-widest">Control Ventas · Contraentrega CO</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
-                {tabs.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => setTab(t.id)}
-                    className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
-                  >
-                    <t.icon size={12} />
-                    <span className="hidden sm:inline">{t.label}</span>
-                  </button>
-                ))}
-              </nav>
-              <button
-                onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }}
-                className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase"
-              >
-                Salir
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-      <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
-        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
-        {activeTab === 'records' && <VistaRegistro configs={configs} months={months} />}
-        {activeTab === 'config' && <VistaConfig configs={configs} />}
-      </main>
     </div>
   );
 }
