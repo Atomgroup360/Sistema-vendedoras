@@ -691,11 +691,8 @@ function VistaDashboard({ configs, months }) {
     return all.filter(r => {
       const c = configs.find(x => x.id === r.configId);
       if (!c) return false;
-      // Filtro por fecha
       if (r.date < filter.startDate || r.date > filter.endDate) return false;
-      // Filtro por vendedora
       if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false;
-      // Filtro por producto
       if (filter.producto !== 'all' && r.configId !== filter.producto) return false;
       return true;
     });
@@ -704,7 +701,6 @@ function VistaDashboard({ configs, months }) {
   // Productos disponibles según la vendedora seleccionada
   const productosDisponibles = useMemo(() => {
     if (filter.vendedora === 'all') {
-      // Si no hay vendedora seleccionada, mostramos todos los productos (con su vendedora)
       const productosMap = new Map();
       configs.forEach(c => {
         productosMap.set(c.id, {
@@ -718,7 +714,6 @@ function VistaDashboard({ configs, months }) {
       productosArray.sort((a, b) => a.vendedora.localeCompare(b.vendedora) || a.productName.localeCompare(b.productName));
       return productosArray;
     } else {
-      // Si hay vendedora seleccionada, mostramos solo sus productos
       const productos = grouped[filter.vendedora] || [];
       return productos.map(p => ({
         id: p.id,
@@ -735,14 +730,12 @@ function VistaDashboard({ configs, months }) {
     setF('producto', 'all');
   };
 
-  // Verificar si el producto seleccionado está desactivado
   const selectedProductIsInactive = useMemo(() => {
     if (filter.producto === 'all') return false;
     const config = configs.find(c => c.id === filter.producto);
     return config && config.activo === false;
   }, [filter.producto, configs]);
 
-  // Obtener estadísticas (ya excluye internamente los restDay)
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
   
   const activeDays = useMemo(() => {
@@ -843,13 +836,11 @@ function VistaDashboard({ configs, months }) {
         <div className="col-span-2 md:col-span-4 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl">
           <Info size={12} className="text-slate-400 shrink-0" />
           <p className="text-[8px] md:text-[9px] font-black text-slate-400">
-            Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · 
-            {filter.producto !== 'all' ? ` Producto específico seleccionado` : ` Todos los productos`}
+            Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos)
           </p>
         </div>
       </Card>
 
-      {/* Advertencia de producto desactivado */}
       {selectedProductIsInactive && filter.producto !== 'all' && (
         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded-xl flex items-center gap-2">
           <PowerOff size={16} />
@@ -957,7 +948,7 @@ function VistaDashboard({ configs, months }) {
                         <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
                         <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
                         <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
-                      </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
@@ -1049,12 +1040,89 @@ function VistaDashboard({ configs, months }) {
                       );
                     })}
                   </tbody>
-                </table>
+                <table>
               </div>
             )}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+export default function App() {
+  const { user, loading } = useAuth();
+  const [configs, setConfigs] = useState([]);
+  const [months, setMonths] = useState([]);
+  const [activeTab, setTab] = useState('dashboard');
+
+  useEffect(() => {
+    if (!user) return;
+    const u1 = onSnapshot(collection(db, 'sales_configs'), snap =>
+      setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    const u2 = onSnapshot(collection(db, 'sales_months'), snap =>
+      setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return () => { u1(); u2(); };
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <p className="text-slate-400">Cargando...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
+
+  const tabs = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { id: 'records', icon: ClipboardList, label: 'Cierres' },
+    { id: 'config', icon: Settings, label: 'Estrategias' },
+  ];
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
+      <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40 }}>
+        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0.75rem 1rem' }}>
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="font-black italic text-emerald-400 text-sm md:text-base">Winner System 360</p>
+              <p className="text-[9px] md:text-[10px] font-bold text-zinc-500 tracking-widest">Control Ventas · Contraentrega CO</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
+                  >
+                    <t.icon size={12} />
+                    <span className="hidden sm:inline">{t.label}</span>
+                  </button>
+                ))}
+              </nav>
+              <button
+                onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase"
+              >
+                Salir
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
+        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
+        {activeTab === 'records' && <VistaRegistro configs={configs} months={months} />}
+        {activeTab === 'config' && <VistaConfig configs={configs} />}
+      </main>
     </div>
   );
 }
