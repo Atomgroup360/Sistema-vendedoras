@@ -9,14 +9,11 @@ import {
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
-  Coffee, Moon, Award, ListChecks, CalendarDays
+  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
 import { db } from './src/firebase';
-
-// ─── FIREBASE CONFIG (ya no es necesaria, se importa desde firebase.js) ───
-// La configuración ahora está en src/firebase.js
 
 // ─── HELPERS CON ZONA HORARIA COLOMBIA (UTC-5) ───────────────────────────────
 const todayColombia = () => {
@@ -149,7 +146,9 @@ function calcularStats(records, configs) {
         vendedora: c.vendedora,
         productName: c.productName,
         primerRegistro: r.date,
-        ultimoRegistro: r.date
+        ultimoRegistro: r.date,
+        activo: c.activo !== false,
+        fechaDesactivacion: c.fechaDesactivacion
       };
     } else {
       const p = productosFechas[r.configId];
@@ -226,14 +225,16 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN ───────────────────────────────────────────────────
+// ─── VISTA 1: CONFIGURACIÓN (con interruptor de activación de producto) ──────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
   commission: '', returnRate: '20', effectiveness: '95',
   fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
   extraUnitCharge: '',
-  cpaEquilibrio: ''
+  cpaEquilibrio: '',
+  activo: true,
+  fechaDesactivacion: ''
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -261,6 +262,14 @@ function VistaConfig({ configs, onSaved }) {
   const save = async () => {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
     const data = { ...form };
+    
+    if (data.activo === false && !data.fechaDesactivacion) {
+      data.fechaDesactivacion = todayColombia();
+    }
+    if (data.activo === true) {
+      data.fechaDesactivacion = '';
+    }
+    
     if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
     else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
     setShowForm(false);
@@ -318,28 +327,44 @@ function VistaConfig({ configs, onSaved }) {
               </div>
               {expandedV[vendedora] && (
                 <div className="border-t border-slate-100 divide-y divide-slate-100">
-                  {productos.map(p => (
-                    <div key={p.id} className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3">
-                      <div className="flex-1 space-y-2">
-                        <p className="font-black text-emerald-600 uppercase text-xs md:text-sm">{p.productName}</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
-                          <span className="text-[8px] md:text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
-                          <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
-                          <span className="text-[8px] md:text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
-                          {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
-                          <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
-                          {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
+                  {productos.map(p => {
+                    const isActive = p.activo !== false;
+                    return (
+                      <div key={p.id} className={`p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-all ${!isActive ? 'bg-slate-100 opacity-70' : ''}`}>
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <p className={`font-black uppercase text-xs md:text-sm ${!isActive ? 'text-slate-500 line-through' : 'text-emerald-600'}`}>{p.productName}</p>
+                            {!isActive && (
+                              <span className="flex items-center gap-1 text-[9px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
+                                <PowerOff size={10} /> INACTIVO
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
+                            <span className="text-[8px] md:text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
+                            <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
+                            <span className="text-[8px] md:text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
+                            {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
+                            <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
+                            {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1 md:gap-2">
+                            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.productCost)}</p></div>
+                            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.commission)}</p></div>
+                            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
+                          </div>
+                          {p.fechaDesactivacion && (
+                            <p className="text-[8px] text-red-400 font-mono mt-1">Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</p>
+                          )}
                         </div>
-                        <div className="grid grid-cols-3 gap-1 md:gap-2">
-                          <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.productCost)}</p></div>
-                          <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.commission)}</p></div>
-                          <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => openEdit(p)} className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={14} /></button>
+                          <button onClick={() => remove(p.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={14} /></button>
                         </div>
                       </div>
-                      <div className="flex gap-2 justify-end"><button onClick={() => openEdit(p)} className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={14} /></button><button onClick={() => remove(p.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={14} /></button></div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <div className="p-4 bg-slate-50/60"><button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50"><Plus size={14} /> Agregar nuevo producto a {vendedora}</button></div>
                 </div>
               )}
@@ -358,6 +383,28 @@ function VistaConfig({ configs, onSaved }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
               {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-4 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
               <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
+              
+              {/* Interruptor de activación de producto */}
+              <div className="bg-zinc-950 text-white p-4 rounded-2xl flex items-center justify-between col-span-2">
+                <div className="flex items-center gap-3">
+                  {form.activo ? <Power size={18} className="text-emerald-400" /> : <PowerOff size={18} className="text-red-400" />}
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Estado del Producto</p>
+                    <p className="text-[8px] text-zinc-400">Si lo desactivas, se guardará la fecha automáticamente</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setField('activo', !form.activo)}
+                  className="flex items-center gap-2 text-[9px] font-black uppercase"
+                >
+                  {form.activo ? (
+                    <><ToggleRight size={28} className="text-emerald-400" /><span className="text-emerald-400">ACTIVO</span></>
+                  ) : (
+                    <><ToggleLeft size={28} className="text-red-400" /><span className="text-red-400">INACTIVO</span></>
+                  )}
+                </button>
+              </div>
+
               <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl space-y-1"><Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label><input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-3xl text-emerald-800 outline-none" /><p className="text-[8px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p></div>
               <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl space-y-1"><Label className="text-rose-600">% Devolución transportadora</Label><input type="number" value={form.returnRate} onChange={e => setField('returnRate', e.target.value)} className="w-full bg-transparent font-black text-3xl text-rose-700 outline-none" /><p className="text-[8px] text-rose-500 font-semibold">Del total despachado, % que regresa sin pagar</p></div>
               <div className="sm:col-span-2 bg-zinc-950 text-white p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3"><div><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p><p className="text-xs text-zinc-400 mt-0.5">De cada 100 pedidos registrados, ¿cuántos se pagan?</p></div><div className="text-right"><p className="text-3xl font-black font-mono text-emerald-400">{((parseFloat(form.effectiveness) || 95) / 100 * (1 - (parseFloat(form.returnRate) || 20) / 100) * 100).toFixed(1)}%</p></div></div>
@@ -381,7 +428,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con control de omisiones y último día) ─────────
+// ─── VISTA 2: REGISTRO DIARIO (sin cambios - igual que tu original) ──────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -624,7 +671,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON SECCIONES COLAPSABLES) ──────────────────────────
+// ─── VISTA 3: DASHBOARD (CON ADVERTENCIA DE PRODUCTO INACTIVO) ───────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
@@ -687,6 +734,13 @@ function VistaDashboard({ configs, months }) {
     cpaMensaje = '✅ CPA por debajo del equilibrio → Rentable';
   }
 
+  // Verificar si el producto seleccionado está desactivado
+  const selectedProductIsInactive = useMemo(() => {
+    if (filter.producto === 'all') return false;
+    const config = configs.find(c => c.id === filter.producto);
+    return config && config.activo === false;
+  }, [filter.producto, configs]);
+
   const costItems = [
     { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas`, icon: Package },
     { label: 'Fletes Totales', value: stats.totalFreightCost, note: `Incluye cargos extra`, icon: Truck },
@@ -721,6 +775,14 @@ function VistaDashboard({ configs, months }) {
         <div className="space-y-1"><Label>Producto</Label><select value={filter.producto} onChange={e => setF('producto', e.target.value)} disabled={filter.vendedora === 'all'} className="w-full px-2 py-2 md:px-3 bg-slate-50 rounded-xl font-bold text-[10px] md:text-xs outline-none disabled:opacity-40"><option value="all">TODOS</option>{filter.vendedora !== 'all' && (grouped[filter.vendedora] || []).map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select></div>
         <div className="col-span-2 md:col-span-4 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl"><Info size={12} className="text-slate-400 shrink-0" /><p className="text-[8px] md:text-[9px] font-black text-slate-400">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
+
+      {/* Advertencia de producto desactivado */}
+      {selectedProductIsInactive && filter.producto !== 'all' && (
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded-xl flex items-center gap-2">
+          <PowerOff size={16} />
+          <span className="text-xs font-black uppercase">⚠️ PRODUCTO DESACTIVADO - Los datos históricos se muestran pero el producto está inactivo</span>
+        </div>
+      )}
 
       {filteredRecords.length === 0 || activeDays === 0 ? (
         <Card className="text-center py-12 text-slate-300"><BarChart3 size={32} className="mx-auto mb-3 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card>
@@ -868,7 +930,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO */}
+          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO (CON ESTADO ACTIVO/INACTIVO) */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
@@ -881,18 +943,31 @@ function VistaDashboard({ configs, months }) {
                       <th className="p-2">Primer registro</th>
                       <th className="p-2">Último registro</th>
                       <th className="p-2">Días activos</th>
+                      <th className="p-2">Estado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {stats.detalleProductos.map(p => {
                       const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
+                      const isActive = p.activo !== false;
                       return (
                         <tr key={p.configId} className="hover:bg-slate-50">
                           <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
-                          <td className="p-2 font-semibold text-[9px] md:text-xs">{p.productName}</td>
+                          <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
+                          <td className="p-2">
+                            {!isActive ? (
+                              <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <PowerOff size={10} /> INACTIVO
+                              </span>
+                            ) : (
+                              <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <Power size={10} /> ACTIVO
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -983,4 +1058,3 @@ export default function App() {
     </div>
   );
 }
-
