@@ -233,8 +233,8 @@ const EMPTY_CONFIG = {
   fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
   extraUnitCharge: '',
   cpaEquilibrio: '',
-  activo: true,  // NUEVO: producto activo por defecto
-  fechaDesactivacion: ''  // NUEVO: fecha cuando se desactivó
+  activo: true,
+  fechaDesactivacion: ''
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -263,7 +263,6 @@ function VistaConfig({ configs, onSaved }) {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
     const data = { ...form };
     
-    // Manejo de activación/desactivación con fecha automática
     if (data.activo === false && !data.fechaDesactivacion) {
       data.fechaDesactivacion = todayColombia();
     }
@@ -385,7 +384,6 @@ function VistaConfig({ configs, onSaved }) {
               {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-4 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
               <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
               
-              {/* Interruptor de activación de producto */}
               <div className="bg-zinc-950 text-white p-4 rounded-2xl flex items-center justify-between col-span-2">
                 <div className="flex items-center gap-3">
                   {form.activo ? <Power size={18} className="text-emerald-400" /> : <PowerOff size={18} className="text-red-400" />}
@@ -429,7 +427,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (sin cambios) ──────────────────────────────────
+// ─── VISTA 2: REGISTRO DIARIO ────────────────────────────────────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -697,7 +695,7 @@ function VistaDashboard({ configs, months }) {
       if (r.date < filter.startDate || r.date > filter.endDate) return false;
       // Filtro por vendedora
       if (filter.vendedora !== 'all' && c.vendedora !== filter.vendedora) return false;
-      // Filtro por producto (NUEVO)
+      // Filtro por producto
       if (filter.producto !== 'all' && r.configId !== filter.producto) return false;
       return true;
     });
@@ -706,7 +704,6 @@ function VistaDashboard({ configs, months }) {
   // Productos disponibles para el selector (con registros en el rango + vendedora seleccionada)
   const productosConRegistros = useMemo(() => {
     const productosMap = new Map();
-    // Usamos filteredRecords para que ya tenga los filtros de fecha y vendedora
     filteredRecords.forEach(r => {
       const c = configs.find(x => x.id === r.configId);
       if (c && !productosMap.has(r.configId)) {
@@ -1039,6 +1036,83 @@ function VistaDashboard({ configs, months }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+export default function App() {
+  const { user, loading } = useAuth();
+  const [configs, setConfigs] = useState([]);
+  const [months, setMonths] = useState([]);
+  const [activeTab, setTab] = useState('dashboard');
+
+  useEffect(() => {
+    if (!user) return;
+    const u1 = onSnapshot(collection(db, 'sales_configs'), snap =>
+      setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    const u2 = onSnapshot(collection(db, 'sales_months'), snap =>
+      setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return () => { u1(); u2(); };
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <p className="text-slate-400">Cargando...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
+
+  const tabs = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { id: 'records', icon: ClipboardList, label: 'Cierres' },
+    { id: 'config', icon: Settings, label: 'Estrategias' },
+  ];
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
+      <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40 }}>
+        <div style={{ maxWidth: '72rem', margin: '0 auto', padding: '0.75rem 1rem' }}>
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="font-black italic text-emerald-400 text-sm md:text-base">Winner System 360</p>
+              <p className="text-[9px] md:text-[10px] font-bold text-zinc-500 tracking-widest">Control Ventas · Contraentrega CO</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
+                  >
+                    <t.icon size={12} />
+                    <span className="hidden sm:inline">{t.label}</span>
+                  </button>
+                ))}
+              </nav>
+              <button
+                onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase"
+              >
+                Salir
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
+        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
+        {activeTab === 'records' && <VistaRegistro configs={configs} months={months} />}
+        {activeTab === 'config' && <VistaConfig configs={configs} />}
+      </main>
     </div>
   );
 }
