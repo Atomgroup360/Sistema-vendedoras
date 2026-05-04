@@ -428,7 +428,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con lista por vendedora) ──────────────────────
+// ─── VISTA 2: REGISTRO DIARIO (con resumen de productos registrados vs activos) ─────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -452,6 +452,22 @@ function VistaRegistro({ configs, months }) {
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
+
+  // Resumen de productos registrados vs activos
+  const summary = useMemo(() => {
+    // Obtener IDs de productos registrados hoy (sin duplicados)
+    const registeredProductIds = new Set(dayRecords.map(r => r.configId));
+    // Determinar productos activos según el filtro de vendedora
+    let activeProducts = [];
+    if (filterVendor === 'all') {
+      activeProducts = configs.filter(c => c.activo !== false);
+    } else {
+      activeProducts = configs.filter(c => c.vendedora === filterVendor && c.activo !== false);
+    }
+    const totalActive = activeProducts.length;
+    const registeredActive = activeProducts.filter(p => registeredProductIds.has(p.id)).length;
+    return { totalActive, registeredActive, missing: totalActive - registeredActive };
+  }, [dayRecords, configs, filterVendor]);
 
   const recordsByVendor = useMemo(() => {
     const map = new Map();
@@ -683,6 +699,23 @@ function VistaRegistro({ configs, months }) {
         <button onClick={save} disabled={!selectedVendor || !selectedProductId} className="w-full bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 disabled:opacity-30 flex items-center justify-center gap-2"><Save size={14} /> {editingRec ? 'Actualizar' : 'Guardar'}</button>
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
+
+      {/* Resumen de productos registrados vs activos */}
+      {summary.totalActive > 0 && (
+        <Card className={`p-3 text-center ${summary.missing === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+          <div className="flex items-center justify-center gap-2">
+            <CheckCircle2 size={16} className={summary.missing === 0 ? 'text-green-600' : 'text-amber-600'} />
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              {summary.missing === 0 
+                ? '✅ TODOS LOS PRODUCTOS ACTIVOS REGISTRADOS' 
+                : `⚠️ FALTAN ${summary.missing} PRODUCTO${summary.missing !== 1 ? 'S' : ''} POR REGISTRAR`}
+            </span>
+          </div>
+          <p className="text-[10px] font-semibold mt-1">
+            Registrados hoy: <strong>{summary.registeredActive}</strong> de <strong>{summary.totalActive}</strong> productos activos
+          </p>
+        </Card>
+      )}
 
       {dayRecords.length > 0 && (
         <div className="space-y-3">
@@ -1005,7 +1038,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO (CORREGIDA) */}
+          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
