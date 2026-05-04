@@ -428,7 +428,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (sin cambios - igual que tu original) ──────────
+// ─── VISTA 2: REGISTRO DIARIO (con control de omisiones y lista de registros por vendedora) ─────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -437,6 +437,9 @@ function VistaRegistro({ configs, months }) {
   const [editingRec, setEditingRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  
+  // Estado para el filtro de vendedora en la lista de registros del día
+  const [filterVendor, setFilterVendor] = useState('all');
 
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -451,6 +454,25 @@ function VistaRegistro({ configs, months }) {
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
+
+  // Agrupar registros del día por vendedora para el filtro
+  const recordsByVendor = useMemo(() => {
+    const map = new Map();
+    dayRecords.forEach(rec => {
+      const config = configs.find(c => c.id === rec.configId);
+      if (!config) return;
+      const vendor = config.vendedora;
+      if (!map.has(vendor)) map.set(vendor, []);
+      map.get(vendor).push({ ...rec, config });
+    });
+    return map;
+  }, [dayRecords, configs]);
+
+  // Registros filtrados según la vendedora seleccionada
+  const filteredDayRecords = useMemo(() => {
+    if (filterVendor === 'all') return dayRecords;
+    return recordsByVendor.get(filterVendor) || [];
+  }, [dayRecords, recordsByVendor, filterVendor]);
 
   const { ultimoDia, diasFaltantes } = useMemo(() => {
     let maxDate = null;
@@ -666,7 +688,67 @@ function VistaRegistro({ configs, months }) {
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
 
-      {dayRecords.length > 0 && (<div className="space-y-2"><p className="text-[9px] font-black text-slate-400 uppercase ml-1">Registros del día</p>{dayRecords.map(r => { const c = configs.find(x => x.id === r.configId); const eff = parseFloat(c?.effectiveness || 95) / 100; const ret = parseFloat(c?.returnRate || 20) / 100; const IER = eff * (1 - ret); const orders = parseFloat(r.orders) || 0; const units = parseFloat(r.units) || 0; const avgU = orders > 0 ? units / orders : 1; const deliveries = orders * IER; const unitsDelivered = deliveries * avgU; return (<Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 ${r.restDay ? 'bg-slate-100' : ''}`}><div className="flex-1"><div className="flex flex-wrap items-center gap-1"><span className="font-black text-emerald-600 text-xs">{c?.vendedora}</span><span className="text-slate-300">·</span><span className="font-semibold text-xs">{c?.productName}</span>{r.restDay && <span className="text-[8px] font-black bg-amber-100 text-amber-700 px-1 rounded-full"><Moon size={8} /> DESCANSO</span>}</div><div className="flex flex-wrap gap-1 mt-1"><span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.orders} guías</span><span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.units} unid</span><span className="text-[8px] font-black bg-emerald-50 px-1.5 py-0.5 rounded">{fmtN(deliveries)} entregas</span><span className="text-[8px] font-black bg-blue-50 px-1.5 py-0.5 rounded">{fmtN(unitsDelivered)} prod.</span><span className="text-[8px] font-black bg-zinc-100 px-1.5 py-0.5 rounded">{fmt(r.revenue)}</span></div></div><div className="flex gap-1 justify-end"><button onClick={() => startEdit(r)} className="p-1.5 rounded hover:bg-amber-50"><Pencil size={12} /></button><button onClick={() => deleteRec(r.id)} className="p-1.5 rounded hover:bg-rose-50"><Trash2 size={12} /></button></div></Card>);})}</div>)}
+      {/* Lista de registros del día con filtro por vendedora */}
+      {dayRecords.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros del día</p>
+            <select
+              value={filterVendor}
+              onChange={(e) => setFilterVendor(e.target.value)}
+              className="text-[10px] font-black uppercase bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:border-emerald-400"
+            >
+              <option value="all">TODAS LAS VENDEDORAS</option>
+              {Array.from(recordsByVendor.keys()).sort().map(v => (
+                <option key={v} value={v}>{v.toUpperCase()}</option>
+              ))}
+            </select>
+          </div>
+          
+          {filteredDayRecords.length === 0 ? (
+            <Card className="text-center py-8 text-slate-400 text-[10px]">
+              No hay registros para la vendedora seleccionada en esta fecha.
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {filteredDayRecords.map(r => {
+                const c = configs.find(x => x.id === r.configId);
+                const eff = parseFloat(c?.effectiveness || 95) / 100;
+                const ret = parseFloat(c?.returnRate || 20) / 100;
+                const IER = eff * (1 - ret);
+                const orders = parseFloat(r.orders) || 0;
+                const units = parseFloat(r.units) || 0;
+                const avgU = orders > 0 ? units / orders : 1;
+                const deliveries = orders * IER;
+                const unitsDelivered = deliveries * avgU;
+                return (
+                  <Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 ${r.restDay ? 'bg-slate-100' : ''}`}>
+                    <div className="flex-1">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="font-black text-emerald-600 text-xs">{c?.vendedora}</span>
+                        <span className="text-slate-300">·</span>
+                        <span className="font-semibold text-xs">{c?.productName}</span>
+                        {r.restDay && <span className="text-[8px] font-black bg-amber-100 text-amber-700 px-1 rounded-full"><Moon size={8} /> DESCANSO</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        <span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.orders} guías</span>
+                        <span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.units} unid</span>
+                        <span className="text-[8px] font-black bg-emerald-50 px-1.5 py-0.5 rounded">{fmtN(deliveries)} entregas</span>
+                        <span className="text-[8px] font-black bg-blue-50 px-1.5 py-0.5 rounded">{fmtN(unitsDelivered)} prod.</span>
+                        <span className="text-[8px] font-black bg-zinc-100 px-1.5 py-0.5 rounded">{fmt(r.revenue)}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-1 justify-end">
+                      <button onClick={() => startEdit(r)} className="p-1.5 rounded hover:bg-amber-50"><Pencil size={12} /></button>
+                      <button onClick={() => deleteRec(r.id)} className="p-1.5 rounded hover:bg-rose-50"><Trash2 size={12} /></button>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -734,7 +816,6 @@ function VistaDashboard({ configs, months }) {
     cpaMensaje = '✅ CPA por debajo del equilibrio → Rentable';
   }
 
-  // Verificar si el producto seleccionado está desactivado
   const selectedProductIsInactive = useMemo(() => {
     if (filter.producto === 'all') return false;
     const config = configs.find(c => c.id === filter.producto);
@@ -776,7 +857,6 @@ function VistaDashboard({ configs, months }) {
         <div className="col-span-2 md:col-span-4 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl"><Info size={12} className="text-slate-400 shrink-0" /><p className="text-[8px] md:text-[9px] font-black text-slate-400">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
 
-      {/* Advertencia de producto desactivado */}
       {selectedProductIsInactive && filter.producto !== 'all' && (
         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded-xl flex items-center gap-2">
           <PowerOff size={16} />
@@ -968,7 +1048,7 @@ function VistaDashboard({ configs, months }) {
                               </span>
                             )}
                           </td>
-                        </tr>
+                        </td>
                       );
                     })}
                   </tbody>
