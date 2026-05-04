@@ -428,7 +428,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con control de omisiones y lista de registros por vendedora) ─────────
+// ─── VISTA 2: REGISTRO DIARIO (con lista por vendedora) ──────────────────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -437,8 +437,6 @@ function VistaRegistro({ configs, months }) {
   const [editingRec, setEditingRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  
-  // Estado para el filtro de vendedora en la lista de registros del día
   const [filterVendor, setFilterVendor] = useState('all');
 
   const grouped = useMemo(() => configs.reduce((a, c) => {
@@ -455,7 +453,6 @@ function VistaRegistro({ configs, months }) {
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
-  // Agrupar registros del día por vendedora para el filtro
   const recordsByVendor = useMemo(() => {
     const map = new Map();
     dayRecords.forEach(rec => {
@@ -468,7 +465,6 @@ function VistaRegistro({ configs, months }) {
     return map;
   }, [dayRecords, configs]);
 
-  // Registros filtrados según la vendedora seleccionada
   const filteredDayRecords = useMemo(() => {
     if (filterVendor === 'all') return dayRecords;
     return recordsByVendor.get(filterVendor) || [];
@@ -688,7 +684,6 @@ function VistaRegistro({ configs, months }) {
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
 
-      {/* Lista de registros del día con filtro por vendedora */}
       {dayRecords.length > 0 && (
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -1010,7 +1005,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO (CON ESTADO ACTIVO/INACTIVO) */}
+          {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO (CORREGIDA) */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
@@ -1048,7 +1043,7 @@ function VistaDashboard({ configs, months }) {
                               </span>
                             )}
                           </td>
-                        </td>
+                        </tr>
                       );
                     })}
                   </tbody>
