@@ -148,6 +148,7 @@ function calcularStats(records, configs) {
         primerRegistro: r.date,
         ultimoRegistro: r.date,
         activo: c.activo !== false,
+        fechaCreacion: c.fechaCreacion,
         fechaDesactivacion: c.fechaDesactivacion
       };
     } else {
@@ -200,7 +201,7 @@ const Label = ({ children, className = '' }) => (
   <p className={`text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ${className}`}>{children}</p>
 );
 
-const InputField = ({ label, type = 'text', value, onChange, placeholder, className = '', dark = false }) => (
+const InputField = ({ label, type = 'text', value, onChange, placeholder, className = '', dark = false, disabled = false }) => (
   <div className="space-y-1">
     {label && <Label className={dark ? 'text-zinc-500' : ''}>{label}</Label>}
     <input
@@ -208,10 +209,11 @@ const InputField = ({ label, type = 'text', value, onChange, placeholder, classN
       value={value}
       onChange={onChange}
       placeholder={placeholder}
-      className={`w-full px-4 py-3.5 rounded-2xl font-semibold text-sm outline-none transition-all
+      disabled={disabled}
+      className={`w-full px-4 py-3 rounded-2xl font-semibold text-sm outline-none transition-all
         ${dark
-          ? 'bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-600 focus:border-emerald-500'
-          : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400 text-slate-900'
+          ? 'bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-600 focus:border-emerald-500 disabled:opacity-50'
+          : 'bg-slate-50 border-2 border-transparent focus:border-emerald-400 text-slate-900 disabled:bg-slate-100 disabled:opacity-70'
         } ${className}`}
     />
   </div>
@@ -225,7 +227,7 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
   </div>
 );
 
-// ─── VISTA 1: CONFIGURACIÓN (con interruptor de activación de producto) ──────
+// ─── VISTA 1: CONFIGURACIÓN (con fecha de creación y fecha de desactivación seleccionables) ──────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
@@ -234,6 +236,7 @@ const EMPTY_CONFIG = {
   extraUnitCharge: '',
   cpaEquilibrio: '',
   activo: true,
+  fechaCreacion: todayColombia(),
   fechaDesactivacion: ''
 };
 
@@ -249,10 +252,10 @@ function VistaConfig({ configs, onSaved }) {
     return a;
   }, {}), [configs]);
 
-  const openNew = () => { setEditId(null); setForm(EMPTY_CONFIG); setShowForm(true); };
+  const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia() }); setShowForm(true); };
   const openNewForVendor = (vendedora) => {
     setEditId(null);
-    setForm({ ...EMPTY_CONFIG, vendedora });
+    setForm({ ...EMPTY_CONFIG, vendedora, fechaCreacion: todayColombia() });
     setExpandedV(x => ({ ...x, [vendedora]: true }));
     setShowForm(true);
   };
@@ -263,9 +266,14 @@ function VistaConfig({ configs, onSaved }) {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
     const data = { ...form };
     
+    // Asegurar fecha de creación (si no existe, usar hoy)
+    if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
+    
+    // Si se desactiva y no tiene fecha de desactivación, la fecha por defecto es hoy
     if (data.activo === false && !data.fechaDesactivacion) {
       data.fechaDesactivacion = todayColombia();
     }
+    // Si se vuelve a activar, limpiar fecha de desactivación
     if (data.activo === true) {
       data.fechaDesactivacion = '';
     }
@@ -354,9 +362,10 @@ function VistaConfig({ configs, onSaved }) {
                             <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.commission)}</p></div>
                             <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
                           </div>
-                          {p.fechaDesactivacion && (
-                            <p className="text-[8px] text-red-400 font-mono mt-1">Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</p>
-                          )}
+                          <div className="text-[8px] text-slate-400 font-mono flex gap-2 flex-wrap">
+                            {p.fechaCreacion && <span>📅 Creación: {parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO')}</span>}
+                            {p.fechaDesactivacion && <span className="text-red-400">🔴 Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</span>}
+                          </div>
                         </div>
                         <div className="flex gap-2 justify-end">
                           <button onClick={() => openEdit(p)} className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={14} /></button>
@@ -380,29 +389,38 @@ function VistaConfig({ configs, onSaved }) {
               <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-slate-100"><X size={20} /></button>
             </div>
             {isPrefilledVendor && (<div className="mb-6 flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl"><div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{form.vendedora[0]?.toUpperCase()}</div><div><p className="text-xs font-black text-emerald-700 uppercase">{form.vendedora}</p><p className="text-[9px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p></div></div>)}
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-5">
               {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-4 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
               <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
               
+              {/* Fecha de creación seleccionable */}
+              <InputField label="Fecha de Creación" type="date" value={form.fechaCreacion} onChange={e => setField('fechaCreacion', e.target.value)} placeholder="" className="col-span-1" />
+
               {/* Interruptor de activación de producto */}
-              <div className="bg-zinc-950 text-white p-4 rounded-2xl flex items-center justify-between col-span-2">
-                <div className="flex items-center gap-3">
-                  {form.activo ? <Power size={18} className="text-emerald-400" /> : <PowerOff size={18} className="text-red-400" />}
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest">Estado del Producto</p>
-                    <p className="text-[8px] text-zinc-400">Si lo desactivas, se guardará la fecha automáticamente</p>
+              <div className="bg-zinc-950 text-white p-4 rounded-2xl flex flex-col gap-3 col-span-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {form.activo ? <Power size={18} className="text-emerald-400" /> : <PowerOff size={18} className="text-red-400" />}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest">Estado del Producto</p>
+                      <p className="text-[8px] text-zinc-400">Si lo desactivas, podrás elegir la fecha de desactivación</p>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setField('activo', !form.activo)}
+                    className="flex items-center gap-2 text-[9px] font-black uppercase"
+                  >
+                    {form.activo ? (
+                      <><ToggleRight size={28} className="text-emerald-400" /><span className="text-emerald-400">ACTIVO</span></>
+                    ) : (
+                      <><ToggleLeft size={28} className="text-red-400" /><span className="text-red-400">INACTIVO</span></>
+                    )}
+                  </button>
                 </div>
-                <button
-                  onClick={() => setField('activo', !form.activo)}
-                  className="flex items-center gap-2 text-[9px] font-black uppercase"
-                >
-                  {form.activo ? (
-                    <><ToggleRight size={28} className="text-emerald-400" /><span className="text-emerald-400">ACTIVO</span></>
-                  ) : (
-                    <><ToggleLeft size={28} className="text-red-400" /><span className="text-red-400">INACTIVO</span></>
-                  )}
-                </button>
+                {!form.activo && (
+                  <InputField label="Fecha de Desactivación (desde esta fecha no se podrá registrar)" type="date" value={form.fechaDesactivacion} onChange={e => setField('fechaDesactivacion', e.target.value)} placeholder="" className="w-full" />
+                )}
               </div>
 
               <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl space-y-1"><Label className="text-emerald-700">% Efectividad (pedidos que salen)</Label><input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-3xl text-emerald-800 outline-none" /><p className="text-[8px] text-emerald-600 font-semibold">Pedidos cancelados o sin cobertura que NO salen</p></div>
@@ -417,7 +435,7 @@ function VistaConfig({ configs, onSaved }) {
               <InputField label="Costos Fijos Operativos por Entrega" type="number" value={form.fixedCosts} onChange={e => setField('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
               <InputField label="Meta de Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => setField('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
               <InputField label="CPA Equilibrio (por pedido)" type="number" value={form.cpaEquilibrio} onChange={e => setField('cpaEquilibrio', e.target.value)} placeholder="Ej: 15000" />
-              <div className="bg-zinc-950 text-white p-4 rounded-2xl space-y-2"><div className="flex justify-between items-center"><Label className="text-zinc-500">Inversión Ads Diaria</Label><button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">{form.fixedAdSpend ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>}</button></div><input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" /><p className="text-[9px] text-zinc-600 font-semibold">{form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}</p></div>
+              <div className="bg-zinc-950 text-white p-4 rounded-2xl space-y-2 col-span-2"><div className="flex justify-between items-center"><Label className="text-zinc-500">Inversión Ads Diaria</Label><button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1.5 text-[9px] font-black uppercase">{form.fixedAdSpend ? <><ToggleRight size={22} className="text-emerald-400" /> <span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={22} className="text-zinc-500" /> <span className="text-zinc-500">MANUAL</span></>}</button></div><input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-2xl outline-none placeholder:text-zinc-700" /><p className="text-[9px] text-zinc-600 font-semibold">{form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}</p></div>
               {form.priceSingle && form.productCost && (<div className={`sm:col-span-2 p-4 rounded-2xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Preview Utilidad Estimada por Pedido Registrado</p><p className={`text-2xl md:text-3xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p><p className="text-[8px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos configurados</p></div>)}
             </div>
             <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()} className="w-full mt-6 bg-emerald-500 text-zinc-950 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2"><Save size={18} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}</button>
@@ -428,7 +446,7 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
-// ─── VISTA 2: REGISTRO DIARIO (con resumen de productos registrados vs activos) ─────────
+// ─── VISTA 2: REGISTRO DIARIO (con filtro de productos activos en la fecha, y resumen de faltantes solo para productos que ya existían) ─────────
 function VistaRegistro({ configs, months }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -445,7 +463,23 @@ function VistaRegistro({ configs, months }) {
     return a;
   }, {}), [configs]);
   const vendors = useMemo(() => Object.keys(grouped).sort(), [grouped]);
-  const productsOfVendor = useMemo(() => selectedVendor ? grouped[selectedVendor] || [] : [], [selectedVendor, grouped]);
+
+  // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
+  const productsOfVendor = useMemo(() => {
+    if (!selectedVendor) return [];
+    const productos = grouped[selectedVendor] || [];
+    const selectedDateObj = parseColombiaDate(selectedDate);
+    return productos.filter(p => {
+      // Fecha de creación: el producto debe haber sido creado en o antes de la fecha seleccionada
+      if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > selectedDateObj) return false;
+      // Fecha de desactivación: si está desactivado y la fecha de desactivación es anterior o igual a la fecha seleccionada, no debe aparecer
+      if (p.activo === false) {
+        if (p.fechaDesactivacion && parseColombiaDate(p.fechaDesactivacion) <= selectedDateObj) return false;
+      }
+      return true;
+    });
+  }, [selectedVendor, grouped, selectedDate]);
+
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
 
@@ -453,21 +487,35 @@ function VistaRegistro({ configs, months }) {
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
-  // Resumen de productos registrados vs activos
+  // Resumen de productos registrados vs activos (solo aquellos que deberían estar activos en la fecha)
   const summary = useMemo(() => {
-    // Obtener IDs de productos registrados hoy (sin duplicados)
-    const registeredProductIds = new Set(dayRecords.map(r => r.configId));
-    // Determinar productos activos según el filtro de vendedora
+    // Productos que deberían estar activos según fecha de creación y desactivación
     let activeProducts = [];
     if (filterVendor === 'all') {
-      activeProducts = configs.filter(c => c.activo !== false);
+      activeProducts = configs.filter(c => {
+        const fechaCreacion = c.fechaCreacion ? parseColombiaDate(c.fechaCreacion) : null;
+        const fechaDesactivacion = c.fechaDesactivacion ? parseColombiaDate(c.fechaDesactivacion) : null;
+        const fechaCierre = parseColombiaDate(selectedDate);
+        if (fechaCreacion && fechaCreacion > fechaCierre) return false;
+        if (c.activo === false && fechaDesactivacion && fechaDesactivacion <= fechaCierre) return false;
+        return true;
+      });
     } else {
-      activeProducts = configs.filter(c => c.vendedora === filterVendor && c.activo !== false);
+      activeProducts = configs.filter(c => {
+        if (c.vendedora !== filterVendor) return false;
+        const fechaCreacion = c.fechaCreacion ? parseColombiaDate(c.fechaCreacion) : null;
+        const fechaDesactivacion = c.fechaDesactivacion ? parseColombiaDate(c.fechaDesactivacion) : null;
+        const fechaCierre = parseColombiaDate(selectedDate);
+        if (fechaCreacion && fechaCreacion > fechaCierre) return false;
+        if (c.activo === false && fechaDesactivacion && fechaDesactivacion <= fechaCierre) return false;
+        return true;
+      });
     }
-    const totalActive = activeProducts.length;
+    const registeredProductIds = new Set(dayRecords.map(r => r.configId));
     const registeredActive = activeProducts.filter(p => registeredProductIds.has(p.id)).length;
+    const totalActive = activeProducts.length;
     return { totalActive, registeredActive, missing: totalActive - registeredActive };
-  }, [dayRecords, configs, filterVendor]);
+  }, [dayRecords, configs, filterVendor, selectedDate]);
 
   const recordsByVendor = useMemo(() => {
     const map = new Map();
@@ -700,7 +748,7 @@ function VistaRegistro({ configs, months }) {
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
 
-      {/* Resumen de productos registrados vs activos */}
+      {/* Resumen de productos registrados vs activos (solo los que deberían estar activos en esta fecha) */}
       {summary.totalActive > 0 && (
         <Card className={`p-3 text-center ${summary.missing === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
           <div className="flex items-center justify-center gap-2">
@@ -712,7 +760,7 @@ function VistaRegistro({ configs, months }) {
             </span>
           </div>
           <p className="text-[10px] font-semibold mt-1">
-            Registrados hoy: <strong>{summary.registeredActive}</strong> de <strong>{summary.totalActive}</strong> productos activos
+            Registrados hoy: <strong>{summary.registeredActive}</strong> de <strong>{summary.totalActive}</strong> productos activos en esta fecha
           </p>
         </Card>
       )}
@@ -781,7 +829,7 @@ function VistaRegistro({ configs, months }) {
   );
 }
 
-// ─── VISTA 3: DASHBOARD (CON ADVERTENCIA DE PRODUCTO INACTIVO) ───────────────
+// ─── VISTA 3: DASHBOARD (igual que antes, sin cambios) ──────────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia(), vendedora: 'all', producto: 'all' });
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
