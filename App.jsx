@@ -877,13 +877,14 @@ function VistaDashboard({ configs, months }) {
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
 
-  const [openSections, setOpenSections] = useState({
-    embudo: false,
-    costos: false,
-    ranking: false,
-    proyeccion: false,
-    analisisProductos: false
-  });
+ const [openSections, setOpenSections] = useState({
+  embudo: false,
+  costos: false,
+  ranking: false,
+  proyeccion: false,
+  analisisProductos: false,
+  productosRevision: true  // ← Agrega esta línea (true para que aparezca abierto por defecto)
+});
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const filteredRecords = useMemo(() => {
@@ -962,7 +963,82 @@ function VistaDashboard({ configs, months }) {
       {openSections[section] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
     </button>
   );
-
+// Dentro de VistaDashboard, antes del return, agrega este useMemo:
+const productosEnRevision = useMemo(() => {
+  if (filteredRecords.length === 0) return [];
+  
+  // Agrupar registros por producto
+  const productosMap = new Map();
+  
+  filteredRecords.forEach(record => {
+    const config = configs.find(c => c.id === record.configId);
+    if (!config) return;
+    
+    if (!productosMap.has(record.configId)) {
+      productosMap.set(record.configId, {
+        configId: record.configId,
+        vendedora: config.vendedora,
+        productName: config.productName,
+        targetProfit: parseFloat(config.targetProfit) || 0,
+        records: []
+      });
+    }
+    productosMap.get(record.configId).records.push(record);
+  });
+  
+  // Calcular proyección por producto
+  const resultados = [];
+  
+  for (const [configId, producto] of productosMap) {
+    const { records, vendedora, productName, targetProfit } = producto;
+    
+    // Calcular stats solo para este producto
+    const stats = calcularStats(records, configs);
+    
+    // Días activos para este producto
+    const activeRecords = records.filter(r => !r.restDay);
+    const uniqueDates = new Set(activeRecords.map(r => r.date));
+    const activeDays = uniqueDates.size;
+    
+    // Utilidad diaria promedio
+    const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
+    
+    // Proyección a 30 días
+    const proyeccion30 = avgDiario * 30;
+    
+    // Determinar estado según la misma lógica del semáforo
+    let estado = { texto: 'REVISIÓN', emoji: '🔴', color: 'bg-rose-500', textColor: 'text-rose-500' };
+    if (proyeccion30 >= 1_000_000) {
+      estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
+    } else if (proyeccion30 >= targetProfit && targetProfit > 0) {
+      estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+    }
+    
+    // Solo incluir si está en REVISIÓN
+    if (estado.texto === 'REVISIÓN') {
+      resultados.push({
+        configId,
+        vendedora,
+        productName,
+        targetProfit,
+        proyeccion30,
+        avgDiario,
+        utilidadPeriodo: stats.net,
+        ier: stats.ierGlobal,
+        roas: stats.roas,
+        cpaReal: stats.cpaReal,
+        cpaEquilibrio: parseFloat(configs.find(c => c.id === configId)?.cpaEquilibrio) || 0,
+        pedidos: stats.grossOrd,
+        entregas: stats.finalDeliveries,
+        diasActivos: activeDays,
+        estado
+      });
+    }
+  }
+  
+  // Ordenar por peor rendimiento (menor proyección)
+  return resultados.sort((a, b) => a.proyeccion30 - b.proyeccion30);
+}, [filteredRecords, configs]);
   return (
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
@@ -1127,7 +1203,91 @@ function VistaDashboard({ configs, months }) {
               </div>
             )}
           </div>
-
+{/* SECCIÓN PRODUCTOS EN REVISIÓN */}
+<div className="space-y-2">
+  <button
+    onClick={() => toggleSection('productosRevision')}
+    className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500"
+  >
+    <div className="flex items-center gap-1.5 md:gap-2">
+      <AlertTriangle size={14} className="text-red-600" />
+      <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-red-700">
+        🚨 PRODUCTOS EN REVISIÓN ({productosEnRevision.length})
+      </span>
+    </div>
+    {openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+  </button>
+  
+  {openSections.productosRevision && (
+    <Card className="overflow-hidden p-0">
+      {productosEnRevision.length === 0 ? (
+        <div className="p-6 text-center text-green-600 flex items-center justify-center gap-2">
+          <CheckCircle2 size={20} />
+          <span className="font-black text-sm">✅ No hay productos en revisión en este período</span>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-[10px] md:text-sm">
+            <thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700">
+              <tr>
+                <th className="p-2 md:p-3">Vendedora</th>
+                <th className="p-2 md:p-3">Producto</th>
+                <th className="p-2 md:p-3 text-right">Utilidad Período</th>
+                <th className="p-2 md:p-3 text-right">Proy. 30 días</th>
+                <th className="p-2 md:p-3 text-right">Meta Mensual</th>
+                <th className="p-2 md:p-3 text-right">% Meta</th>
+                <th className="p-2 md:p-3 text-right">IER</th>
+                <th className="p-2 md:p-3 text-right">ROAS</th>
+                <th className="p-2 md:p-3 text-right">CPA</th>
+                <th className="p-2 md:p-3">⚠️ Alertas</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {productosEnRevision.map(p => {
+                const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
+                const alertas = [];
+                if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida');
+                if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`);
+                if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`);
+                if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto');
+                if (p.pedidos === 0) alertas.push('⚠️ sin pedidos');
+                
+                return (
+                  <tr key={p.configId} className="hover:bg-red-50/50 transition">
+                    <td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td>
+                    <td className="p-2 md:p-3 font-semibold text-[9px] md:text-xs">{p.productName}</td>
+                    <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                      {fmt(p.utilidadPeriodo)}
+                    </td>
+                    <td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td>
+                    <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
+                    <td className="p-2 md:p-3 text-right font-mono font-black">
+                      <span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>
+                        {fmtDec(porcentajeMeta, 1)}%
+                      </span>
+                    </td>
+                    <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td>
+                    <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
+                    <td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td>
+                    <td className="p-2 md:p-3">
+                      <div className="flex flex-wrap gap-1">
+                        {alertas.map((a, i) => (
+                          <span key={i} className="text-[7px] md:text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">
+                            {a}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  )}
+</div>
           {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
   <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
