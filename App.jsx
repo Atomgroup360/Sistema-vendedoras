@@ -1014,36 +1014,36 @@ function VistaDashboard({ configs, months }) {
 
           {/* SECCIÓN RANKING DE VENDEDORAS */}
           <div className="space-y-2">
-            <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
-            {openSections.ranking && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs md:text-sm">
-                  <thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500">
-                    <tr>
-                      <th className="p-2 rounded-l-xl">#</th>
-                      <th className="p-2">Vendedora</th>
-                      <th className="p-2 text-right">Pedidos</th>
-                      <th className="p-2 text-right">Recaudo Neto</th>
-                      <th className="p-2 text-right">Utilidad</th>
-                      <th className="p-2 text-right">IER</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {stats.rankingVendedoras?.map((v, idx) => (
-                      <tr key={v.vendedora} className="hover:bg-slate-50">
-                        <td className="p-2 font-black text-emerald-600">{idx + 1}</td>
-                        <td className="p-2 font-bold uppercase">{v.vendedora}</td>
-                        <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
-                        <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
-                        <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
-                        <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
-                      <tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+  <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
+  {openSections.ranking && (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse text-xs md:text-sm">
+        <thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500">
+          <tr>
+            <th className="p-2 rounded-l-xl">#</th>
+            <th className="p-2">Vendedora</th>
+            <th className="p-2 text-right">Pedidos</th>
+            <th className="p-2 text-right">Recaudo Neto</th>
+            <th className="p-2 text-right">Utilidad</th>
+            <th className="p-2 text-right">IER</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {stats.rankingVendedoras?.map((v, idx) => (
+            <tr key={v.vendedora} className="hover:bg-slate-50">
+              <td className="p-2 font-black text-emerald-600">{idx + 1}</td>
+              <td className="p-2 font-bold uppercase">{v.vendedora}</td>
+              <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
+              <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
+              <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
+              <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
 
           {/* SECCIÓN UTILIDAD Y PROYECCIÓN */}
           <div className="space-y-2">
@@ -1089,51 +1089,51 @@ function VistaDashboard({ configs, months }) {
 
           {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
-            <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
-            {openSections.analisisProductos && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[10px] md:text-sm">
-                  <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
-                    <tr>
-                      <th className="p-2">Vendedora</th>
-                      <th className="p-2">Producto</th>
-                      <th className="p-2">Primer registro</th>
-                      <th className="p-2">Último registro</th>
-                      <th className="p-2">Días activos</th>
-                      <th className="p-2">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {stats.detalleProductos.map(p => {
-                      const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
-                      const isActive = p.activo !== false;
-                      return (
-                        <tr key={p.configId} className="hover:bg-slate-50">
-                          <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
-                          <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td>
-                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
-                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
-                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
-                          <td className="p-2">
-                            {!isActive ? (
-                              <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                                <PowerOff size={10} /> INACTIVO
-                              </span>
-                            ) : (
-                              <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                                <Power size={10} /> ACTIVO
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
+  <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
+  {openSections.analisisProductos && (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse text-[10px] md:text-sm">
+        <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
+          <tr>
+            <th className="p-2">Vendedora</th>
+            <th className="p-2">Producto</th>
+            <th className="p-2">Primer registro</th>
+            <th className="p-2">Último registro</th>
+            <th className="p-2">Días activos</th>
+            <th className="p-2">Estado</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {stats.detalleProductos.map(p => {
+            const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
+            const isActive = p.activo !== false;
+            return (
+              <tr key={p.configId} className="hover:bg-slate-50">
+                <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
+                <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td>
+                <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
+                <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
+                <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
+                <td className="p-2">
+                  {!isActive ? (
+                    <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                      <PowerOff size={10} /> INACTIVO
+                    </span>
+                  ) : (
+                    <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                      <Power size={10} /> ACTIVO
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
+       </>
       )}
     </div>
   );
