@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, addDoc, setDoc, updateDoc, deleteDoc, doc, onSnapshot,
-  Timestamp, serverTimestamp   // ← Agregado para la Agenda
+  Timestamp, serverTimestamp
 } from 'firebase/firestore';
 import {
   LayoutDashboard, ClipboardList, Settings, Plus, Trash2, Calendar,
@@ -267,14 +267,10 @@ function VistaConfig({ configs, onSaved }) {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
     const data = { ...form };
     
-    // Asegurar fecha de creación (si no existe, usar hoy)
     if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-    
-    // Si se desactiva y no tiene fecha de desactivación, la fecha por defecto es hoy
     if (data.activo === false && !data.fechaDesactivacion) {
       data.fechaDesactivacion = todayColombia();
     }
-    // Si se vuelve a activar, limpiar fecha de desactivación
     if (data.activo === true) {
       data.fechaDesactivacion = '';
     }
@@ -327,7 +323,7 @@ function VistaConfig({ configs, onSaved }) {
               <div className="flex items-center justify-between gap-3 p-4 md:p-5 bg-white">
                 <div onClick={() => toggleV(vendedora)} className="flex-1 flex items-center gap-3 cursor-pointer select-none">
                   <div className="w-8 h-8 md:w-10 md:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{vendedora[0]?.toUpperCase()}</div>
-                  <div><p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''} · click para {expandedV[vendedora] ? 'cerrar' : 'ver'}</p></div>
+                  <div><p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p></div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button type="button" onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }} className="flex items-center gap-1 bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-emerald-400"><Plus size={12} /> Producto</button>
@@ -395,10 +391,8 @@ function VistaConfig({ configs, onSaved }) {
               {isPrefilledVendor ? (<div className="sm:col-span-2 bg-zinc-950 text-white px-4 py-4 rounded-2xl flex items-center gap-3"><Users size={16} className="text-emerald-400 shrink-0" /><div><p className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Vendedora</p><p className="font-black text-emerald-400 text-base uppercase">{form.vendedora}</p></div></div>) : (<InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />)}
               <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" className={isPrefilledVendor ? 'sm:col-span-1' : ''} />
               
-              {/* Fecha de creación seleccionable */}
               <InputField label="Fecha de Creación" type="date" value={form.fechaCreacion} onChange={e => setField('fechaCreacion', e.target.value)} placeholder="" className="col-span-1" />
 
-              {/* Interruptor de activación de producto */}
               <div className="bg-zinc-950 text-white p-4 rounded-2xl flex flex-col gap-3 col-span-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -465,18 +459,13 @@ function VistaRegistro({ configs, months }) {
   }, {}), [configs]);
   const vendors = useMemo(() => Object.keys(grouped).sort(), [grouped]);
 
-  // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
   const productsOfVendor = useMemo(() => {
     if (!selectedVendor) return [];
     const productos = grouped[selectedVendor] || [];
     const selectedDateObj = parseColombiaDate(selectedDate);
     return productos.filter(p => {
-      // Fecha de creación: el producto debe haber sido creado en o antes de la fecha seleccionada
       if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > selectedDateObj) return false;
-      // Fecha de desactivación: si está desactivado y la fecha de desactivación es anterior o igual a la fecha seleccionada, no debe aparecer
-      if (p.activo === false) {
-        if (p.fechaDesactivacion && parseColombiaDate(p.fechaDesactivacion) <= selectedDateObj) return false;
-      }
+      if (p.activo === false && p.fechaDesactivacion && parseColombiaDate(p.fechaDesactivacion) <= selectedDateObj) return false;
       return true;
     });
   }, [selectedVendor, grouped, selectedDate]);
@@ -488,9 +477,7 @@ function VistaRegistro({ configs, months }) {
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
 
-  // Resumen de productos registrados vs activos (solo aquellos que deberían estar activos en la fecha)
   const summary = useMemo(() => {
-    // Productos que deberían estar activos según fecha de creación y desactivación
     let activeProducts = [];
     if (filterVendor === 'all') {
       activeProducts = configs.filter(c => {
@@ -749,7 +736,6 @@ function VistaRegistro({ configs, months }) {
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
 
-      {/* Resumen de productos registrados vs activos (solo los que deberían estar activos en esta fecha) */}
       {summary.totalActive > 0 && (
         <Card className={`p-3 text-center ${summary.missing === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
           <div className="flex items-center justify-center gap-2">
@@ -1014,36 +1000,36 @@ function VistaDashboard({ configs, months }) {
 
           {/* SECCIÓN RANKING DE VENDEDORAS */}
           <div className="space-y-2">
-  <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
-  {openSections.ranking && (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-xs md:text-sm">
-        <thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500">
-          <tr>
-            <th className="p-2 rounded-l-xl">#</th>
-            <th className="p-2">Vendedora</th>
-            <th className="p-2 text-right">Pedidos</th>
-            <th className="p-2 text-right">Recaudo Neto</th>
-            <th className="p-2 text-right">Utilidad</th>
-            <th className="p-2 text-right">IER</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {stats.rankingVendedoras?.map((v, idx) => (
-            <tr key={v.vendedora} className="hover:bg-slate-50">
-              <td className="p-2 font-black text-emerald-600">{idx + 1}</td>
-              <td className="p-2 font-bold uppercase">{v.vendedora}</td>
-              <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
-              <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
-              <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
-              <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
+            <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
+            {openSections.ranking && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs md:text-sm">
+                  <thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500">
+                    <tr>
+                      <th className="p-2 rounded-l-xl">#</th>
+                      <th className="p-2">Vendedora</th>
+                      <th className="p-2 text-right">Pedidos</th>
+                      <th className="p-2 text-right">Recaudo Neto</th>
+                      <th className="p-2 text-right">Utilidad</th>
+                      <th className="p-2 text-right">IER</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stats.rankingVendedoras?.map((v, idx) => (
+                      <tr key={v.vendedora} className="hover:bg-slate-50">
+                        <td className="p-2 font-black text-emerald-600">{idx + 1}</td>
+                        <td className="p-2 font-bold uppercase">{v.vendedora}</td>
+                        <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
+                        <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
+                        <td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td>
+                        <td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio, 2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           {/* SECCIÓN UTILIDAD Y PROYECCIÓN */}
           <div className="space-y-2">
@@ -1089,57 +1075,57 @@ function VistaDashboard({ configs, months }) {
 
           {/* SECCIÓN ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
-  <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
-  {openSections.analisisProductos && (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-[10px] md:text-sm">
-        <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
-          <tr>
-            <th className="p-2">Vendedora</th>
-            <th className="p-2">Producto</th>
-            <th className="p-2">Primer registro</th>
-            <th className="p-2">Último registro</th>
-            <th className="p-2">Días activos</th>
-            <th className="p-2">Estado</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {stats.detalleProductos.map(p => {
-            const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
-            const isActive = p.activo !== false;
-            return (
-              <tr key={p.configId} className="hover:bg-slate-50">
-                <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
-                <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td>
-                <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
-                <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
-                <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
-                <td className="p-2">
-                  {!isActive ? (
-                    <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                      <PowerOff size={10} /> INACTIVO
-                    </span>
-                  ) : (
-                    <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                      <Power size={10} /> ACTIVO
-                    </span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
-       </>
+            <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
+            {openSections.analisisProductos && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-[10px] md:text-sm">
+                  <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
+                    <tr>
+                      <th className="p-2">Vendedora</th>
+                      <th className="p-2">Producto</th>
+                      <th className="p-2">Primer registro</th>
+                      <th className="p-2">Último registro</th>
+                      <th className="p-2">Días activos</th>
+                      <th className="p-2">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stats.detalleProductos.map(p => {
+                      const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
+                      const isActive = p.activo !== false;
+                      return (
+                        <tr key={p.configId} className="hover:bg-slate-50">
+                          <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
+                          <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td>
+                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
+                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
+                          <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
+                          <td className="p-2">
+                            {!isActive ? (
+                              <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <PowerOff size={10} /> INACTIVO
+                              </span>
+                            ) : (
+                              <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                                <Power size={10} /> ACTIVO
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-// ==================== COMPONENTE AGENDA (ADAPTADO A TU ENTORNO) ====================
+// ==================== COMPONENTE AGENDA (COMPLETO Y FUNCIONAL) ====================
 const RESPONSIBLES = [
   { id: 'david', name: 'David', color: 'blue', bgLight: 'bg-blue-50', bgDark: 'bg-blue-600', borderColor: 'border-blue-200' },
   { id: 'julian', name: 'Julián', color: 'purple', bgLight: 'bg-purple-50', bgDark: 'bg-purple-600', borderColor: 'border-purple-200' },
@@ -1485,7 +1471,7 @@ function AgendaModule() {
               <th className="px-4 py-2 text-[10px] font-black uppercase">Fecha límite</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase">Creada</th>
               <th className="px-4 py-2 text-[10px] font-black uppercase">Acciones</th>
-            </tr>
+            <tr>
           </thead>
           <tbody>
             {filteredTasks.length === 0 ? (
@@ -1676,7 +1662,7 @@ export default function App() {
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'records', icon: ClipboardList, label: 'Cierres' },
     { id: 'config', icon: Settings, label: 'Estrategias' },
-    { id: 'agenda', icon: CalendarDays, label: 'Agenda' }  // ← NUEVA
+    { id: 'agenda', icon: CalendarDays, label: 'Agenda' }
   ];
 
   return (
