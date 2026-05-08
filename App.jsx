@@ -43,6 +43,38 @@ const fmtN = (v) => new Intl.NumberFormat('es-CO', {
 }).format(v || 0);
 
 // ─── MOTOR DE CÁLCULO (global, ranking y detalle temporal) ───────────────────
+// ========== FUNCIÓN AUXILIAR PARA OBTENER LA CONFIGURACIÓN VIGENTE EN UNA FECHA ==========
+function getConfigAtDate(configs, productId, dateStr) {
+  // Obtener todas las versiones de este producto (por ID o por referencia a versión anterior)
+  const allVersions = configs.filter(c => c.id === productId || c.previousVersionId === productId);
+  
+  // Si solo hay una versión, devolverla directamente
+  if (allVersions.length <= 1) {
+    return configs.find(c => c.id === productId);
+  }
+  
+  const date = parseColombiaDate(dateStr);
+  let activeConfig = null;
+  let closestValidFrom = null;
+  
+  for (const config of allVersions) {
+    const validFrom = config.validFrom ? parseColombiaDate(config.validFrom) : null;
+    // Si no tiene validFrom, es la versión original (siempre válida)
+    if (!validFrom) {
+      if (!activeConfig) activeConfig = config;
+      continue;
+    }
+    // Si la fecha de validez es menor o igual a la fecha del registro
+    if (validFrom <= date) {
+      if (!closestValidFrom || validFrom > closestValidFrom) {
+        closestValidFrom = validFrom;
+        activeConfig = config;
+      }
+    }
+  }
+  
+  return activeConfig || configs.find(c => c.id === productId);
+}
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
@@ -67,9 +99,9 @@ function calcularStats(records, configs) {
   const vendedorasStats = {};
   const productosFechas = {};
 
-  activeRecords.forEach(r => {
-    const c = configs.find(x => x.id === r.configId);
-    if (!c) return;
+ activeRecords.forEach(r => {
+  const c = getConfigAtDate(configs, r.configId, r.date);
+  if (!c) return;
 
     const eff = Math.min(Math.max(parseFloat(c.effectiveness) || 95, 0), 100) / 100;
     const ret = Math.min(Math.max(parseFloat(c.returnRate) || 20, 0), 100) / 100;
@@ -264,23 +296,47 @@ function VistaConfig({ configs, onSaved }) {
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
-    if (!form.vendedora.trim() || !form.productName.trim()) return;
-    const data = { ...form };
-    
-    if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-    if (data.activo === false && !data.fechaDesactivacion) {
-      data.fechaDesactivacion = todayColombia();
+  if (!form.vendedora.trim() || !form.productName.trim()) return;
+  
+  const data = { ...form };
+  if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
+  if (data.activo === false && !data.fechaDesactivacion) {
+    data.fechaDesactivacion = todayColombia();
+  }
+  if (data.activo === true) {
+    data.fechaDesactivacion = '';
+  }
+  
+  if (editId) {
+    // 🔄 IMPORTANTE: Al editar, NO modificamos el documento existente.
+    // Creamos una nueva versión con la fecha de hoy como validFrom.
+    const originalConfig = configs.find(c => c.id === editId);
+    if (originalConfig) {
+      // Crear nueva versión
+      const newVersion = {
+        ...data,
+        version: (originalConfig.version || 1) + 1,
+        validFrom: todayColombia(),
+        previousVersionId: editId,
+        createdAt: Date.now()
+      };
+      await addDoc(collection(db, 'sales_configs'), newVersion);
+    } else {
+      // Fallback por si no encuentra el original (no debería pasar)
+      await updateDoc(doc(db, 'sales_configs', editId), data);
     }
-    if (data.activo === true) {
-      data.fechaDesactivacion = '';
-    }
-    
-    if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
-    else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
-    setShowForm(false);
-    onSaved?.();
-  };
-
+  } else {
+    // Nuevo producto: versión 1
+    await addDoc(collection(db, 'sales_configs'), { 
+      ...data, 
+      version: 1,
+      validFrom: todayColombia(),
+      createdAt: Date.now() 
+    });
+  }
+  setShowForm(false);
+  onSaved?.();
+};
   const remove = async (id) => {
     if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
   };
