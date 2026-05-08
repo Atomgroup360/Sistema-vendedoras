@@ -281,7 +281,7 @@ const EMPTY_CONFIG = {
   cpaEquilibrio: '',
   activo: true,
   fechaCreacion: todayColombia(),
-  fechaDesactivacion: ''
+  fechaDesactivacion: '',
   monthlyIER: []
 };
 
