@@ -879,27 +879,24 @@ function VistaDashboard({ configs, months }) {
 
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
 
-  // ========== FUNCIÓN PARA SABER SI UN PRODUCTO ESTÁ ACTIVO EN UNA FECHA ==========
+  // ========== FUNCIÓN PARA SABER SI UN PRODUCTO ESTABA ACTIVO EN UNA FECHA (SOLO PARA SELECTORES) ==========
   const isProductActiveOnDate = (product, dateStr) => {
     if (!product) return false;
     const active = product.activo !== false;
     const creationDate = product.fechaCreacion ? parseColombiaDate(product.fechaCreacion) : null;
     const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
     const checkDate = parseColombiaDate(dateStr);
-    
     if (creationDate && creationDate > checkDate) return false;
     if (!active && deactivationDate && deactivationDate <= checkDate) return false;
     return true;
   };
 
-  // ========== OBTENER PRODUCTOS ACTIVOS EN EL RANGO DE FECHAS ==========
+  // ========== PRODUCTOS QUE ESTUVIERON ACTIVOS EN ALGÚN DÍA DEL RANGO (PARA SELECTORES) ==========
   const getActiveProductsInRange = useMemo(() => {
-    const activeMap = new Map(); // vendor -> array de productos activos en todo el rango
+    const activeMap = new Map();
     const startDate = filter.startDate;
     const endDate = filter.endDate;
-    
     configs.forEach(product => {
-      // Verificar si el producto tiene al menos un día activo dentro del rango
       let hasActiveDay = false;
       let current = parseColombiaDate(startDate);
       const end = parseColombiaDate(endDate);
@@ -919,32 +916,23 @@ function VistaDashboard({ configs, months }) {
     return activeMap;
   }, [configs, filter.startDate, filter.endDate]);
 
-  // ========== FILTRAR REGISTROS CONSIDERANDO ACTIVIDAD EN LA FECHA ==========
+  // ========== FILTRADO DE REGISTROS: SOLO POR FECHAS, VENDEDORAS Y PRODUCTOS SELECCIONADOS (SIN EXCLUIR INACTIVOS HISTÓRICOS) ==========
   const filteredRecords = useMemo(() => {
     const all = months.flatMap(m => m.records || []);
     return all.filter(r => {
       const c = configs.find(x => x.id === r.configId);
       if (!c) return false;
       if (r.date < filter.startDate || r.date > filter.endDate) return false;
-      
-      // Validar que el producto esté activo en la fecha exacta del registro
-      if (!isProductActiveOnDate(c, r.date)) return false;
-      
       if (selectedVendors.length > 0 && !selectedVendors.includes(c.vendedora)) return false;
-      
       const vendorProducts = selectedProductsByVendor[c.vendedora];
       if (vendorProducts && vendorProducts.length > 0 && !vendorProducts.includes(r.configId)) return false;
-      
       return true;
     });
   }, [months, configs, filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
 
-  // ========== ACTUALIZAR LISTA DE VENDEDORAS DISPONIBLES ==========
-  const availableVendors = useMemo(() => {
-    return Array.from(getActiveProductsInRange.keys()).sort();
-  }, [getActiveProductsInRange]);
+  const availableVendors = useMemo(() => Array.from(getActiveProductsInRange.keys()).sort(), [getActiveProductsInRange]);
 
-  // ========== AL CAMBIAR LAS FECHAS, RESETEAMOS SELECCIÓN DE PRODUCTOS ==========
+  // Resetear selección de productos cuando cambian las fechas
   useEffect(() => {
     const newSelected = {};
     for (const vendor of selectedVendors) {
@@ -957,7 +945,7 @@ function VistaDashboard({ configs, months }) {
   }, [filter.startDate, filter.endDate, getActiveProductsInRange]);
 
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
-
+  
   const [openSections, setOpenSections] = useState({
     embudo: false,
     costos: false,
@@ -1028,10 +1016,8 @@ function VistaDashboard({ configs, months }) {
     { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads', icon: Target },
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
-  const ajustePorIER = stats.grossRev - stats.realRev;
-  const eficienciaRecaudo = stats.recaudoEficiencia;
 
-  // Productos en revisión (solo los activos en el rango)
+  // ========== PRODUCTOS EN REVISIÓN ==========
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
     const productosMap = new Map();
@@ -1089,38 +1075,29 @@ function VistaDashboard({ configs, months }) {
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
 
-      {/* Filtros mejorados con exclusión de inactivos */}
+      {/* FILTROS MEJORADOS */}
       <Card className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-3 py-2 bg-slate-50 rounded-xl font-bold text-sm outline-none" /></div>
           <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Hasta</Label><input type="date" value={filter.endDate} onChange={e => setF('endDate', e.target.value)} className="w-full px-3 py-2 bg-slate-50 rounded-xl font-bold text-sm outline-none" /></div>
         </div>
-        
         <div className="space-y-2">
           <Label>Vendedoras (múltiple)</Label>
           <div className="flex flex-wrap gap-2">
             {availableVendors.map(v => (
-              <button
-                key={v}
-                onClick={() => {
-                  if (selectedVendors.includes(v)) {
-                    setSelectedVendors(selectedVendors.filter(vv => vv !== v));
-                    const newSelected = { ...selectedProductsByVendor };
-                    delete newSelected[v];
-                    setSelectedProductsByVendor(newSelected);
-                  } else {
-                    setSelectedVendors([...selectedVendors, v]);
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${selectedVendors.includes(v) ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'}`}
-              >
-                {v}
-              </button>
+              <button key={v} onClick={() => {
+                if (selectedVendors.includes(v)) {
+                  setSelectedVendors(selectedVendors.filter(vv => vv !== v));
+                  const newSelected = { ...selectedProductsByVendor };
+                  delete newSelected[v];
+                  setSelectedProductsByVendor(newSelected);
+                } else {
+                  setSelectedVendors([...selectedVendors, v]);
+                }
+              }} className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${selectedVendors.includes(v) ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'}`}>{v}</button>
             ))}
           </div>
-          {availableVendors.length === 0 && <p className="text-[10px] text-amber-600">No hay productos activos en el rango de fechas seleccionado.</p>}
         </div>
-
         {selectedVendors.length > 0 && (
           <div className="space-y-3 border-t pt-3">
             <Label>Productos específicos (solo activos en el rango)</Label>
@@ -1130,37 +1107,17 @@ function VistaDashboard({ configs, months }) {
                 <div key={vendor} className="bg-slate-50 p-3 rounded-xl">
                   <p className="text-[9px] font-black uppercase mb-2">{vendor}</p>
                   <div className="flex flex-wrap gap-1">
-                    <button
-                      onClick={() => setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: activeProductsForVendor.map(p => p.id) }))}
-                      className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full"
-                    >
-                      Todos
-                    </button>
-                    <button
-                      onClick={() => {
-                        const newSelected = { ...selectedProductsByVendor };
-                        delete newSelected[vendor];
-                        setSelectedProductsByVendor(newSelected);
-                      }}
-                      className="text-[8px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full"
-                    >
-                      Ninguno
-                    </button>
+                    <button onClick={() => setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: activeProductsForVendor.map(p => p.id) }))} className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Todos</button>
+                    <button onClick={() => { const newSelected = { ...selectedProductsByVendor }; delete newSelected[vendor]; setSelectedProductsByVendor(newSelected); }} className="text-[8px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full">Ninguno</button>
                     {activeProductsForVendor.map(product => (
-                      <button
-                        key={product.id}
-                        onClick={() => {
-                          const current = selectedProductsByVendor[vendor] || [];
-                          if (current.includes(product.id)) {
-                            setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
-                          } else {
-                            setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
-                          }
-                        }}
-                        className={`text-[8px] font-black px-2 py-1 rounded-full ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : 'bg-white border border-slate-300 text-slate-600'}`}
-                      >
-                        {product.productName}
-                      </button>
+                      <button key={product.id} onClick={() => {
+                        const current = selectedProductsByVendor[vendor] || [];
+                        if (current.includes(product.id)) {
+                          setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
+                        } else {
+                          setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
+                        }
+                      }} className={`text-[8px] font-black px-2 py-1 rounded-full ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : 'bg-white border border-slate-300 text-slate-600'}`}>{product.productName}</button>
                     ))}
                   </div>
                 </div>
@@ -1168,6 +1125,7 @@ function VistaDashboard({ configs, months }) {
             })}
           </div>
         )}
+        <div className="col-span-2 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl"><Info size={12} className="text-slate-400 shrink-0" /><p className="text-[8px] md:text-[9px] font-black text-slate-400">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
 
       {filteredRecords.length === 0 || activeDays === 0 ? (
@@ -1183,10 +1141,10 @@ function VistaDashboard({ configs, months }) {
             </div>
           </div>
 
-          {/* Resumen rápidos */}
+          {/* Resumen rápido */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
             <Card className="border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
-            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[8px] md:text-[9px] text-amber-500">{fmtDec(eficienciaRecaudo, 1)}% del bruto se pierde</p></Card>
+            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(stats.grossRev - stats.realRev)}</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
           </div>
 
@@ -1336,7 +1294,7 @@ function VistaDashboard({ configs, months }) {
                               <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td>
-                              <td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a,i) => <span key={i} className="text-[7px] md:text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{a}</span>)}</div></td>
+                              <td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a, i) => <span key={i} className="text-[7px] md:text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{a}</span>)}</div></td>
                             </tr>
                           );
                         })}
@@ -1348,7 +1306,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* ANÁLISIS TEMPORAL POR PRODUCTO (con fechas de creación/desactivación) */}
+          {/* ANÁLISIS TEMPORAL POR PRODUCTO (con fechas de creación y desactivación) */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
@@ -1380,7 +1338,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* COMPARATIVA ENTRE VENDEDORAS (solo las activas en el rango) */}
+          {/* NUEVA SECCIÓN: COMPARATIVA ENTRE VENDEDORAS */}
           <div className="space-y-2">
             <button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
               <div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>
