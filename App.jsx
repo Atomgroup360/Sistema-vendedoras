@@ -297,10 +297,10 @@ function VistaConfig({ configs, onSaved }) {
     return a;
   }, {}), [configs]);
 
-  const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia() }); setShowForm(true); };
+  const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia(), monthlyIER: [] }); setShowForm(true); };
   const openNewForVendor = (vendedora) => {
     setEditId(null);
-    setForm({ ...EMPTY_CONFIG, vendedora, fechaCreacion: todayColombia() });
+    setForm({ ...EMPTY_CONFIG, vendedora, fechaCreacion: todayColombia(), monthlyIER: [] });
     setExpandedV(x => ({ ...x, [vendedora]: true }));
     setShowForm(true);
   };
@@ -308,49 +308,24 @@ function VistaConfig({ configs, onSaved }) {
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
-  if (!form.vendedora.trim() || !form.productName.trim()) return;
-  
-  const data = { ...form };
-  if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-  if (data.activo === false && !data.fechaDesactivacion) {
-    data.fechaDesactivacion = todayColombia();
-  }
-  if (data.activo === true) {
-    data.fechaDesactivacion = '';
-  }
-  
-  if (editId) {
-    // 🔄 IMPORTANTE: Al editar, NO modificamos el documento existente.
-    // Creamos una nueva versión con la fecha de hoy como validFrom.
-    const originalConfig = configs.find(c => c.id === editId);
-    if (originalConfig) {
-      // Crear nueva versión
-      const newVersion = {
-        ...data,
-        version: (originalConfig.version || 1) + 1,
-        validFrom: todayColombia(),
-        previousVersionId: editId,
-        createdAt: Date.now()
-      };
-      await addDoc(collection(db, 'sales_configs'), newVersion);
-    } else {
-      // Fallback por si no encuentra el original (no debería pasar)
-      await updateDoc(doc(db, 'sales_configs', editId), data);
+    if (!form.vendedora.trim() || !form.productName.trim()) return;
+    const data = { ...form };
+    if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
+    if (data.activo === false && !data.fechaDesactivacion) {
+      data.fechaDesactivacion = todayColombia();
     }
-  } else {
-    // Nuevo producto: versión 1
-    await addDoc(collection(db, 'sales_configs'), { 
-      ...data, 
-      version: 1,
-      validFrom: todayColombia(),
-      createdAt: Date.now() 
-    });
-  }
-  setShowForm(false);
-  onSaved?.();
-};
+    if (data.activo === true) {
+      data.fechaDesactivacion = '';
+    }
+    if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
+    else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
+    setShowForm(false);
+    onSaved?.();
+  };
+
   const remove = async (id) => {
     if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
+    onSaved?.();
   };
 
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
@@ -374,29 +349,29 @@ function VistaConfig({ configs, onSaved }) {
   const isPrefilledVendor = showForm && !editId && form.vendedora && configs.some(c => c.vendedora === form.vendedora);
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-6 md:space-y-8 anim-fade">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">Estrategias</h2>
-          <p className="text-[10px] text-slate-400 font-semibold mt-1 uppercase tracking-widest">Módulo 1 · Vendedoras y Productos</p>
+          <p className="text-xs text-slate-400 font-semibold mt-1 uppercase tracking-widest">Módulo 1 · Vendedoras y Productos</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 bg-zinc-950 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-md"><Plus size={14} /> Nueva Vendedora + Producto</button>
+        <button onClick={openNew} className="flex items-center gap-2 bg-zinc-950 text-white px-4 md:px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"><Plus size={16} /> Nueva Vendedora + Producto</button>
       </div>
 
       {Object.keys(grouped).length === 0 ? (
-        <Card className="text-center py-16 text-slate-300"><Users size={40} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin estrategias aún</p><p className="text-xs mt-1">Crea la primera estrategia para comenzar</p></Card>
+        <Card className="text-center py-16 text-slate-300"><Users size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin estrategias aún</p><p className="text-xs mt-1">Crea la primera estrategia para comenzar</p></Card>
       ) : (
         <div className="space-y-4">
           {Object.entries(grouped).map(([vendedora, productos]) => (
             <Card key={vendedora} className="overflow-hidden p-0">
-              <div className="flex items-center justify-between gap-3 p-4 bg-white">
+              <div className="flex items-center justify-between gap-3 p-4 md:p-5 bg-white">
                 <div onClick={() => toggleV(vendedora)} className="flex-1 flex items-center gap-3 cursor-pointer select-none">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{vendedora[0]?.toUpperCase()}</div>
-                  <div><p className="font-black text-xs uppercase tracking-wide">{vendedora}</p><p className="text-[9px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p></div>
+                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{vendedora[0]?.toUpperCase()}</div>
+                  <div><p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p></div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button type="button" onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }} className="flex items-center gap-1 bg-emerald-500 text-zinc-950 px-3 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-widest hover:bg-emerald-400"><Plus size={10} /> Producto</button>
-                  <button type="button" onClick={() => toggleV(vendedora)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">{expandedV[vendedora] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }} className="flex items-center gap-1 bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-emerald-400"><Plus size={12} /> Producto</button>
+                  <button type="button" onClick={() => toggleV(vendedora)} className="p-1 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">{expandedV[vendedora] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
                 </div>
               </div>
               {expandedV[vendedora] && (
@@ -404,41 +379,41 @@ function VistaConfig({ configs, onSaved }) {
                   {productos.map(p => {
                     const isActive = p.activo !== false;
                     return (
-                      <div key={p.id} className={`p-4 flex flex-col gap-3 transition-all ${!isActive ? 'bg-slate-50 opacity-70' : ''}`}>
-                        <div className="flex justify-between items-start gap-2">
-                          <div>
-                            <p className={`font-black uppercase text-sm ${!isActive ? 'text-slate-500 line-through' : 'text-emerald-600'}`}>{p.productName}</p>
-                            {!isActive && <span className="inline-flex items-center gap-1 text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full mt-1"><PowerOff size={8} /> INACTIVO</span>}
+                      <div key={p.id} className={`p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-all ${!isActive ? 'bg-slate-100 opacity-70' : ''}`}>
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className={`font-black uppercase text-xs md:text-sm ${!isActive ? 'text-slate-500 line-through' : 'text-emerald-600'}`}>{p.productName}</p>
+                            {!isActive && (
+                              <span className="flex items-center gap-1 text-[9px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full"><PowerOff size={10} /> INACTIVO</span>
+                            )}
                           </div>
-                          <div className="flex gap-1 shrink-0">
-                            <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={12} /></button>
-                            <button onClick={() => remove(p.id)} className="p-1.5 rounded-lg hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={12} /></button>
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
+                            <span className="text-[8px] md:text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
+                            <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
+                            <span className="text-[8px] md:text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
+                            {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
+                            <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
+                            {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1 md:gap-2">
+                            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.productCost)}</p></div>
+                            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.commission)}</p></div>
+                            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
+                          </div>
+                          <div className="text-[8px] text-slate-400 font-mono flex gap-2 flex-wrap">
+                            {p.fechaCreacion && <span>📅 Creación: {parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO')}</span>}
+                            {p.fechaDesactivacion && <span className="text-red-400">🔴 Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</span>}
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          <span className="text-[8px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
-                          <span className="text-[8px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
-                          <span className="text-[8px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
-                          <span className="text-[8px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
-                          {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra {fmt(p.extraUnitCharge)}</span>}
-                          <span className="text-[8px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
-                          {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="bg-slate-50 p-2 rounded-xl text-center"><p className="text-[7px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] text-slate-700">{fmt(p.productCost)}</p></div>
-                          <div className="bg-slate-50 p-2 rounded-xl text-center"><p className="text-[7px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] text-slate-700">{fmt(p.commission)}</p></div>
-                          <div className="bg-slate-50 p-2 rounded-xl text-center"><p className="text-[7px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] text-slate-700">{fmt(p.fixedCosts)}</p></div>
-                        </div>
-                        <div className="text-[8px] text-slate-400 font-mono flex gap-2 flex-wrap">
-                          {p.fechaCreacion && <span>📅 Creación: {parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO')}</span>}
-                          {p.fechaDesactivacion && <span className="text-red-400">🔴 Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</span>}
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => openEdit(p)} className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={14} /></button>
+                          <button onClick={() => remove(p.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={14} /></button>
                         </div>
                       </div>
                     );
                   })}
-                  <div className="p-4 bg-slate-50/60">
-                    <button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50"><Plus size={12} /> Agregar producto a {vendedora}</button>
-                  </div>
+                  <div className="p-4 bg-slate-50/60"><button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50"><Plus size={14} /> Agregar nuevo producto a {vendedora}</button></div>
                 </div>
               )}
             </Card>
@@ -446,181 +421,186 @@ function VistaConfig({ configs, onSaved }) {
         </div>
       )}
 
-      {/* MODAL RESPONSIVE PARA MÓVIL */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4" style={{ overscrollBehavior: 'contain' }}>
-          <div className="bg-white w-full max-w-md sm:max-w-2xl rounded-2xl max-h-[95vh] overflow-y-auto shadow-2xl">
-            <div className="sticky top-0 bg-white z-10 px-4 pt-4 pb-2 border-b border-slate-100 flex justify-between items-center">
+        <div className="fixed inset-0 bg-zinc-950/90 backdrop-blur-xl flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white w-full max-w-4xl rounded-2xl sm:rounded-3xl p-3 sm:p-6 md:p-8 max-h-[95vh] overflow-y-auto shadow-2xl">
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
               <div>
-                <h3 className="text-lg sm:text-xl font-black italic uppercase tracking-tighter">{editId ? 'Editar' : isPrefilledVendor ? `Nuevo Producto · ${form.vendedora}` : 'Nueva'} Estrategia</h3>
-                <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">{isPrefilledVendor ? `Agregando producto a vendedora existente` : 'Define parámetros de costo por producto'}</p>
+                <h3 className="text-base sm:text-xl md:text-2xl font-black italic uppercase">
+                  {editId ? 'Editar' : isPrefilledVendor ? `Nuevo Producto · ${form.vendedora}` : 'Nueva'} Estrategia
+                </h3>
+                <p className="text-[8px] sm:text-[10px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                  {isPrefilledVendor ? `Agregando producto a vendedora existente` : 'Define parámetros de costo por producto'}
+                </p>
               </div>
-              <button onClick={() => setShowForm(false)} className="p-2 -mr-2 rounded-full hover:bg-slate-100"><X size={20} /></button>
+              <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-slate-100"><X size={20} /></button>
             </div>
 
-            <div className="p-4 space-y-4">
-              {isPrefilledVendor && (
-                <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{form.vendedora[0]?.toUpperCase()}</div>
-                  <div>
-                    <p className="text-xs font-black text-emerald-700 uppercase">{form.vendedora}</p>
-                    <p className="text-[8px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p>
+            {isPrefilledVendor && (
+              <div className="mb-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl">
+                <div className="w-6 h-6 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-black text-xs shrink-0">{form.vendedora[0]?.toUpperCase()}</div>
+                <div>
+                  <p className="text-[10px] font-black text-emerald-700 uppercase">{form.vendedora}</p>
+                  <p className="text-[8px] text-emerald-500 font-semibold">Vendedora ya registrada · solo configura el nuevo producto</p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              {!isPrefilledVendor && (
+                <InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />
+              )}
+              <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" />
+
+              <InputField label="Fecha de Creación" type="date" value={form.fechaCreacion} onChange={e => setField('fechaCreacion', e.target.value)} />
+
+              <div className="bg-zinc-950 text-white p-3 sm:p-4 rounded-xl flex flex-col gap-2 sm:col-span-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {form.activo ? <Power size={16} className="text-emerald-400" /> : <PowerOff size={16} className="text-red-400" />}
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest">Estado del Producto</p>
+                      <p className="text-[7px] text-zinc-400">Si lo desactivas, podrás elegir la fecha</p>
+                    </div>
                   </div>
+                  <button onClick={() => setField('activo', !form.activo)} className="flex items-center gap-1 text-[8px] font-black uppercase">
+                    {form.activo ? <><ToggleRight size={24} className="text-emerald-400" /><span className="text-emerald-400">ACTIVO</span></> : <><ToggleLeft size={24} className="text-red-400" /><span className="text-red-400">INACTIVO</span></>}
+                  </button>
+                </div>
+                {!form.activo && (
+                  <InputField label="Fecha de Desactivación" type="date" value={form.fechaDesactivacion} onChange={e => setField('fechaDesactivacion', e.target.value)} />
+                )}
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl space-y-1">
+                <Label className="text-emerald-700 text-[9px]">% Efectividad</Label>
+                <input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-2xl text-emerald-800 outline-none" />
+                <p className="text-[7px] text-emerald-600 font-semibold">Pedidos que salen</p>
+              </div>
+
+              <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl space-y-1">
+                <Label className="text-rose-600 text-[9px]">% Devolución</Label>
+                <input type="number" value={form.returnRate} onChange={e => setField('returnRate', e.target.value)} className="w-full bg-transparent font-black text-2xl text-rose-700 outline-none" />
+                <p className="text-[7px] text-rose-500 font-semibold">Del despachado, % que regresa</p>
+              </div>
+
+              <div className="bg-zinc-950 text-white p-3 rounded-xl flex flex-col sm:flex-row justify-between items-center gap-2 sm:col-span-2">
+                <div>
+                  <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p>
+                  <p className="text-[8px] text-zinc-400">De cada 100 pedidos, ¿cuántos se pagan?</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black font-mono text-emerald-400">
+                    {((parseFloat(form.effectiveness) || 95) / 100 * (1 - (parseFloat(form.returnRate) || 20) / 100) * 100).toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+
+              <InputField label="Precio Venta (1 und)" type="number" value={form.priceSingle} onChange={e => setField('priceSingle', e.target.value)} placeholder="Ej: 79000" />
+              <InputField label="Costo Unitario Producto" type="number" value={form.productCost} onChange={e => setField('productCost', e.target.value)} placeholder="Ej: 18000" />
+              <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => setField('freight', e.target.value)} placeholder="Ej: 9500" />
+              <InputField label="Cargo extra x unidad adicional" type="number" value={form.extraUnitCharge} onChange={e => setField('extraUnitCharge', e.target.value)} placeholder="Ej: 5000" />
+              <InputField label="Fulfillment por guía" type="number" value={form.fulfillment} onChange={e => setField('fulfillment', e.target.value)} placeholder="Ej: 1500" />
+              <InputField label="Comisión por Entrega" type="number" value={form.commission} onChange={e => setField('commission', e.target.value)} placeholder="Ej: 3000" />
+              <InputField label="Costos Fijos x Entrega" type="number" value={form.fixedCosts} onChange={e => setField('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
+              <InputField label="Meta Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => setField('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
+              <InputField label="CPA Equilibrio (por pedido)" type="number" value={form.cpaEquilibrio} onChange={e => setField('cpaEquilibrio', e.target.value)} placeholder="Ej: 15000" />
+
+              <div className="bg-zinc-950 text-white p-3 rounded-xl space-y-2 sm:col-span-2">
+                <div className="flex justify-between items-center">
+                  <Label className="text-zinc-500 text-[9px]">Inversión Ads Diaria</Label>
+                  <button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1 text-[8px] font-black uppercase">
+                    {form.fixedAdSpend ? <><ToggleRight size={20} className="text-emerald-400" /><span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={20} className="text-zinc-500" /><span className="text-zinc-500">MANUAL</span></>}
+                  </button>
+                </div>
+                <input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-xl outline-none placeholder:text-zinc-700" />
+                <p className="text-[7px] text-zinc-600 font-semibold">
+                  {form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}
+                </p>
+              </div>
+
+              {form.priceSingle && form.productCost && (
+                <div className={`p-3 rounded-xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'} sm:col-span-2`}>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Preview Utilidad Estimada por Pedido Registrado</p>
+                  <p className={`text-xl md:text-2xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p>
+                  <p className="text-[7px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos</p>
                 </div>
               )}
 
-              {/* Grid para móvil: 1 columna, en desktop 2 */}
-              <div className="grid grid-cols-1 gap-4">
-                {!isPrefilledVendor && (
-                  <InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />
-                )}
-                <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" />
+              {/* SECCIÓN DE AJUSTES MENSUALES - RESPONSIVA */}
+              <div className="sm:col-span-2 border-t border-slate-200 pt-3 mt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                  <Label className="text-slate-600 text-[9px] flex items-center gap-1">📅 Ajustes mensuales (Efectividad/Devolución)</Label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newMonth = prompt("Ingrese el mes (formato YYYY-MM, ej: 2025-04):");
+                      if (newMonth && /^\d{4}-\d{2}$/.test(newMonth)) {
+                        const current = form.monthlyIER || [];
+                        if (!current.find(a => a.month === newMonth)) {
+                          setForm(prev => ({
+                            ...prev,
+                            monthlyIER: [...current, { month: newMonth, effectiveness: prev.effectiveness, returnRate: prev.returnRate }]
+                          }));
+                        } else alert("Ya existe un ajuste para ese mes");
+                      } else if (newMonth) alert("Formato inválido. Use YYYY-MM");
+                    }}
+                    className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full flex items-center justify-center gap-1"
+                  >
+                    <Plus size={10} /> Agregar mes
+                  </button>
+                </div>
                 
-                <div className="grid grid-cols-2 gap-3">
-                  <InputField label="Fecha Creación" type="date" value={form.fechaCreacion} onChange={e => setField('fechaCreacion', e.target.value)} />
-                  <div className="bg-zinc-100 p-2 rounded-xl">
-                    <Label className="text-zinc-500">Estado</Label>
-                    <button onClick={() => setField('activo', !form.activo)} className="flex items-center justify-between w-full mt-1">
-                      <span className="text-xs font-black">{form.activo ? 'ACTIVO' : 'INACTIVO'}</span>
-                      {form.activo ? <ToggleRight size={28} className="text-emerald-500" /> : <ToggleLeft size={28} className="text-red-400" />}
-                    </button>
-                    {!form.activo && (
-                      <input type="date" value={form.fechaDesactivacion} onChange={e => setField('fechaDesactivacion', e.target.value)} className="w-full mt-2 text-xs p-1 border rounded" />
-                    )}
-                  </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {(form.monthlyIER && form.monthlyIER.length > 0) ? (
+                    form.monthlyIER.map((adj, idx) => (
+                      <div key={idx} className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl">
+                        <span className="text-[9px] font-black bg-slate-200 px-2 py-1 rounded-lg w-16 text-center">{adj.month}</span>
+                        <input
+                          type="number"
+                          value={adj.effectiveness}
+                          onChange={(e) => {
+                            const newAdj = [...form.monthlyIER];
+                            newAdj[idx].effectiveness = e.target.value;
+                            setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+                          }}
+                          className="flex-1 min-w-[70px] px-2 py-1 rounded-lg text-xs bg-white border"
+                          placeholder="Eff %"
+                        />
+                        <input
+                          type="number"
+                          value={adj.returnRate}
+                          onChange={(e) => {
+                            const newAdj = [...form.monthlyIER];
+                            newAdj[idx].returnRate = e.target.value;
+                            setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+                          }}
+                          className="flex-1 min-w-[70px] px-2 py-1 rounded-lg text-xs bg-white border"
+                          placeholder="Ret %"
+                        />
+                        <button onClick={() => {
+                          const newAdj = form.monthlyIER.filter((_, i) => i !== idx);
+                          setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+                        }} className="text-rose-500 hover:text-rose-700 p-1">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-[8px] text-slate-400 text-center py-2">Sin ajustes mensuales. Se usarán los valores base.</p>
+                  )}
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-emerald-50 p-3 rounded-xl">
-                    <Label className="text-emerald-700">% Efectividad</Label>
-                    <input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-2xl text-emerald-800 outline-none" />
-                    <p className="text-[7px] text-emerald-600">Pedidos que salen</p>
-                  </div>
-                  <div className="bg-rose-50 p-3 rounded-xl">
-                    <Label className="text-rose-600">% Devolución</Label>
-                    <input type="number" value={form.returnRate} onChange={e => setField('returnRate', e.target.value)} className="w-full bg-transparent font-black text-2xl text-rose-700 outline-none" />
-                    <p className="text-[7px] text-rose-500">Del despachado</p>
-                  </div>
-                </div>
-
-                <div className="bg-zinc-950 text-white p-3 rounded-xl flex justify-between items-center">
-                  <div><Label className="text-zinc-500">Índice IER</Label><p className="text-2xl font-black font-mono text-emerald-400">{((parseFloat(form.effectiveness) || 95) / 100 * (1 - (parseFloat(form.returnRate) || 20) / 100) * 100).toFixed(1)}%</p></div>
-                  <Info size={24} className="text-zinc-600" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <InputField label="Precio Venta" type="number" value={form.priceSingle} onChange={e => setField('priceSingle', e.target.value)} placeholder="79000" />
-                  <InputField label="Costo Unitario" type="number" value={form.productCost} onChange={e => setField('productCost', e.target.value)} placeholder="18000" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <InputField label="Flete Base" type="number" value={form.freight} onChange={e => setField('freight', e.target.value)} placeholder="9500" />
-                  <InputField label="Extra por unidad+" type="number" value={form.extraUnitCharge} onChange={e => setField('extraUnitCharge', e.target.value)} placeholder="5000" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <InputField label="Fulfillment" type="number" value={form.fulfillment} onChange={e => setField('fulfillment', e.target.value)} placeholder="1500" />
-                  <InputField label="Comisión" type="number" value={form.commission} onChange={e => setField('commission', e.target.value)} placeholder="3000" />
-                </div>
-
-                <InputField label="Costos Fijos por Entrega" type="number" value={form.fixedCosts} onChange={e => setField('fixedCosts', e.target.value)} placeholder="2000" />
-                <InputField label="Meta Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => setField('targetProfit', e.target.value)} placeholder="4000000" />
-                <InputField label="CPA Equilibrio" type="number" value={form.cpaEquilibrio} onChange={e => setField('cpaEquilibrio', e.target.value)} placeholder="15000" />
-
-                <div className="bg-zinc-950 text-white p-3 rounded-xl">
-                  <div className="flex justify-between items-center">
-                    <Label className="text-zinc-500">Inversión Ads Diaria</Label>
-                    <button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1 text-[9px] font-black">
-                      {form.fixedAdSpend ? <><ToggleRight size={20} className="text-emerald-400" /> FIJA</> : <><ToggleLeft size={20} /> MANUAL</>}
-                    </button>
-                  </div>
-                  <input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-xl outline-none placeholder:text-zinc-700 mt-1" />
-                </div>
-
-                {form.priceSingle && form.productCost && (
-                  <div className={`p-3 rounded-xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}>
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Utilidad Estimada x Pedido</p>
-                    <p className={`text-xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p>
-                  </div>
-                )}
-                {/* NUEVA SECCIÓN: Ajustes mensuales de IER */}
-<div className="sm:col-span-2 border-t border-slate-200 pt-4 mt-2">
-  <div className="flex items-center justify-between mb-3">
-    <Label className="text-slate-600">📅 Ajustes mensuales de Efectividad y Devolución</Label>
-    <button
-      type="button"
-      onClick={() => {
-        const newMonth = prompt("Ingrese el mes (formato YYYY-MM, ej: 2025-04):");
-        if (newMonth && /^\d{4}-\d{2}$/.test(newMonth)) {
-          const currentAdjustments = form.monthlyIER || [];
-          if (!currentAdjustments.find(a => a.month === newMonth)) {
-            setForm(prev => ({
-              ...prev,
-              monthlyIER: [...currentAdjustments, { month: newMonth, effectiveness: prev.effectiveness, returnRate: prev.returnRate }]
-            }));
-          } else {
-            alert("Ya existe un ajuste para ese mes");
-          }
-        } else if (newMonth) {
-          alert("Formato inválido. Use YYYY-MM");
-        }
-      }}
-      className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full flex items-center gap-1"
-    >
-      <Plus size={10} /> Agregar mes
-    </button>
-  </div>
-  
-  {(form.monthlyIER && form.monthlyIER.length > 0) ? (
-    <div className="space-y-2">
-      {form.monthlyIER.map((adj, idx) => (
-        <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl">
-          <span className="text-[9px] font-black bg-slate-200 px-2 py-1 rounded-lg">{adj.month}</span>
-          <input
-            type="number"
-            value={adj.effectiveness}
-            onChange={(e) => {
-              const newAdj = [...form.monthlyIER];
-              newAdj[idx].effectiveness = e.target.value;
-              setForm(prev => ({ ...prev, monthlyIER: newAdj }));
-            }}
-            className="w-20 px-2 py-1 rounded-lg text-xs bg-white border"
-            placeholder="Eff %"
-          />
-          <input
-            type="number"
-            value={adj.returnRate}
-            onChange={(e) => {
-              const newAdj = [...form.monthlyIER];
-              newAdj[idx].returnRate = e.target.value;
-              setForm(prev => ({ ...prev, monthlyIER: newAdj }));
-            }}
-            className="w-20 px-2 py-1 rounded-lg text-xs bg-white border"
-            placeholder="Ret %"
-          />
-          <button
-            onClick={() => {
-              const newAdj = form.monthlyIER.filter((_, i) => i !== idx);
-              setForm(prev => ({ ...prev, monthlyIER: newAdj }));
-            }}
-            className="text-rose-500 hover:text-rose-700"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      ))}
-    </div>
-  ) : (
-    <p className="text-[8px] text-slate-400">Sin ajustes mensuales. Se usarán los valores base.</p>
-  )}
-  <p className="text-[7px] text-slate-400 mt-2">💡 Los ajustes mensuales sobrescriben la efectividad y devolución para ese mes completo.</p>
-</div>
+                <p className="text-[7px] text-slate-400 mt-2">💡 Los ajustes mensuales sobrescriben la efectividad y devolución para ese mes completo.</p>
               </div>
-
-              <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()} className="w-full bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2 sticky bottom-2">
-                <Save size={16} /> {editId ? 'Actualizar' : isPrefilledVendor ? `Agregar Producto` : 'Guardar Estrategia'}
-              </button>
             </div>
+
+            <button
+              onClick={save}
+              disabled={!form.vendedora.trim() || !form.productName.trim()}
+              className="w-full mt-5 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2"
+            >
+              <Save size={16} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}
+            </button>
           </div>
         </div>
       )}
