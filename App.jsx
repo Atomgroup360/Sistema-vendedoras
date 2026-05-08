@@ -877,7 +877,7 @@ function VistaDashboard({ configs, months }) {
   const [selectedVendors, setSelectedVendors] = useState([]);
   const [selectedProductsByVendor, setSelectedProductsByVendor] = useState({});
 
-  // ========== OBTENER PRODUCTOS QUE TIENEN REGISTROS EN EL RANGO (PARA SELECTORES) ==========
+  // ========== OBTENER PRODUCTOS QUE TIENEN REGISTROS EN EL RANGO ==========
   const getProductsWithRecordsInRange = useMemo(() => {
     const productsMap = new Map();
     const allRecords = months.flatMap(m => m.records || []);
@@ -1004,9 +1004,11 @@ function VistaDashboard({ configs, months }) {
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
 
+  // ========== PRODUCTOS EN REVISIÓN (ordenados: primero activos, luego inactivos) ==========
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
     const productosMap = new Map();
+    
     filteredRecords.forEach(record => {
       const config = configs.find(c => c.id === record.configId);
       if (!config) return;
@@ -1016,34 +1018,50 @@ function VistaDashboard({ configs, months }) {
           vendedora: config.vendedora,
           productName: config.productName,
           targetProfit: parseFloat(config.targetProfit) || 0,
+          isActive: config.activo !== false,
           records: []
         });
       }
       productosMap.get(record.configId).records.push(record);
     });
+    
     const resultados = [];
     for (const [configId, producto] of productosMap) {
-      const { records, vendedora, productName, targetProfit } = producto;
+      const { records, vendedora, productName, targetProfit, isActive } = producto;
       const statsProd = calcularStats(records, configs);
       const activeRecords = records.filter(r => !r.restDay);
       const uniqueDates = new Set(activeRecords.map(r => r.date));
-      const activeDays = uniqueDates.size;
-      const avgDiario = activeDays > 0 ? statsProd.net / activeDays : 0;
-      const proyeccion30 = avgDiario * 30;
+      const activeDaysProd = uniqueDates.size;
+      const avgDiarioProd = activeDaysProd > 0 ? statsProd.net / activeDaysProd : 0;
+      const proyeccion30Prod = avgDiarioProd * 30;
+      
       let estado = { texto: 'REVISIÓN', emoji: '🔴', color: 'bg-rose-500', textColor: 'text-rose-500' };
-      if (proyeccion30 >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
-      else if (proyeccion30 >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+      if (proyeccion30Prod >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
+      else if (proyeccion30Prod >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+      
       if (estado.texto === 'REVISIÓN') {
         resultados.push({
-          configId, vendedora, productName, targetProfit, proyeccion30, avgDiario,
-          utilidadPeriodo: statsProd.net, ier: statsProd.ierGlobal, roas: statsProd.roas,
+          configId, vendedora, productName, targetProfit, 
+          proyeccion30: proyeccion30Prod, 
+          avgDiario: avgDiarioProd,
+          utilidadPeriodo: statsProd.net, 
+          ier: statsProd.ierGlobal, 
+          roas: statsProd.roas,
           cpaReal: statsProd.cpaReal,
           cpaEquilibrio: parseFloat(configs.find(c => c.id === configId)?.cpaEquilibrio) || 0,
-          pedidos: statsProd.grossOrd, entregas: statsProd.finalDeliveries, diasActivos: activeDays, estado
+          pedidos: statsProd.grossOrd, 
+          entregas: statsProd.finalDeliveries, 
+          diasActivos: activeDaysProd, 
+          estado,
+          isActive
         });
       }
     }
-    return resultados.sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    
+    // Ordenar: primero activos (por proyección), luego inactivos (por proyección)
+    const activos = resultados.filter(p => p.isActive).sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    const inactivos = resultados.filter(p => !p.isActive).sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    return [...activos, ...inactivos];
   }, [filteredRecords, configs]);
 
   const SectionHeader = ({ title, icon: Icon, section, totalItems = null }) => (
@@ -1270,7 +1288,18 @@ function VistaDashboard({ configs, months }) {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                       <thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700">
-                        <tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Meta Mensual</th><th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3">⚠️ Alertas</th></tr>
+                        <tr>
+                          <th className="p-2 md:p-3">Vendedora</th>
+                          <th className="p-2 md:p-3">Producto</th>
+                          <th className="p-2 md:p-3 text-right">Utilidad Período</th>
+                          <th className="p-2 md:p-3 text-right">Proy. 30 días</th>
+                          <th className="p-2 md:p-3 text-right">Meta Mensual</th>
+                          <th className="p-2 md:p-3 text-right">% Meta</th>
+                          <th className="p-2 md:p-3 text-right">IER</th>
+                          <th className="p-2 md:p-3 text-right">ROAS</th>
+                          <th className="p-2 md:p-3 text-right">CPA</th>
+                          <th className="p-2 md:p-3">⚠️ Alertas</th>
+                        </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {productosEnRevision.map(p => {
@@ -1281,23 +1310,50 @@ function VistaDashboard({ configs, months }) {
                           if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`);
                           if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto');
                           if (p.pedidos === 0) alertas.push('⚠️ sin pedidos');
+                          
+                          // Si el producto está inactivo, agregar alerta especial
+                          if (!p.isActive) alertas.push('🔴 PRODUCTO DESACTIVADO');
+                          
                           return (
-                            <tr key={p.configId} className="hover:bg-red-50/50 transition">
+                            <tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : ''}`}>
                               <td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td>
-                              <td className="p-2 md:p-3 font-semibold text-[9px] md:text-xs">{p.productName}</td>
-                              <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td>
+                              <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-gray-500' : ''}`}>
+                                {p.productName}
+                                {!p.isActive && <span className="ml-2 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}
+                              </td>
+                              <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                                {fmt(p.utilidadPeriodo)}
+                              </td>
                               <td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
-                              <td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td>
+                              <td className="p-2 md:p-3 text-right font-mono font-black">
+                                <span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>
+                                  {fmtDec(porcentajeMeta, 1)}%
+                                </span>
+                              </td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td>
-                              <td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a, i) => <span key={i} className="text-[7px] md:text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{a}</span>)}</div></td>
+                              <td className="p-2 md:p-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {alertas.map((a, i) => (
+                                    <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : 'bg-red-100 text-red-600'}`}>
+                                      {a}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
+                    {productosEnRevision.some(p => !p.isActive) && (
+                      <div className="p-3 bg-gray-100 text-[8px] font-black text-gray-600 flex items-center gap-2 border-t">
+                        <Info size={12} />
+                        <span>📌 Los productos tachados están DESACTIVADOS. Su historial se muestra solo para referencia, pero ya no requieren acción.</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>
@@ -1311,7 +1367,16 @@ function VistaDashboard({ configs, months }) {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                   <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
-                    <tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Fecha creación</th><th className="p-2">Fecha desactivación</th><th className="p-2">Días activos</th><th className="p-2">Estado</th></tr>
+                    <tr>
+                      <th className="p-2">Vendedora</th>
+                      <th className="p-2">Producto</th>
+                      <th className="p-2">Primer registro</th>
+                      <th className="p-2">Último registro</th>
+                      <th className="p-2">Fecha creación</th>
+                      <th className="p-2">Fecha desactivación</th>
+                      <th className="p-2">Días activos</th>
+                      <th className="p-2">Estado</th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {stats.detalleProductos.map(p => {
