@@ -873,34 +873,62 @@ function VistaRegistro({ configs, months }) {
 
 // ─── VISTA 3: DASHBOARD (igual que antes, sin cambios) ──────────────────────
 function VistaDashboard({ configs, months }) {
-  // Filtros básicos (fechas)
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia() });
-  
-  // Nuevos filtros múltiples
   const [selectedVendors, setSelectedVendors] = useState([]);
   const [selectedProductsByVendor, setSelectedProductsByVendor] = useState({});
-  
+
   const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
-  
-  const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
 
-  const [openSections, setOpenSections] = useState({
-    embudo: false,
-    costos: false,
-    ranking: false,
-    proyeccion: false,
-    analisisProductos: false,
-    comparativaVendedoras: false
-  });
-  const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+  // ========== FUNCIÓN PARA SABER SI UN PRODUCTO ESTÁ ACTIVO EN UNA FECHA ==========
+  const isProductActiveOnDate = (product, dateStr) => {
+    if (!product) return false;
+    const active = product.activo !== false;
+    const creationDate = product.fechaCreacion ? parseColombiaDate(product.fechaCreacion) : null;
+    const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
+    const checkDate = parseColombiaDate(dateStr);
+    
+    if (creationDate && creationDate > checkDate) return false;
+    if (!active && deactivationDate && deactivationDate <= checkDate) return false;
+    return true;
+  };
 
-  // Filtrar registros con los nuevos criterios
+  // ========== OBTENER PRODUCTOS ACTIVOS EN EL RANGO DE FECHAS ==========
+  const getActiveProductsInRange = useMemo(() => {
+    const activeMap = new Map(); // vendor -> array de productos activos en todo el rango
+    const startDate = filter.startDate;
+    const endDate = filter.endDate;
+    
+    configs.forEach(product => {
+      // Verificar si el producto tiene al menos un día activo dentro del rango
+      let hasActiveDay = false;
+      let current = parseColombiaDate(startDate);
+      const end = parseColombiaDate(endDate);
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        if (isProductActiveOnDate(product, dateStr)) {
+          hasActiveDay = true;
+          break;
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      if (hasActiveDay) {
+        if (!activeMap.has(product.vendedora)) activeMap.set(product.vendedora, []);
+        activeMap.get(product.vendedora).push(product);
+      }
+    });
+    return activeMap;
+  }, [configs, filter.startDate, filter.endDate]);
+
+  // ========== FILTRAR REGISTROS CONSIDERANDO ACTIVIDAD EN LA FECHA ==========
   const filteredRecords = useMemo(() => {
     const all = months.flatMap(m => m.records || []);
     return all.filter(r => {
       const c = configs.find(x => x.id === r.configId);
       if (!c) return false;
       if (r.date < filter.startDate || r.date > filter.endDate) return false;
+      
+      // Validar que el producto esté activo en la fecha exacta del registro
+      if (!isProductActiveOnDate(c, r.date)) return false;
       
       if (selectedVendors.length > 0 && !selectedVendors.includes(c.vendedora)) return false;
       
@@ -910,6 +938,36 @@ function VistaDashboard({ configs, months }) {
       return true;
     });
   }, [months, configs, filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
+
+  // ========== ACTUALIZAR LISTA DE VENDEDORAS DISPONIBLES ==========
+  const availableVendors = useMemo(() => {
+    return Array.from(getActiveProductsInRange.keys()).sort();
+  }, [getActiveProductsInRange]);
+
+  // ========== AL CAMBIAR LAS FECHAS, RESETEAMOS SELECCIÓN DE PRODUCTOS ==========
+  useEffect(() => {
+    const newSelected = {};
+    for (const vendor of selectedVendors) {
+      const activeProducts = getActiveProductsInRange.get(vendor) || [];
+      const currentSelected = selectedProductsByVendor[vendor] || [];
+      const validSelected = currentSelected.filter(pid => activeProducts.some(p => p.id === pid));
+      if (validSelected.length > 0) newSelected[vendor] = validSelected;
+    }
+    setSelectedProductsByVendor(newSelected);
+  }, [filter.startDate, filter.endDate, getActiveProductsInRange]);
+
+  const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
+
+  const [openSections, setOpenSections] = useState({
+    embudo: false,
+    costos: false,
+    ranking: false,
+    proyeccion: false,
+    analisisProductos: false,
+    comparativaVendedoras: false,
+    productosRevision: true
+  });
+  const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
   const activeDays = useMemo(() => {
@@ -929,17 +987,21 @@ function VistaDashboard({ configs, months }) {
           if (c) total += parseFloat(c.targetProfit) || 0;
         });
       } else {
-        const prods = grouped[vendor] || [];
+        const prods = getActiveProductsInRange.get(vendor) || [];
         total += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
       }
     }
     if (total > 0) return total;
     if (selectedVendors.length === 1 && !Object.keys(selectedProductsByVendor).length) {
-      const prods = grouped[selectedVendors[0]] || [];
+      const prods = getActiveProductsInRange.get(selectedVendors[0]) || [];
       return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
     }
-    return configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
-  }, [selectedVendors, selectedProductsByVendor, configs, grouped]);
+    let allActiveProfit = 0;
+    for (const prods of getActiveProductsInRange.values()) {
+      allActiveProfit += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
+    }
+    return allActiveProfit;
+  }, [selectedVendors, selectedProductsByVendor, configs, getActiveProductsInRange]);
 
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
   if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
@@ -966,6 +1028,51 @@ function VistaDashboard({ configs, months }) {
     { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads', icon: Target },
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
+  const ajustePorIER = stats.grossRev - stats.realRev;
+  const eficienciaRecaudo = stats.recaudoEficiencia;
+
+  // Productos en revisión (solo los activos en el rango)
+  const productosEnRevision = useMemo(() => {
+    if (filteredRecords.length === 0) return [];
+    const productosMap = new Map();
+    filteredRecords.forEach(record => {
+      const config = configs.find(c => c.id === record.configId);
+      if (!config) return;
+      if (!productosMap.has(record.configId)) {
+        productosMap.set(record.configId, {
+          configId: record.configId,
+          vendedora: config.vendedora,
+          productName: config.productName,
+          targetProfit: parseFloat(config.targetProfit) || 0,
+          records: []
+        });
+      }
+      productosMap.get(record.configId).records.push(record);
+    });
+    const resultados = [];
+    for (const [configId, producto] of productosMap) {
+      const { records, vendedora, productName, targetProfit } = producto;
+      const statsProd = calcularStats(records, configs);
+      const activeRecords = records.filter(r => !r.restDay);
+      const uniqueDates = new Set(activeRecords.map(r => r.date));
+      const activeDays = uniqueDates.size;
+      const avgDiario = activeDays > 0 ? statsProd.net / activeDays : 0;
+      const proyeccion30 = avgDiario * 30;
+      let estado = { texto: 'REVISIÓN', emoji: '🔴', color: 'bg-rose-500', textColor: 'text-rose-500' };
+      if (proyeccion30 >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
+      else if (proyeccion30 >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+      if (estado.texto === 'REVISIÓN') {
+        resultados.push({
+          configId, vendedora, productName, targetProfit, proyeccion30, avgDiario,
+          utilidadPeriodo: statsProd.net, ier: statsProd.ierGlobal, roas: statsProd.roas,
+          cpaReal: statsProd.cpaReal,
+          cpaEquilibrio: parseFloat(configs.find(c => c.id === configId)?.cpaEquilibrio) || 0,
+          pedidos: statsProd.grossOrd, entregas: statsProd.finalDeliveries, diasActivos: activeDays, estado
+        });
+      }
+    }
+    return resultados.sort((a, b) => a.proyeccion30 - b.proyeccion30);
+  }, [filteredRecords, configs]);
 
   const SectionHeader = ({ title, icon: Icon, section, totalItems = null }) => (
     <button onClick={() => toggleSection(section)} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
@@ -982,7 +1089,7 @@ function VistaDashboard({ configs, months }) {
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
 
-      {/* Filtros mejorados */}
+      {/* Filtros mejorados con exclusión de inactivos */}
       <Card className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-3 py-2 bg-slate-50 rounded-xl font-bold text-sm outline-none" /></div>
@@ -992,7 +1099,7 @@ function VistaDashboard({ configs, months }) {
         <div className="space-y-2">
           <Label>Vendedoras (múltiple)</Label>
           <div className="flex flex-wrap gap-2">
-            {Object.keys(grouped).map(v => (
+            {availableVendors.map(v => (
               <button
                 key={v}
                 onClick={() => {
@@ -1011,50 +1118,54 @@ function VistaDashboard({ configs, months }) {
               </button>
             ))}
           </div>
+          {availableVendors.length === 0 && <p className="text-[10px] text-amber-600">No hay productos activos en el rango de fechas seleccionado.</p>}
         </div>
 
         {selectedVendors.length > 0 && (
           <div className="space-y-3 border-t pt-3">
-            <Label>Productos específicos (opcional)</Label>
-            {selectedVendors.map(vendor => (
-              <div key={vendor} className="bg-slate-50 p-3 rounded-xl">
-                <p className="text-[9px] font-black uppercase mb-2">{vendor}</p>
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    onClick={() => setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: grouped[vendor].map(p => p.id) }))}
-                    className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full"
-                  >
-                    Todos
-                  </button>
-                  <button
-                    onClick={() => {
-                      const newSelected = { ...selectedProductsByVendor };
-                      delete newSelected[vendor];
-                      setSelectedProductsByVendor(newSelected);
-                    }}
-                    className="text-[8px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full"
-                  >
-                    Ninguno
-                  </button>
-                  {grouped[vendor].map(product => (
+            <Label>Productos específicos (solo activos en el rango)</Label>
+            {selectedVendors.map(vendor => {
+              const activeProductsForVendor = getActiveProductsInRange.get(vendor) || [];
+              return (
+                <div key={vendor} className="bg-slate-50 p-3 rounded-xl">
+                  <p className="text-[9px] font-black uppercase mb-2">{vendor}</p>
+                  <div className="flex flex-wrap gap-1">
                     <button
-                      key={product.id}
-                      onClick={() => {
-                        const current = selectedProductsByVendor[vendor] || [];
-                        if (current.includes(product.id)) {
-                          setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
-                        } else {
-                          setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
-                        }
-                      }}
-                      className={`text-[8px] font-black px-2 py-1 rounded-full ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : 'bg-white border border-slate-300 text-slate-600'}`}
+                      onClick={() => setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: activeProductsForVendor.map(p => p.id) }))}
+                      className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full"
                     >
-                      {product.productName}
+                      Todos
                     </button>
-                  ))}
+                    <button
+                      onClick={() => {
+                        const newSelected = { ...selectedProductsByVendor };
+                        delete newSelected[vendor];
+                        setSelectedProductsByVendor(newSelected);
+                      }}
+                      className="text-[8px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full"
+                    >
+                      Ninguno
+                    </button>
+                    {activeProductsForVendor.map(product => (
+                      <button
+                        key={product.id}
+                        onClick={() => {
+                          const current = selectedProductsByVendor[vendor] || [];
+                          if (current.includes(product.id)) {
+                            setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
+                          } else {
+                            setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
+                          }
+                        }}
+                        className={`text-[8px] font-black px-2 py-1 rounded-full ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : 'bg-white border border-slate-300 text-slate-600'}`}
+                      >
+                        {product.productName}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
@@ -1063,17 +1174,19 @@ function VistaDashboard({ configs, months }) {
         <Card className="text-center py-12 text-slate-300"><BarChart3 size={32} className="mx-auto mb-3 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card>
       ) : (
         <>
+          {/* CPA */}
           <div className={`rounded-xl p-3 md:p-5 border-2 ${cpaColor} shadow-md`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-              <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p></div>
-              <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p></div>
+              <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Costo por adquisición real</p></div>
+              <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p><p className="text-[8px] md:text-[9px] font-semibold">Basado en cada producto</p></div>
               <div className="text-right"><div className="inline-block px-2 py-1 rounded-lg bg-white/50 backdrop-blur-sm"><p className="text-[8px] md:text-[10px] font-black">{cpaMensaje}</p></div></div>
             </div>
           </div>
 
+          {/* Resumen rápidos */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
             <Card className="border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
-            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(stats.grossRev - stats.realRev)}</p></Card>
+            <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(ajustePorIER)}</p><p className="text-[8px] md:text-[9px] text-amber-500">{fmtDec(eficienciaRecaudo, 1)}% del bruto se pierde</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
           </div>
 
@@ -1085,6 +1198,7 @@ function VistaDashboard({ configs, months }) {
             <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight />
           </div>
 
+          {/* EMBUDO */}
           <div className="space-y-2">
             <SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />
             {openSections.embudo && (
@@ -1109,6 +1223,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
+          {/* COSTOS */}
           <div className="space-y-2">
             <SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />
             {openSections.costos && (
@@ -1128,6 +1243,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
+          {/* RANKING VENDEDORAS */}
           <div className="space-y-2">
             <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
             {openSections.ranking && (
@@ -1153,6 +1269,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
+          {/* PROYECCIÓN */}
           <div className="space-y-2">
             <SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />
             {openSections.proyeccion && (
@@ -1183,23 +1300,62 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* Sección Análisis Temporal con fechas de creación/desactivación */}
+          {/* PRODUCTOS EN REVISIÓN */}
+          <div className="space-y-2">
+            <button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500">
+              <div className="flex items-center gap-1.5 md:gap-2"><AlertTriangle size={14} className="text-red-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-red-700">🚨 PRODUCTOS EN REVISIÓN ({productosEnRevision.length})</span></div>
+              {openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {openSections.productosRevision && (
+              <Card className="overflow-hidden p-0">
+                {productosEnRevision.length === 0 ? (
+                  <div className="p-6 text-center text-green-600 flex items-center justify-center gap-2"><CheckCircle2 size={20} /><span className="font-black text-sm">✅ No hay productos en revisión en este período</span></div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-[10px] md:text-sm">
+                      <thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700">
+                        <tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Meta Mensual</th><th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3">⚠️ Alertas</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {productosEnRevision.map(p => {
+                          const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
+                          const alertas = [];
+                          if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida');
+                          if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`);
+                          if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`);
+                          if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto');
+                          if (p.pedidos === 0) alertas.push('⚠️ sin pedidos');
+                          return (
+                            <tr key={p.configId} className="hover:bg-red-50/50 transition">
+                              <td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td>
+                              <td className="p-2 md:p-3 font-semibold text-[9px] md:text-xs">{p.productName}</td>
+                              <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td>
+                              <td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td>
+                              <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
+                              <td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td>
+                              <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td>
+                              <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
+                              <td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td>
+                              <td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a,i) => <span key={i} className="text-[7px] md:text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">{a}</span>)}</div></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            )}
+          </div>
+
+          {/* ANÁLISIS TEMPORAL POR PRODUCTO (con fechas de creación/desactivación) */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                   <thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500">
-                    <tr>
-                      <th className="p-2">Vendedora</th>
-                      <th className="p-2">Producto</th>
-                      <th className="p-2">Primer registro</th>
-                      <th className="p-2">Último registro</th>
-                      <th className="p-2">Fecha creación</th>
-                      <th className="p-2">Fecha desactivación</th>
-                      <th className="p-2">Días activos</th>
-                      <th className="p-2">Estado</th>
-                    </tr>
+                    <tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Fecha creación</th><th className="p-2">Fecha desactivación</th><th className="p-2">Días activos</th><th className="p-2">Estado</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {stats.detalleProductos.map(p => {
@@ -1224,7 +1380,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* NUEVA SECCIÓN: COMPARATIVA ENTRE VENDEDORAS */}
+          {/* COMPARATIVA ENTRE VENDEDORAS (solo las activas en el rango) */}
           <div className="space-y-2">
             <button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
               <div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>
@@ -1234,16 +1390,7 @@ function VistaDashboard({ configs, months }) {
               <Card className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                   <thead className="bg-indigo-50 text-[7px] md:text-[8px] font-black uppercase text-indigo-700">
-                    <tr>
-                      <th className="p-2 md:p-3">Vendedora</th>
-                      <th className="p-2 md:p-3 text-right">Inversión Ads</th>
-                      <th className="p-2 md:p-3 text-right">CPA Promedio</th>
-                      <th className="p-2 md:p-3 text-right">Utilidad Período</th>
-                      <th className="p-2 md:p-3 text-right">Proy. 30 días</th>
-                      <th className="p-2 md:p-3 text-right">Facturación Real</th>
-                      <th className="p-2 md:p-3 text-right">ROAS</th>
-                      <th className="p-2 md:p-3 text-right">IER</th>
-                    </tr>
+                    <tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3 text-right">Inversión Ads</th><th className="p-2 md:p-3 text-right">CPA Promedio</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Facturación Real</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">IER</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {selectedVendors.length === 0 ? (
@@ -1287,7 +1434,6 @@ function VistaDashboard({ configs, months }) {
     </div>
   );
 }
-
 // ==================== COMPONENTE AGENDA (ADAPTADO A TU ENTORNO) ====================
 const RESPONSIBLES = [
   { id: 'david', name: 'David', color: 'blue', bgLight: 'bg-blue-50', bgDark: 'bg-blue-600', borderColor: 'border-blue-200' },
