@@ -877,46 +877,35 @@ function VistaDashboard({ configs, months }) {
   const [selectedVendors, setSelectedVendors] = useState([]);
   const [selectedProductsByVendor, setSelectedProductsByVendor] = useState({});
 
-  const grouped = useMemo(() => configs.reduce((a, c) => { if (!a[c.vendedora]) a[c.vendedora] = []; a[c.vendedora].push(c); return a; }, {}), [configs]);
-
-  // ========== FUNCIÓN PARA SABER SI UN PRODUCTO ESTABA ACTIVO EN UNA FECHA (SOLO PARA SELECTORES) ==========
-  const isProductActiveOnDate = (product, dateStr) => {
-    if (!product) return false;
-    const active = product.activo !== false;
-    const creationDate = product.fechaCreacion ? parseColombiaDate(product.fechaCreacion) : null;
-    const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
-    const checkDate = parseColombiaDate(dateStr);
-    if (creationDate && creationDate > checkDate) return false;
-    if (!active && deactivationDate && deactivationDate <= checkDate) return false;
-    return true;
-  };
-
-  // ========== PRODUCTOS QUE ESTUVIERON ACTIVOS EN ALGÚN DÍA DEL RANGO (PARA SELECTORES) ==========
-  const getActiveProductsInRange = useMemo(() => {
-    const activeMap = new Map();
+  // ========== OBTENER PRODUCTOS QUE TIENEN REGISTROS EN EL RANGO (PARA SELECTORES) ==========
+  const getProductsWithRecordsInRange = useMemo(() => {
+    const productsMap = new Map();
+    const allRecords = months.flatMap(m => m.records || []);
     const startDate = filter.startDate;
     const endDate = filter.endDate;
-    configs.forEach(product => {
-      let hasActiveDay = false;
-      let current = parseColombiaDate(startDate);
-      const end = parseColombiaDate(endDate);
-      while (current <= end) {
-        const dateStr = current.toISOString().split('T')[0];
-        if (isProductActiveOnDate(product, dateStr)) {
-          hasActiveDay = true;
-          break;
-        }
-        current.setDate(current.getDate() + 1);
-      }
-      if (hasActiveDay) {
-        if (!activeMap.has(product.vendedora)) activeMap.set(product.vendedora, []);
-        activeMap.get(product.vendedora).push(product);
+    
+    allRecords.forEach(record => {
+      if (record.date < startDate || record.date > endDate) return;
+      const config = configs.find(c => c.id === record.configId);
+      if (!config) return;
+      const vendor = config.vendedora;
+      if (!productsMap.has(vendor)) productsMap.set(vendor, new Map());
+      const vendorProducts = productsMap.get(vendor);
+      if (!vendorProducts.has(config.id)) {
+        vendorProducts.set(config.id, config);
       }
     });
-    return activeMap;
-  }, [configs, filter.startDate, filter.endDate]);
+    
+    const result = new Map();
+    for (const [vendor, productMap] of productsMap.entries()) {
+      result.set(vendor, Array.from(productMap.values()));
+    }
+    return result;
+  }, [months, configs, filter.startDate, filter.endDate]);
 
-  // ========== FILTRADO DE REGISTROS: SOLO POR FECHAS, VENDEDORAS Y PRODUCTOS SELECCIONADOS (SIN EXCLUIR INACTIVOS HISTÓRICOS) ==========
+  const availableVendors = useMemo(() => Array.from(getProductsWithRecordsInRange.keys()).sort(), [getProductsWithRecordsInRange]);
+
+  // ========== FILTRADO DE REGISTROS ==========
   const filteredRecords = useMemo(() => {
     const all = months.flatMap(m => m.records || []);
     return all.filter(r => {
@@ -930,19 +919,17 @@ function VistaDashboard({ configs, months }) {
     });
   }, [months, configs, filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
 
-  const availableVendors = useMemo(() => Array.from(getActiveProductsInRange.keys()).sort(), [getActiveProductsInRange]);
-
-  // Resetear selección de productos cuando cambian las fechas
+  // Resetear selección cuando cambian fechas
   useEffect(() => {
     const newSelected = {};
     for (const vendor of selectedVendors) {
-      const activeProducts = getActiveProductsInRange.get(vendor) || [];
+      const availableProducts = getProductsWithRecordsInRange.get(vendor) || [];
       const currentSelected = selectedProductsByVendor[vendor] || [];
-      const validSelected = currentSelected.filter(pid => activeProducts.some(p => p.id === pid));
+      const validSelected = currentSelected.filter(pid => availableProducts.some(p => p.id === pid));
       if (validSelected.length > 0) newSelected[vendor] = validSelected;
     }
     setSelectedProductsByVendor(newSelected);
-  }, [filter.startDate, filter.endDate, getActiveProductsInRange]);
+  }, [filter.startDate, filter.endDate, getProductsWithRecordsInRange, selectedVendors]);
 
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
   
@@ -975,21 +962,21 @@ function VistaDashboard({ configs, months }) {
           if (c) total += parseFloat(c.targetProfit) || 0;
         });
       } else {
-        const prods = getActiveProductsInRange.get(vendor) || [];
+        const prods = getProductsWithRecordsInRange.get(vendor) || [];
         total += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
       }
     }
     if (total > 0) return total;
     if (selectedVendors.length === 1 && !Object.keys(selectedProductsByVendor).length) {
-      const prods = getActiveProductsInRange.get(selectedVendors[0]) || [];
+      const prods = getProductsWithRecordsInRange.get(selectedVendors[0]) || [];
       return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
     }
-    let allActiveProfit = 0;
-    for (const prods of getActiveProductsInRange.values()) {
-      allActiveProfit += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
+    let allProfit = 0;
+    for (const prods of getProductsWithRecordsInRange.values()) {
+      allProfit += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
     }
-    return allActiveProfit;
-  }, [selectedVendors, selectedProductsByVendor, configs, getActiveProductsInRange]);
+    return allProfit;
+  }, [selectedVendors, selectedProductsByVendor, configs, getProductsWithRecordsInRange]);
 
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
   if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
@@ -1017,7 +1004,6 @@ function VistaDashboard({ configs, months }) {
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
 
-  // ========== PRODUCTOS EN REVISIÓN ==========
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
     const productosMap = new Map();
@@ -1075,7 +1061,7 @@ function VistaDashboard({ configs, months }) {
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
 
-      {/* FILTROS MEJORADOS */}
+      {/* FILTROS */}
       <Card className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1"><Label><Calendar size={10} className="inline mr-1" />Desde</Label><input type="date" value={filter.startDate} onChange={e => setF('startDate', e.target.value)} className="w-full px-3 py-2 bg-slate-50 rounded-xl font-bold text-sm outline-none" /></div>
@@ -1100,26 +1086,38 @@ function VistaDashboard({ configs, months }) {
         </div>
         {selectedVendors.length > 0 && (
           <div className="space-y-3 border-t pt-3">
-            <Label>Productos específicos (solo activos en el rango)</Label>
+            <Label>Productos con registros en el período (inactivos se muestran tachados)</Label>
             {selectedVendors.map(vendor => {
-              const activeProductsForVendor = getActiveProductsInRange.get(vendor) || [];
+              const productsForVendor = getProductsWithRecordsInRange.get(vendor) || [];
               return (
                 <div key={vendor} className="bg-slate-50 p-3 rounded-xl">
                   <p className="text-[9px] font-black uppercase mb-2">{vendor}</p>
                   <div className="flex flex-wrap gap-1">
-                    <button onClick={() => setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: activeProductsForVendor.map(p => p.id) }))} className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Todos</button>
+                    <button onClick={() => setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: productsForVendor.map(p => p.id) }))} className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Todos</button>
                     <button onClick={() => { const newSelected = { ...selectedProductsByVendor }; delete newSelected[vendor]; setSelectedProductsByVendor(newSelected); }} className="text-[8px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full">Ninguno</button>
-                    {activeProductsForVendor.map(product => (
-                      <button key={product.id} onClick={() => {
-                        const current = selectedProductsByVendor[vendor] || [];
-                        if (current.includes(product.id)) {
-                          setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
-                        } else {
-                          setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
-                        }
-                      }} className={`text-[8px] font-black px-2 py-1 rounded-full ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : 'bg-white border border-slate-300 text-slate-600'}`}>{product.productName}</button>
-                    ))}
+                    {productsForVendor.map(product => {
+                      const isActiveNow = product.activo !== false;
+                      return (
+                        <button
+                          key={product.id}
+                          onClick={() => {
+                            const current = selectedProductsByVendor[vendor] || [];
+                            if (current.includes(product.id)) {
+                              setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
+                            } else {
+                              setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
+                            }
+                          }}
+                          className={`text-[8px] font-black px-2 py-1 rounded-full flex items-center gap-1 transition-all ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : isActiveNow ? 'bg-white border border-slate-300 text-slate-600' : 'bg-gray-200 border border-gray-400 text-gray-500 line-through'}`}
+                        >
+                          {!isActiveNow && <PowerOff size={10} />}
+                          {product.productName}
+                          {!isActiveNow && <span className="text-[6px] font-black ml-1">(inactivo)</span>}
+                        </button>
+                      );
+                    })}
                   </div>
+                  <p className="text-[7px] text-slate-400 mt-2">* Productos inactivos visibles para revisar su historial en el rango seleccionado.</p>
                 </div>
               );
             })}
@@ -1201,7 +1199,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* RANKING VENDEDORAS */}
+          {/* RANKING */}
           <div className="space-y-2">
             <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
             {openSections.ranking && (
@@ -1306,7 +1304,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* ANÁLISIS TEMPORAL POR PRODUCTO (con fechas de creación y desactivación) */}
+          {/* ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
             {openSections.analisisProductos && (
@@ -1338,7 +1336,7 @@ function VistaDashboard({ configs, months }) {
             )}
           </div>
 
-          {/* NUEVA SECCIÓN: COMPARATIVA ENTRE VENDEDORAS */}
+          {/* COMPARATIVA ENTRE VENDEDORAS */}
           <div className="space-y-2">
             <button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
               <div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>
