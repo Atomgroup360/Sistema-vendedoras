@@ -103,8 +103,19 @@ function calcularStats(records, configs) {
   const c = getConfigAtDate(configs, r.configId, r.date);
   if (!c) return;
 
-    const eff = Math.min(Math.max(parseFloat(c.effectiveness) || 95, 0), 100) / 100;
-    const ret = Math.min(Math.max(parseFloat(c.returnRate) || 20, 0), 100) / 100;
+    // Buscar ajuste mensual para el mes de este registro
+const recordMonth = r.date.substring(0, 7); // ej: "2025-04"
+let effectiveness = parseFloat(c.effectiveness) || 95;
+let returnRate = parseFloat(c.returnRate) || 20;
+if (c.monthlyIER && Array.isArray(c.monthlyIER)) {
+  const monthlyAdjust = c.monthlyIER.find(adj => adj.month === recordMonth);
+  if (monthlyAdjust) {
+    effectiveness = parseFloat(monthlyAdjust.effectiveness) || effectiveness;
+    returnRate = parseFloat(monthlyAdjust.returnRate) || returnRate;
+  }
+}
+const eff = Math.min(Math.max(effectiveness, 0), 100) / 100;
+const ret = Math.min(Math.max(returnRate, 0), 100) / 100;
     const IER = eff * (1 - ret);
 
     const orders = parseFloat(r.orders) || 0;
@@ -271,6 +282,7 @@ const EMPTY_CONFIG = {
   activo: true,
   fechaCreacion: todayColombia(),
   fechaDesactivacion: ''
+  monthlyIER: []
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -531,6 +543,78 @@ function VistaConfig({ configs, onSaved }) {
                     <p className={`text-xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p>
                   </div>
                 )}
+                {/* NUEVA SECCIÓN: Ajustes mensuales de IER */}
+<div className="sm:col-span-2 border-t border-slate-200 pt-4 mt-2">
+  <div className="flex items-center justify-between mb-3">
+    <Label className="text-slate-600">📅 Ajustes mensuales de Efectividad y Devolución</Label>
+    <button
+      type="button"
+      onClick={() => {
+        const newMonth = prompt("Ingrese el mes (formato YYYY-MM, ej: 2025-04):");
+        if (newMonth && /^\d{4}-\d{2}$/.test(newMonth)) {
+          const currentAdjustments = form.monthlyIER || [];
+          if (!currentAdjustments.find(a => a.month === newMonth)) {
+            setForm(prev => ({
+              ...prev,
+              monthlyIER: [...currentAdjustments, { month: newMonth, effectiveness: prev.effectiveness, returnRate: prev.returnRate }]
+            }));
+          } else {
+            alert("Ya existe un ajuste para ese mes");
+          }
+        } else if (newMonth) {
+          alert("Formato inválido. Use YYYY-MM");
+        }
+      }}
+      className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full flex items-center gap-1"
+    >
+      <Plus size={10} /> Agregar mes
+    </button>
+  </div>
+  
+  {(form.monthlyIER && form.monthlyIER.length > 0) ? (
+    <div className="space-y-2">
+      {form.monthlyIER.map((adj, idx) => (
+        <div key={idx} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl">
+          <span className="text-[9px] font-black bg-slate-200 px-2 py-1 rounded-lg">{adj.month}</span>
+          <input
+            type="number"
+            value={adj.effectiveness}
+            onChange={(e) => {
+              const newAdj = [...form.monthlyIER];
+              newAdj[idx].effectiveness = e.target.value;
+              setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+            }}
+            className="w-20 px-2 py-1 rounded-lg text-xs bg-white border"
+            placeholder="Eff %"
+          />
+          <input
+            type="number"
+            value={adj.returnRate}
+            onChange={(e) => {
+              const newAdj = [...form.monthlyIER];
+              newAdj[idx].returnRate = e.target.value;
+              setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+            }}
+            className="w-20 px-2 py-1 rounded-lg text-xs bg-white border"
+            placeholder="Ret %"
+          />
+          <button
+            onClick={() => {
+              const newAdj = form.monthlyIER.filter((_, i) => i !== idx);
+              setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+            }}
+            className="text-rose-500 hover:text-rose-700"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <p className="text-[8px] text-slate-400">Sin ajustes mensuales. Se usarán los valores base.</p>
+  )}
+  <p className="text-[7px] text-slate-400 mt-2">💡 Los ajustes mensuales sobrescriben la efectividad y devolución para ese mes completo.</p>
+</div>
               </div>
 
               <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()} className="w-full bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-sm hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2 sticky bottom-2">
