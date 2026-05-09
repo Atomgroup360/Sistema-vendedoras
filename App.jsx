@@ -618,37 +618,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
-  // Cargar selección guardada al montar
-useEffect(() => {
-  const savedVendor = localStorage.getItem('cierre_selectedVendor');
-  const savedProduct = localStorage.getItem('cierre_selectedProductId');
-  const savedForm = localStorage.getItem('cierre_form');
-  if (savedVendor) setSelectedVendor(savedVendor);
-  if (savedProduct) setSelectedProductId(savedProduct);
-  if (savedForm) setForm(JSON.parse(savedForm));
-}, []);
-
-// Guardar selección cuando cambie
-useEffect(() => {
-  if (selectedVendor) localStorage.setItem('cierre_selectedVendor', selectedVendor);
-  if (selectedProductId) localStorage.setItem('cierre_selectedProductId', selectedProductId);
-  localStorage.setItem('cierre_form', JSON.stringify(form));
-}, [selectedVendor, selectedProductId, form]);
-
-// Reiniciar cuando cambia la pestaña (al volver a Cierres)
-const prevTabRef = useRef(activeTab);
-useEffect(() => {
-  if (prevTabRef.current !== activeTab && activeTab === 'records') {
-    // Volvimos a la pestaña de Cierres → reiniciamos selección
-    setSelectedVendor('');
-    setSelectedProductId('');
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
-    localStorage.removeItem('cierre_selectedVendor');
-    localStorage.removeItem('cierre_selectedProductId');
-    localStorage.removeItem('cierre_form');
-  }
-  prevTabRef.current = activeTab;
-}, [activeTab]);
+ 
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
