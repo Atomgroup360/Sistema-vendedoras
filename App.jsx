@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, addDoc, setDoc, updateDoc, deleteDoc, doc, onSnapshot,
@@ -609,7 +609,7 @@ function VistaConfig({ configs, onSaved }) {
 }
 
 // ─── VISTA 2: REGISTRO DIARIO (con filtro de productos activos en la fecha, y resumen de faltantes solo para productos que ya existían) ─────────
-function VistaRegistro({ configs, months }) {
+function VistaRegistro({ configs, months, activeTab }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -618,7 +618,38 @@ function VistaRegistro({ configs, months }) {
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
+  // Cargar selección guardada al montar
+useEffect(() => {
+  const savedVendor = localStorage.getItem('cierre_selectedVendor');
+  const savedProduct = localStorage.getItem('cierre_selectedProductId');
+  const savedForm = localStorage.getItem('cierre_form');
+  if (savedVendor) setSelectedVendor(savedVendor);
+  if (savedProduct) setSelectedProductId(savedProduct);
+  if (savedForm) setForm(JSON.parse(savedForm));
+}, []);
 
+// Guardar selección cuando cambie
+useEffect(() => {
+  if (selectedVendor) localStorage.setItem('cierre_selectedVendor', selectedVendor);
+  if (selectedProductId) localStorage.setItem('cierre_selectedProductId', selectedProductId);
+  localStorage.setItem('cierre_form', JSON.stringify(form));
+}, [selectedVendor, selectedProductId, form]);
+
+// Reiniciar cuando cambia la pestaña (al volver a Cierres)
+const prevTabRef = useRef(activeTab);
+useEffect(() => {
+  if (prevTabRef.current !== activeTab && activeTab === 'records') {
+    // Volvimos a la pestaña de Cierres → reiniciamos selección
+    setSelectedVendor('');
+    setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    localStorage.removeItem('cierre_selectedVendor');
+    localStorage.removeItem('cierre_selectedProductId');
+    localStorage.removeItem('cierre_form');
+  }
+  prevTabRef.current = activeTab;
+}, [activeTab]);
+  
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
     a[c.vendedora].push(c);
@@ -789,7 +820,7 @@ function VistaRegistro({ configs, months }) {
       if (existing) await updateDoc(ref, { records });
       else await setDoc(ref, { records });
     }
-    setSelectedVendor(''); setSelectedProductId('');
+    //setSelectedVendor(''); setSelectedProductId('');
     setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
@@ -996,6 +1027,26 @@ function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia() });
   const [selectedVendors, setSelectedVendors] = useState([]);
   const [selectedProductsByVendor, setSelectedProductsByVendor] = useState({});
+  // Cargar filtros guardados al montar el componente
+useEffect(() => {
+  const savedStartDate = localStorage.getItem('dashboard_filters_startDate');
+  const savedEndDate = localStorage.getItem('dashboard_filters_endDate');
+  const savedVendors = localStorage.getItem('dashboard_selectedVendors');
+  const savedProducts = localStorage.getItem('dashboard_selectedProductsByVendor');
+  
+  if (savedStartDate) setFilter(f => ({ ...f, startDate: savedStartDate }));
+  if (savedEndDate) setFilter(f => ({ ...f, endDate: savedEndDate }));
+  if (savedVendors) setSelectedVendors(JSON.parse(savedVendors));
+  if (savedProducts) setSelectedProductsByVendor(JSON.parse(savedProducts));
+}, []);
+
+// Guardar filtros cuando cambien
+useEffect(() => {
+  localStorage.setItem('dashboard_filters_startDate', filter.startDate);
+  localStorage.setItem('dashboard_filters_endDate', filter.endDate);
+  localStorage.setItem('dashboard_selectedVendors', JSON.stringify(selectedVendors));
+  localStorage.setItem('dashboard_selectedProductsByVendor', JSON.stringify(selectedProductsByVendor));
+}, [filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
 
   // ========== OBTENER PRODUCTOS QUE TIENEN REGISTROS EN EL RANGO ==========
   const getProductsWithRecordsInRange = useMemo(() => {
@@ -2148,8 +2199,8 @@ export default function App() {
         </div>
       </header>
       <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
-        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
-        {activeTab === 'records' && <VistaRegistro configs={configs} months={months} />}
+        {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} activeTab={activeTab} />}
+{activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
         {activeTab === 'config' && <VistaConfig configs={configs} />}
         {activeTab === 'agenda' && <AgendaModule />}
       </main>
