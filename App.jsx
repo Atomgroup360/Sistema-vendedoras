@@ -711,43 +711,32 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  const resultado = [];
+  const activosEnFecha = [];
+  const residuales = [];
+  const webSinAdsList = [];
   
   productos.forEach(p => {
     // Validar fecha de creación
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
-    // Si el producto está ACTIVO, siempre se muestra
-    if (p.activo === true) {
-      resultado.push(p);
-      return;
-    }
+    const esWebSinAds = p.webSinAds === true;
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    const tienePermisoResidual = p.permiteRegistrosResiduales === true;
     
-    // Si está INACTIVO, verificar fecha de desactivación
-    const fechaDesactivacion = p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion) : null;
-    const fechaConsulta = parseColombiaDate(fechaRegistro);
-    
-    // Si no tiene fecha de desactivación, solo mostrar si tiene permiso residual Y checkbox marcado
-    if (!fechaDesactivacion) {
-      if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
-        resultado.push({ ...p, esResidual: true });
-      }
-      return;
-    }
-    
-    // Si la fecha consultada es ANTERIOR a la desactivación, considerar como activo
-    if (fechaConsulta < fechaDesactivacion) {
-      resultado.push(p); // estaba activo
-    } 
-    // Si es posterior o igual, solo mostrar si checkbox residual está marcado
-    else if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
-      resultado.push({ ...p, esResidual: true });
+    if (esWebSinAds) {
+      webSinAdsList.push({ ...p, esWebSinAds: true });
+    } else if (estabaActivo) {
+      activosEnFecha.push(p);
+    } else if (!estabaActivo && tienePermisoResidual) {
+      residuales.push({ ...p, esResidual: true });
     }
   });
   
+  const resultado = [...activosEnFecha];
+  if (mostrarInactivos) resultado.push(...residuales);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
   return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
-  
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
