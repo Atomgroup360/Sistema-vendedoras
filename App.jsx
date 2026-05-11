@@ -716,34 +716,26 @@ const productsOfVendor = useMemo(() => {
   const webSinAdsList = [];
 
   productos.forEach(p => {
-    // 1. Excluir productos creados DESPUÉS de la fecha de registro
+    // Excluir productos creados DESPUÉS de la fecha de registro
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
 
-    // 2. Detectar producto "web sin ads" (tiene prioridad sobre cualquier otra clasificación)
+    // ===== 1. PRODUCTOS WEB SIN ADS (prioridad total) =====
     if (p.webSinAds === true) {
       webSinAdsList.push({ ...p, esWebSinAds: true });
-      return;
+      return; // No procesar como activo o residual
     }
 
-    // 3. Producto activo → siempre incluir
-    if (p.activo === true) {
-      activos.push(p);
-      return;
-    }
-
-    // 4. Producto inactivo → evaluar según fechaDesactivacion
+    // ===== 2. PRODUCTOS NORMALES (activos/residuales) =====
     const fechaDesactivacionStr = p.fechaDesactivacion ?? null;
-
-    // Comparación segura como strings ISO
     const estabaActivoEnFecha = fechaDesactivacionStr !== null && fechaRegistro < fechaDesactivacionStr;
 
-    if (estabaActivoEnFecha) {
-      // En la fecha consultada el producto AÚN estaba activo → mostrar sin checkbox
+    // Si el producto está activo (activo === true) o estaba activo en la fecha (desactivación futura)
+    if (p.activo === true || estabaActivoEnFecha) {
       activos.push(p);
       return;
     }
 
-    // 5. Ya estaba inactivo en esa fecha → solo mostrar si checkbox activado y permite residuales
+    // Si está inactivo en esa fecha y tiene permiso residual
     if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
       residuales.push({ ...p, esResidual: true });
     }
