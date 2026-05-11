@@ -345,59 +345,70 @@ function VistaConfig({ configs, onSaved }) {
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
 const save = async () => {
-  if (!form.vendedora.trim() || !form.productName.trim()) return;
-  
-  const data = { ...form };
-  if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-  if (data.activo === false && !data.fechaDesactivacion) {
-    data.fechaDesactivacion = todayColombia();
-  }
-  if (data.activo === true) {
-    data.fechaDesactivacion = '';
-  }
-  
-  if (editId) {
-    const originalConfig = configs.find(c => c.id === editId);
-    
-    const aplicarRetroactivo = window.confirm(
-      "¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
-      "Aceptar → Corrige un OLVIDO (afecta todo el historial).\n" +
-      "Cancelar → Cambio NORMAL (nueva versión, solo futuro)."
-    );
-    
-    if (aplicarRetroactivo) {
-      // Corrección retroactiva: modifica el documento original
-      await updateDoc(doc(db, 'sales_configs', editId), data);
-    } else {
-      // Cambio normal: crea una nueva versión interna
-      if (originalConfig) {
-        const nuevaVersion = {
-          ...data,
-          version: (originalConfig.version || 1) + 1,
-          validFrom: todayColombia(),
-          previousVersionId: editId,
-          activo: true,
-          createdAt: Date.now()
-        };
-        delete nuevaVersion.id;
-        await addDoc(collection(db, 'sales_configs'), nuevaVersion);
-      } else {
-        // Fallback
-        await updateDoc(doc(db, 'sales_configs', editId), data);
-      }
+  try {
+    alert("Paso 1: Iniciando guardado");
+    if (!form.vendedora.trim() || !form.productName.trim()) {
+      alert("Falta vendedora o nombre de producto");
+      return;
     }
-  } else {
-    // Producto nuevo
-    await addDoc(collection(db, 'sales_configs'), { 
-      ...data, 
-      version: 1,
-      validFrom: todayColombia(),
-      createdAt: Date.now() 
-    });
+    
+    const data = { ...form };
+    if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
+    if (data.activo === false && !data.fechaDesactivacion) {
+      data.fechaDesactivacion = todayColombia();
+    }
+    if (data.activo === true) {
+      data.fechaDesactivacion = '';
+    }
+    
+    if (editId) {
+      alert("Paso 2: Editando producto, ID: " + editId);
+      const originalConfig = configs.find(c => c.id === editId);
+      alert("Paso 3: ¿originalConfig existe? " + (originalConfig ? "SI" : "NO"));
+      
+      const aplicarRetroactivo = window.confirm(
+        "⚠️ ¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
+        "Aceptar → Corrige un OLVIDO (afecta todo el historial).\n" +
+        "Cancelar → Cambio NORMAL (nueva versión, solo futuro)."
+      );
+      alert("Paso 4: Usuario eligió " + (aplicarRetroactivo ? "ACEPTAR" : "CANCELAR"));
+      
+      if (aplicarRetroactivo) {
+        alert("Paso 5: Actualizando documento original (updateDoc)");
+        await updateDoc(doc(db, 'sales_configs', editId), data);
+        alert("Paso 6: updateDoc completado");
+      } else {
+        alert("Paso 5: Creando nueva versión (addDoc)");
+        if (originalConfig) {
+          const nuevaVersion = {
+            ...data,
+            version: (originalConfig.version || 1) + 1,
+            validFrom: todayColombia(),
+            previousVersionId: editId,
+            activo: true,
+            createdAt: Date.now()
+          };
+          delete nuevaVersion.id;
+          await addDoc(collection(db, 'sales_configs'), nuevaVersion);
+          alert("Paso 6: addDoc completado");
+        } else {
+          alert("Error: originalConfig no encontrado, usando updateDoc");
+          await updateDoc(doc(db, 'sales_configs', editId), data);
+          alert("Paso 6: updateDoc alternativo completado");
+        }
+      }
+    } else {
+      alert("Paso 2: Creando nuevo producto");
+      await addDoc(collection(db, 'sales_configs'), { ...data, version: 1, createdAt: Date.now() });
+      alert("Paso 3: addDoc completado");
+    }
+    
+    setShowForm(false);
+    if (onSaved) onSaved();
+    alert("Paso final: Guardado completado correctamente");
+  } catch (error) {
+    alert("ERROR: " + error.message);
   }
-  
-  setShowForm(false);
-  onSaved?.();
 };
   
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
