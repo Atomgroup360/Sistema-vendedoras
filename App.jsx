@@ -710,43 +710,27 @@ const productsOfVendor = useMemo(() => {
   if (!selectedVendor) return [];
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
-
-  const activos = [];
+  
+  const activosEnFecha = [];
   const residuales = [];
-  const webSinAdsList = [];
-
+  
   productos.forEach(p => {
-    // Excluir productos creados DESPUÉS de la fecha de registro
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
-
-    // ===== 1. PRODUCTOS WEB SIN ADS (prioridad total) =====
-    if (p.webSinAds === true) {
-      webSinAdsList.push({ ...p, esWebSinAds: true });
-      return; // No procesar como activo o residual
-    }
-
-    // ===== 2. PRODUCTOS NORMALES (activos/residuales) =====
-    const fechaDesactivacionStr = p.fechaDesactivacion ?? null;
-    const estabaActivoEnFecha = fechaDesactivacionStr !== null && fechaRegistro < fechaDesactivacionStr;
-
-    // Si el producto está activo (activo === true) o estaba activo en la fecha (desactivación futura)
-    if (p.activo === true || estabaActivoEnFecha) {
-      activos.push(p);
-      return;
-    }
-
-    // Si está inactivo en esa fecha y tiene permiso residual
-    if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
+    
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    
+    if (estabaActivo) {
+      activosEnFecha.push(p);
+    } else if (p.permiteRegistrosResiduales === true) {
       residuales.push({ ...p, esResidual: true });
     }
   });
-
-  // Construir resultado final
-  const resultado = [...activos];
-  if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
-  return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+  
+  if (mostrarInactivos) {
+    return [...activosEnFecha, ...residuales];
+  }
+  return activosEnFecha;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
 
   
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
