@@ -711,57 +711,42 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  const activosNormales = [];
-  const residuales = [];
-  const webSinAdsProductos = [];
+  const resultado = [];
   
   productos.forEach(p => {
-    // Validar fecha de creación (si el producto no existía, no mostrar)
+    // Validar fecha de creación
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
-    // ===== 1. DETECTAR WEB SIN ADS (tiene prioridad) =====
-    const esWebSinAds = p.webSinAds === true;
-    if (esWebSinAds) {
-      webSinAdsProductos.push({ ...p, esWebSinAds: true });
-      return; // No procesar como activo o residual
-    }
-    
-    // ===== 2. DETERMINAR SI ESTABA ACTIVO EN LA FECHA =====
-    // Si el producto está activo, siempre lo estuvo
+    // Si el producto está ACTIVO, siempre se muestra
     if (p.activo === true) {
-      activosNormales.push(p);
+      resultado.push(p);
       return;
     }
     
-    // Si está inactivo, verificar la fecha de desactivación
+    // Si está INACTIVO, verificar fecha de desactivación
     const fechaDesactivacion = p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion) : null;
     const fechaConsulta = parseColombiaDate(fechaRegistro);
     
-    // Si no tiene fecha de desactivación, nunca estuvo activo
+    // Si no tiene fecha de desactivación, solo mostrar si tiene permiso residual Y checkbox marcado
     if (!fechaDesactivacion) {
-      // Solo se muestra si tiene permiso residual y el checkbox está marcado
-      if (p.permiteRegistrosResiduales === true) {
-        residuales.push({ ...p, esResidual: true });
+      if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
+        resultado.push({ ...p, esResidual: true });
       }
       return;
     }
     
-    // Comparar fechas
+    // Si la fecha consultada es ANTERIOR a la desactivación, considerar como activo
     if (fechaConsulta < fechaDesactivacion) {
-      // Estaba activo (fecha anterior a la desactivación)
-      activosNormales.push(p);
-    } else if (p.permiteRegistrosResiduales === true) {
-      // Ya estaba inactivo en esa fecha, pero tiene permiso residual
-      residuales.push({ ...p, esResidual: true });
+      resultado.push(p); // estaba activo
+    } 
+    // Si es posterior o igual, solo mostrar si checkbox residual está marcado
+    else if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
+      resultado.push({ ...p, esResidual: true });
     }
   });
   
-  // Construir resultado final
-  const resultado = [...activosNormales];
-  if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsProductos);
   return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
   
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
