@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, addDoc, setDoc, updateDoc, deleteDoc, doc, onSnapshot,
-  Timestamp, serverTimestamp
+  Timestamp, serverTimestamp   // ← Agregado para la Agenda
 } from 'firebase/firestore';
 import {
   LayoutDashboard, ClipboardList, Settings, Plus, Trash2, Calendar,
@@ -10,125 +10,143 @@ import {
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
-  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,
-  Globe  // ← NUEVO: ícono para Web Sin Ads
+  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
 import { db } from './src/firebase';
- 
+
 // ─── HELPERS CON ZONA HORARIA COLOMBIA (UTC-5) ───────────────────────────────
 const todayColombia = () => {
   const now = new Date();
   const colombiaDate = new Date(now.getTime() - 5 * 60 * 60 * 1000);
   return colombiaDate.toISOString().split('T')[0];
 };
- 
+
 const parseColombiaDate = (dateStr) => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day, 12, 0, 0);
 };
- 
+
 const fmt = (v) => new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0
 }).format(v || 0);
- 
+
 const fmtDec = (v, d = 2, max = null) => new Intl.NumberFormat('es-CO', {
   minimumFractionDigits: d,
   maximumFractionDigits: max !== null ? max : d
 }).format(v || 0);
- 
+
 const fmtN = (v) => new Intl.NumberFormat('es-CO', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 6
 }).format(v || 0);
- 
-// ─── MOTOR DE CÁLCULO ────────────────────────────────────────────────────────
+
+// ─── MOTOR DE CÁLCULO (global, ranking y detalle temporal) ───────────────────
+// ========== FUNCIÓN AUXILIAR PARA OBTENER LA CONFIGURACIÓN VIGENTE EN UNA FECHA ==========
 function getConfigAtDate(configs, productId, dateStr) {
+  // Obtener todas las versiones de este producto (por ID o por referencia a versión anterior)
   const allVersions = configs.filter(c => c.id === productId || c.previousVersionId === productId);
-  if (allVersions.length <= 1) return configs.find(c => c.id === productId);
+  
+  // Si solo hay una versión, devolverla directamente
+  if (allVersions.length <= 1) {
+    return configs.find(c => c.id === productId);
+  }
+  
   const date = parseColombiaDate(dateStr);
   let activeConfig = null;
   let closestValidFrom = null;
+  
   for (const config of allVersions) {
     const validFrom = config.validFrom ? parseColombiaDate(config.validFrom) : null;
-    if (!validFrom) { if (!activeConfig) activeConfig = config; continue; }
+    // Si no tiene validFrom, es la versión original (siempre válida)
+    if (!validFrom) {
+      if (!activeConfig) activeConfig = config;
+      continue;
+    }
+    // Si la fecha de validez es menor o igual a la fecha del registro
     if (validFrom <= date) {
       if (!closestValidFrom || validFrom > closestValidFrom) {
-        closestValidFrom = validFrom; activeConfig = config;
+        closestValidFrom = validFrom;
+        activeConfig = config;
       }
     }
   }
+  
   return activeConfig || configs.find(c => c.id === productId);
 }
- 
+
+// Función para saber si un producto estaba ACTIVO en una fecha específica
 function isProductActiveOnDate(product, dateStr) {
   if (!product) return false;
-  const fechaConsultaStr = dateStr;
-  const fechaDesactivacionStr = product.fechaDesactivacion ?? null;
-  if (product.activo === true) return true;
-  if (!fechaDesactivacionStr) return false;
-  // Comparación segura como string ISO YYYY-MM-DD
-  return fechaConsultaStr < fechaDesactivacionStr;
+  const active = product.activo !== false;
+  const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
+  const checkDate = parseColombiaDate(dateStr);
+  
+  if (!active && deactivationDate && deactivationDate <= checkDate) {
+    return false;
+  }
+  return true;
 }
- 
+
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
     realShipped: 0, estimatedReturns: 0, finalDeliveries: 0,
-    unitsRegistradas: 0, unitsShippedReal: 0, unitsReturnedReal: 0, unitsDeliveredReal: 0,
+    unitsRegistradas: 0,
+    unitsShippedReal: 0,
+    unitsReturnedReal: 0,
+    unitsDeliveredReal: 0,
     totalFreightCost: 0, totalFulfillment: 0,
     productCostTotal: 0, totalCommissions: 0, totalFixedCosts: 0, totalAds: 0,
-    realRev: 0, net: 0, aov: 0, cpaEquilibrioPonderado: 0,
-    rankingVendedoras: [], detalleProductos: [],
-    // ── NUEVO: métricas separadas Web Sin Ads ──
-    webSinAds: {
-      grossOrd: 0, grossRev: 0, realRev: 0, net: 0,
-      finalDeliveries: 0, productos: new Set()
-    }
+    realRev: 0,
+    net: 0,
+    aov: 0,
+    cpaEquilibrioPonderado: 0,
+    rankingVendedoras: [],
+    detalleProductos: []
   };
- 
+
   let totalCpaEquilibrioPonderado = 0;
   let totalOrdenesParaCpaEq = 0;
   const vendedorasStats = {};
   const productosFechas = {};
- 
-  activeRecords.forEach(r => {
-    const c = getConfigAtDate(configs, r.configId, r.date);
-    if (!c) return;
- 
-    const recordMonth = r.date.substring(0, 7);
-    let effectiveness = parseFloat(c.effectiveness) || 95;
-    let returnRate = parseFloat(c.returnRate) || 20;
-    if (c.monthlyIER && Array.isArray(c.monthlyIER)) {
-      const monthlyAdjust = c.monthlyIER.find(adj => adj.month === recordMonth);
-      if (monthlyAdjust) {
-        effectiveness = parseFloat(monthlyAdjust.effectiveness) || effectiveness;
-        returnRate = parseFloat(monthlyAdjust.returnRate) || returnRate;
-      }
-    }
-    const eff = Math.min(Math.max(effectiveness, 0), 100) / 100;
-    const ret = Math.min(Math.max(returnRate, 0), 100) / 100;
+
+ activeRecords.forEach(r => {
+  const c = getConfigAtDate(configs, r.configId, r.date);
+  if (!c) return;
+
+    // Buscar ajuste mensual para el mes de este registro
+const recordMonth = r.date.substring(0, 7); // ej: "2025-04"
+let effectiveness = parseFloat(c.effectiveness) || 95;
+let returnRate = parseFloat(c.returnRate) || 20;
+if (c.monthlyIER && Array.isArray(c.monthlyIER)) {
+  const monthlyAdjust = c.monthlyIER.find(adj => adj.month === recordMonth);
+  if (monthlyAdjust) {
+    effectiveness = parseFloat(monthlyAdjust.effectiveness) || effectiveness;
+    returnRate = parseFloat(monthlyAdjust.returnRate) || returnRate;
+  }
+}
+const eff = Math.min(Math.max(effectiveness, 0), 100) / 100;
+const ret = Math.min(Math.max(returnRate, 0), 100) / 100;
     const IER = eff * (1 - ret);
- 
+
     const orders = parseFloat(r.orders) || 0;
     const units = parseFloat(r.units) || 0;
     const revenue = parseFloat(r.revenue) || 0;
- 
-    const wasActive = isProductActiveOnDate(c, r.date);
- 
-    // ── CAMBIO CLAVE: productos esWebSinAds nunca cargan ads ──
-    let ads = 0;
-    if (!c.esWebSinAds) {
-      if (wasActive) {
-        ads = parseFloat(r.adSpend) > 0
-          ? parseFloat(r.adSpend)
-          : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
-      }
-    }
-    // Si esWebSinAds === true → ads permanece 0 siempre
- 
+    // Determinar si el producto estaba activo en la fecha del registro
+const wasActive = isProductActiveOnDate(c, r.date);
+
+let ads = 0;
+if (wasActive) {
+  // Producto activo: usar publicidad normal
+  ads = parseFloat(r.adSpend) > 0
+    ? parseFloat(r.adSpend)
+    : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
+}
+// Si estaba inactivo, ads ya es 0 (no gastó publicidad)
+
     const avgUnits = orders > 0 ? units / orders : 1;
     const shipped = orders * eff;
     const returns_ = shipped * ret;
@@ -137,7 +155,7 @@ function calcularStats(records, configs) {
     const unitsShipped = shipped * avgUnits;
     const unitsReturned = returns_ * avgUnits;
     const unitsDelivered = deliveries * avgUnits;
- 
+
     const extraUnitCharge = parseFloat(c.extraUnitCharge) || 0;
     const extraUnits = Math.max(avgUnits - 1, 0);
     const fleteBase = parseFloat(c.freight) || 0;
@@ -148,8 +166,7 @@ function calcularStats(records, configs) {
     const commissions = deliveries * (parseFloat(c.commission) || 0);
     const fixedCosts = deliveries * (parseFloat(c.fixedCosts) || 0);
     const realRevenue = revenue * IER;
-    const netRecord = realRevenue - mercanciaNeto - freightTotal - fulfillTotal - commissions - fixedCosts - ads;
- 
+
     s.grossOrd += orders;
     s.grossUnits += units;
     s.grossRev += revenue;
@@ -167,38 +184,38 @@ function calcularStats(records, configs) {
     s.totalFixedCosts += fixedCosts;
     s.totalAds += ads;
     s.realRev += realRevenue;
- 
-    // ── NUEVO: acumular métricas Web Sin Ads por separado ──
-    if (c.esWebSinAds) {
-      s.webSinAds.grossOrd += orders;
-      s.webSinAds.grossRev += revenue;
-      s.webSinAds.realRev += realRevenue;
-      s.webSinAds.net += netRecord;
-      s.webSinAds.finalDeliveries += deliveries;
-      s.webSinAds.productos.add(c.id);
-    }
- 
+
     const cpaEq = parseFloat(c.cpaEquilibrio) || 0;
     totalCpaEquilibrioPonderado += cpaEq * orders;
     totalOrdenesParaCpaEq += orders;
- 
+
     const vendor = c.vendedora;
     if (!vendedorasStats[vendor]) {
-      vendedorasStats[vendor] = { vendedora: vendor, pedidos: 0, recaudoNeto: 0, utilidad: 0, totalGrossOrd: 0, totalIER: 0 };
+      vendedorasStats[vendor] = {
+        vendedora: vendor,
+        pedidos: 0,
+        recaudoNeto: 0,
+        utilidad: 0,
+        totalGrossOrd: 0,
+        totalIER: 0
+      };
     }
     vendedorasStats[vendor].pedidos += orders;
     vendedorasStats[vendor].recaudoNeto += realRevenue;
-    vendedorasStats[vendor].utilidad += netRecord;
+    vendedorasStats[vendor].utilidad += (realRevenue - mercanciaNeto - freightTotal - fulfillTotal - commissions - fixedCosts - ads);
     vendedorasStats[vendor].totalGrossOrd += orders;
     vendedorasStats[vendor].totalIER += IER * orders;
- 
+
     if (!productosFechas[r.configId]) {
       productosFechas[r.configId] = {
-        configId: r.configId, vendedora: c.vendedora, productName: c.productName,
-        primerRegistro: r.date, ultimoRegistro: r.date,
+        configId: r.configId,
+        vendedora: c.vendedora,
+        productName: c.productName,
+        primerRegistro: r.date,
+        ultimoRegistro: r.date,
         activo: c.activo !== false,
-        fechaCreacion: c.fechaCreacion, fechaDesactivacion: c.fechaDesactivacion,
-        esWebSinAds: c.esWebSinAds === true  // ── NUEVO ──
+        fechaCreacion: c.fechaCreacion,
+        fechaDesactivacion: c.fechaDesactivacion
       };
     } else {
       const p = productosFechas[r.configId];
@@ -206,8 +223,15 @@ function calcularStats(records, configs) {
       if (r.date > p.ultimoRegistro) p.ultimoRegistro = r.date;
     }
   });
- 
-  s.net = s.realRev - s.productCostTotal - s.totalFreightCost - s.totalFulfillment - s.totalCommissions - s.totalFixedCosts - s.totalAds;
+
+  s.net = s.realRev
+    - s.productCostTotal
+    - s.totalFreightCost
+    - s.totalFulfillment
+    - s.totalCommissions
+    - s.totalFixedCosts
+    - s.totalAds;
+
   s.ierGlobal = s.grossOrd > 0 ? (s.finalDeliveries / s.grossOrd) * 100 : 0;
   s.freteRealXEntrega = s.finalDeliveries > 0 ? s.totalFreightCost / s.finalDeliveries : 0;
   s.cpaReal = s.finalDeliveries > 0 ? s.totalAds / s.finalDeliveries : 0;
@@ -219,36 +243,39 @@ function calcularStats(records, configs) {
   s.recaudoEficiencia = s.grossRev > 0 ? (s.realRev / s.grossRev) * 100 : 0;
   s.aov = s.grossOrd > 0 ? s.grossRev / s.grossOrd : 0;
   s.cpaEquilibrioPonderado = totalOrdenesParaCpaEq > 0 ? totalCpaEquilibrioPonderado / totalOrdenesParaCpaEq : 0;
- 
+
   const rankingData = Object.values(vendedorasStats).map(v => ({
-    ...v, ierPromedio: v.totalGrossOrd > 0 ? (v.totalIER / v.totalGrossOrd) * 100 : 0
+    ...v,
+    ierPromedio: v.totalGrossOrd > 0 ? (v.totalIER / v.totalGrossOrd) * 100 : 0
   }));
   rankingData.sort((a, b) => b.utilidad - a.utilidad);
   s.rankingVendedoras = rankingData;
+
   s.detalleProductos = Object.values(productosFechas).sort((a, b) => a.vendedora.localeCompare(b.vendedora) || a.productName.localeCompare(b.productName));
- 
-  // Convertir Set a número para facilitar uso en UI
-  s.webSinAds.totalProductos = s.webSinAds.productos.size;
- 
+
   return s;
 }
- 
+
 // ─── COMPONENTES UI ──────────────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-3xl border p-4 md:p-6 ${dark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-slate-100 shadow-sm'} ${className}`}>
     {children}
   </div>
 );
- 
+
 const Label = ({ children, className = '' }) => (
   <p className={`text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5 ${className}`}>{children}</p>
 );
- 
+
 const InputField = ({ label, type = 'text', value, onChange, placeholder, className = '', dark = false, disabled = false }) => (
   <div className="space-y-1">
     {label && <Label className={dark ? 'text-zinc-500' : ''}>{label}</Label>}
     <input
-      type={type} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      disabled={disabled}
       className={`w-full px-4 py-3 rounded-2xl font-semibold text-sm outline-none transition-all
         ${dark
           ? 'bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-600 focus:border-emerald-500 disabled:opacity-50'
@@ -257,7 +284,7 @@ const InputField = ({ label, type = 'text', value, onChange, placeholder, classN
     />
   </div>
 );
- 
+
 const Stat = ({ label, value, sub, accent = false, big = false, dark = false, highlight = false }) => (
   <div className={`p-3 md:p-4 rounded-2xl ${accent ? 'bg-emerald-500 text-white' : highlight ? 'bg-blue-50 border border-blue-100' : dark ? 'bg-zinc-800' : 'bg-slate-50'}`}>
     <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${accent ? 'text-emerald-100' : highlight ? 'text-blue-500' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{label}</p>
@@ -265,41 +292,34 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
     {sub && <p className={`text-[9px] mt-1 font-semibold ${accent ? 'text-emerald-100' : highlight ? 'text-blue-400' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{sub}</p>}
   </div>
 );
- 
-// ── NUEVO: Badge visual para productos Web Sin Ads ──
-const WebSinAdsBadge = ({ small = false }) => (
-  <span className={`inline-flex items-center gap-1 font-black bg-sky-100 text-sky-700 border border-sky-300 rounded-full ${small ? 'text-[7px] px-1.5 py-0.5' : 'text-[9px] px-2 py-0.5'}`}>
-    <Globe size={small ? 8 : 10} /> WEB SIN ADS
-  </span>
-);
- 
-// ─── VISTA 1: CONFIGURACIÓN ──────────────────────────────────────────────────
+
+// ─── VISTA 1: CONFIGURACIÓN (responsive móvil) ──────────────────────────────
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
   commission: '', returnRate: '20', effectiveness: '95',
   fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
-  extraUnitCharge: '', cpaEquilibrio: '',
+  extraUnitCharge: '',
+  cpaEquilibrio: '',
   activo: true,
   fechaCreacion: todayColombia(),
   fechaDesactivacion: '',
   monthlyIER: [],
-  permiteRegistrosResiduales: false,
-  esWebSinAds: false   // ── NUEVO ──
+permiteRegistrosResiduales: false
 };
- 
+
 function VistaConfig({ configs, onSaved }) {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY_CONFIG);
   const [expandedV, setExpandedV] = useState({});
- 
+
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
     a[c.vendedora].push(c);
     return a;
   }, {}), [configs]);
- 
+
   const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia(), monthlyIER: [] }); setShowForm(true); };
   const openNewForVendor = (vendedora) => {
     setEditId(null);
@@ -307,30 +327,32 @@ function VistaConfig({ configs, onSaved }) {
     setExpandedV(x => ({ ...x, [vendedora]: true }));
     setShowForm(true);
   };
-  const openEdit = (p) => { setEditId(p.id); setForm({ ...p, esWebSinAds: p.esWebSinAds === true }); setShowForm(true); };
+  const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
- 
+
   const save = async () => {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
     const data = { ...form };
     if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-    if (data.activo === false && !data.fechaDesactivacion) data.fechaDesactivacion = todayColombia();
-    if (data.activo === true) data.fechaDesactivacion = '';
-    // Si es Web Sin Ads, forzar fixedAdSpend false y dailyAdSpend 0
-    if (data.esWebSinAds) { data.fixedAdSpend = false; data.dailyAdSpend = '0'; }
+    if (data.activo === false && !data.fechaDesactivacion) {
+      data.fechaDesactivacion = todayColombia();
+    }
+    if (data.activo === true) {
+      data.fechaDesactivacion = '';
+    }
     if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
     else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
     setShowForm(false);
     onSaved?.();
   };
- 
+
   const remove = async (id) => {
     if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
     onSaved?.();
   };
- 
+
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
- 
+
   const previewProfit = useMemo(() => {
     const eff = parseFloat(form.effectiveness) / 100 || 0.95;
     const ret = parseFloat(form.returnRate) / 100 || 0.20;
@@ -341,15 +363,14 @@ function VistaConfig({ configs, onSaved }) {
     const full = parseFloat(form.fulfillment) || 0;
     const com = parseFloat(form.commission) || 0;
     const fijos = parseFloat(form.fixedCosts) || 0;
-    // Si es Web Sin Ads, ads = 0 en el preview
-    const ads = form.esWebSinAds ? 0 : (parseFloat(form.dailyAdSpend) || 0);
+    const ads = parseFloat(form.dailyAdSpend) || 0;
     const ingreso = precio * IER;
     const costos = costo + (flete / (IER || 1)) + full + com + fijos + ads;
     return ingreso - costos;
   }, [form]);
- 
+
   const isPrefilledVendor = showForm && !editId && form.vendedora && configs.some(c => c.vendedora === form.vendedora);
- 
+
   return (
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -357,17 +378,11 @@ function VistaConfig({ configs, onSaved }) {
           <h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">Estrategias</h2>
           <p className="text-xs text-slate-400 font-semibold mt-1 uppercase tracking-widest">Módulo 1 · Vendedoras y Productos</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 bg-zinc-950 text-white px-4 md:px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg">
-          <Plus size={16} /> Nueva Vendedora + Producto
-        </button>
+        <button onClick={openNew} className="flex items-center gap-2 bg-zinc-950 text-white px-4 md:px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"><Plus size={16} /> Nueva Vendedora + Producto</button>
       </div>
- 
+
       {Object.keys(grouped).length === 0 ? (
-        <Card className="text-center py-16 text-slate-300">
-          <Users size={48} className="mx-auto mb-4 opacity-30" />
-          <p className="font-black uppercase text-sm">Sin estrategias aún</p>
-          <p className="text-xs mt-1">Crea la primera estrategia para comenzar</p>
-        </Card>
+        <Card className="text-center py-16 text-slate-300"><Users size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin estrategias aún</p><p className="text-xs mt-1">Crea la primera estrategia para comenzar</p></Card>
       ) : (
         <div className="space-y-4">
           {Object.entries(grouped).map(([vendedora, productos]) => (
@@ -375,10 +390,7 @@ function VistaConfig({ configs, onSaved }) {
               <div className="flex items-center justify-between gap-3 p-4 md:p-5 bg-white">
                 <div onClick={() => toggleV(vendedora)} className="flex-1 flex items-center gap-3 cursor-pointer select-none">
                   <div className="w-8 h-8 md:w-10 md:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{vendedora[0]?.toUpperCase()}</div>
-                  <div>
-                    <p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p>
-                    <p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p>
-                  </div>
+                  <div><p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p></div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button type="button" onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }} className="flex items-center gap-1 bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-emerald-400"><Plus size={12} /> Producto</button>
@@ -389,15 +401,14 @@ function VistaConfig({ configs, onSaved }) {
                 <div className="border-t border-slate-100 divide-y divide-slate-100">
                   {productos.map(p => {
                     const isActive = p.activo !== false;
-                    const isWeb = p.esWebSinAds === true;
                     return (
-                      <div key={p.id} className={`p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-all ${!isActive ? 'bg-slate-100 opacity-70' : isWeb ? 'bg-sky-50' : ''}`}>
+                      <div key={p.id} className={`p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-all ${!isActive ? 'bg-slate-100 opacity-70' : ''}`}>
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className={`font-black uppercase text-xs md:text-sm ${!isActive ? 'text-slate-500 line-through' : isWeb ? 'text-sky-700' : 'text-emerald-600'}`}>{p.productName}</p>
-                            {!isActive && <span className="flex items-center gap-1 text-[9px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full"><PowerOff size={10} /> INACTIVO</span>}
-                            {/* ── NUEVO: badge Web Sin Ads en la lista ── */}
-                            {isWeb && <WebSinAdsBadge small />}
+                            <p className={`font-black uppercase text-xs md:text-sm ${!isActive ? 'text-slate-500 line-through' : 'text-emerald-600'}`}>{p.productName}</p>
+                            {!isActive && (
+                              <span className="flex items-center gap-1 text-[9px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full"><PowerOff size={10} /> INACTIVO</span>
+                            )}
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
@@ -407,8 +418,6 @@ function VistaConfig({ configs, onSaved }) {
                             {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
                             <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
                             {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
-                            {/* ── NUEVO: no cobra ads ── */}
-                            {isWeb && <span className="text-[8px] md:text-[9px] font-black bg-sky-100 text-sky-700 px-2 py-1 rounded-lg uppercase">🌐 Sin costo ads</span>}
                           </div>
                           <div className="grid grid-cols-3 gap-1 md:gap-2">
                             <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.productCost)}</p></div>
@@ -427,18 +436,14 @@ function VistaConfig({ configs, onSaved }) {
                       </div>
                     );
                   })}
-                  <div className="p-4 bg-slate-50/60">
-                    <button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50">
-                      <Plus size={14} /> Agregar nuevo producto a {vendedora}
-                    </button>
-                  </div>
+                  <div className="p-4 bg-slate-50/60"><button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50"><Plus size={14} /> Agregar nuevo producto a {vendedora}</button></div>
                 </div>
               )}
             </Card>
           ))}
         </div>
       )}
- 
+
       {showForm && (
         <div className="fixed inset-0 bg-zinc-950/90 backdrop-blur-xl flex items-center justify-center z-50 p-2 sm:p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl sm:rounded-3xl p-3 sm:p-6 md:p-8 max-h-[95vh] overflow-y-auto shadow-2xl">
@@ -453,7 +458,7 @@ function VistaConfig({ configs, onSaved }) {
               </div>
               <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-slate-100"><X size={20} /></button>
             </div>
- 
+
             {isPrefilledVendor && (
               <div className="mb-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl">
                 <div className="w-6 h-6 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-black text-xs shrink-0">{form.vendedora[0]?.toUpperCase()}</div>
@@ -463,46 +468,15 @@ function VistaConfig({ configs, onSaved }) {
                 </div>
               </div>
             )}
- 
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               {!isPrefilledVendor && (
                 <InputField label="Nombre Vendedora" value={form.vendedora} onChange={e => setField('vendedora', e.target.value)} placeholder="Ej: CAMILA PEREIRA" />
               )}
               <InputField label="Nombre Producto" value={form.productName} onChange={e => setField('productName', e.target.value)} placeholder="Ej: CEPILLO PRO X2" />
+
               <InputField label="Fecha de Creación" type="date" value={form.fechaCreacion} onChange={e => setField('fechaCreacion', e.target.value)} />
- 
-              {/* ── NUEVO: Toggle Web Sin Ads ── */}
-              <div className={`bg-zinc-950 text-white p-3 sm:p-4 rounded-xl flex flex-col gap-2 sm:col-span-2 ${form.esWebSinAds ? 'ring-2 ring-sky-400' : ''}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe size={16} className={form.esWebSinAds ? 'text-sky-400' : 'text-zinc-500'} />
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-widest">Tipo de Producto</p>
-                      <p className="text-[7px] text-zinc-400">Los productos Web Sin Ads no cargan costo de publicidad</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setField('esWebSinAds', !form.esWebSinAds)}
-                    className="flex items-center gap-1 text-[8px] font-black uppercase"
-                  >
-                    {form.esWebSinAds
-                      ? <><ToggleRight size={24} className="text-sky-400" /><span className="text-sky-400">WEB SIN ADS</span></>
-                      : <><ToggleLeft size={24} className="text-zinc-500" /><span className="text-zinc-500">NORMAL (CON ADS)</span></>
-                    }
-                  </button>
-                </div>
-                {form.esWebSinAds && (
-                  <div className="bg-sky-900/40 border border-sky-500/40 rounded-xl px-3 py-2 flex items-center gap-2">
-                    <Globe size={14} className="text-sky-400 shrink-0" />
-                    <div>
-                      <p className="text-[9px] font-black text-sky-300 uppercase">Producto Web sin publicidad pagada</p>
-                      <p className="text-[7px] text-sky-400/70">Se registran todos los costos EXCEPTO ads. Aparece en sección separada en Cierres y Dashboard.</p>
-                    </div>
-                  </div>
-                )}
-              </div>
- 
-              {/* Estado activo/inactivo */}
+
               <div className="bg-zinc-950 text-white p-3 sm:p-4 rounded-xl flex flex-col gap-2 sm:col-span-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -513,56 +487,65 @@ function VistaConfig({ configs, onSaved }) {
                     </div>
                   </div>
                   <button onClick={() => setField('activo', !form.activo)} className="flex items-center gap-1 text-[8px] font-black uppercase">
-                    {form.activo
-                      ? <><ToggleRight size={24} className="text-emerald-400" /><span className="text-emerald-400">ACTIVO</span></>
-                      : <><ToggleLeft size={24} className="text-red-400" /><span className="text-red-400">INACTIVO</span></>
-                    }
+                    {form.activo ? <><ToggleRight size={24} className="text-emerald-400" /><span className="text-emerald-400">ACTIVO</span></> : <><ToggleLeft size={24} className="text-red-400" /><span className="text-red-400">INACTIVO</span></>}
                   </button>
                 </div>
                 {!form.activo && (
-                  <>
-                    <InputField label="Fecha de Desactivación" type="date" value={form.fechaDesactivacion} onChange={e => setField('fechaDesactivacion', e.target.value)} />
-                    <div className="flex items-center justify-between bg-white/10 rounded-xl p-3">
-                      <div className="flex items-center gap-2">
-                        <Package size={14} className="text-yellow-400" />
-                        <div>
-                          <p className="text-[9px] font-black uppercase tracking-widest">Permitir registros residuales</p>
-                          <p className="text-[7px] text-zinc-400">Ventas que llegan después de la desactivación</p>
-                        </div>
-                      </div>
-                      <button onClick={() => setField('permiteRegistrosResiduales', !form.permiteRegistrosResiduales)} className="flex items-center gap-1 text-[8px] font-black uppercase">
-                        {form.permiteRegistrosResiduales
-                          ? <><ToggleRight size={22} className="text-emerald-400" /><span className="text-emerald-400">SÍ</span></>
-                          : <><ToggleLeft size={22} className="text-zinc-500" /><span className="text-zinc-500">NO</span></>
-                        }
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
- 
+  <>
+    <InputField 
+      label="Fecha de Desactivación" 
+      type="date" 
+      value={form.fechaDesactivacion} 
+      onChange={e => setField('fechaDesactivacion', e.target.value)} 
+    />
+    
+    <div className="flex items-center justify-between bg-white/10 rounded-xl p-3">
+      <div className="flex items-center gap-2">
+        <Package size={14} className="text-yellow-400" />
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest">Permitir registros residuales</p>
+          <p className="text-[7px] text-zinc-400">Ventas que llegan después de la desactivación</p>
+        </div>
+      </div>
+      <button 
+        onClick={() => setField('permiteRegistrosResiduales', !form.permiteRegistrosResiduales)} 
+        className="flex items-center gap-1 text-[8px] font-black uppercase"
+      >
+        {form.permiteRegistrosResiduales ? (
+          <><ToggleRight size={22} className="text-emerald-400" /><span className="text-emerald-400">SÍ</span></>
+        ) : (
+          <><ToggleLeft size={22} className="text-zinc-500" /><span className="text-zinc-500">NO</span></>
+        )}
+      </button>
+    </div>
+  </>
+)}
+</div>
+
               <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl space-y-1">
                 <Label className="text-emerald-700 text-[9px]">% Efectividad</Label>
                 <input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-2xl text-emerald-800 outline-none" />
                 <p className="text-[7px] text-emerald-600 font-semibold">Pedidos que salen</p>
               </div>
- 
+
               <div className="bg-rose-50 border border-rose-100 p-3 rounded-xl space-y-1">
                 <Label className="text-rose-600 text-[9px]">% Devolución</Label>
                 <input type="number" value={form.returnRate} onChange={e => setField('returnRate', e.target.value)} className="w-full bg-transparent font-black text-2xl text-rose-700 outline-none" />
                 <p className="text-[7px] text-rose-500 font-semibold">Del despachado, % que regresa</p>
               </div>
- 
+
               <div className="bg-zinc-950 text-white p-3 rounded-xl flex flex-col sm:flex-row justify-between items-center gap-2 sm:col-span-2">
                 <div>
                   <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Índice de Efectividad Real (IER)</p>
                   <p className="text-[8px] text-zinc-400">De cada 100 pedidos, ¿cuántos se pagan?</p>
                 </div>
-                <p className="text-2xl font-black font-mono text-emerald-400">
-                  {((parseFloat(form.effectiveness) || 95) / 100 * (1 - (parseFloat(form.returnRate) || 20) / 100) * 100).toFixed(1)}%
-                </p>
+                <div className="text-right">
+                  <p className="text-2xl font-black font-mono text-emerald-400">
+                    {((parseFloat(form.effectiveness) || 95) / 100 * (1 - (parseFloat(form.returnRate) || 20) / 100) * 100).toFixed(1)}%
+                  </p>
+                </div>
               </div>
- 
+
               <InputField label="Precio Venta (1 und)" type="number" value={form.priceSingle} onChange={e => setField('priceSingle', e.target.value)} placeholder="Ej: 79000" />
               <InputField label="Costo Unitario Producto" type="number" value={form.productCost} onChange={e => setField('productCost', e.target.value)} placeholder="Ej: 18000" />
               <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => setField('freight', e.target.value)} placeholder="Ej: 9500" />
@@ -572,68 +555,85 @@ function VistaConfig({ configs, onSaved }) {
               <InputField label="Costos Fijos x Entrega" type="number" value={form.fixedCosts} onChange={e => setField('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
               <InputField label="Meta Utilidad Mensual" type="number" value={form.targetProfit} onChange={e => setField('targetProfit', e.target.value)} placeholder="Ej: 4000000" />
               <InputField label="CPA Equilibrio (por pedido)" type="number" value={form.cpaEquilibrio} onChange={e => setField('cpaEquilibrio', e.target.value)} placeholder="Ej: 15000" />
- 
-              {/* ── Ads: se oculta si esWebSinAds ── */}
-              {!form.esWebSinAds ? (
-                <div className="bg-zinc-950 text-white p-3 rounded-xl space-y-2 sm:col-span-2">
-                  <div className="flex justify-between items-center">
-                    <Label className="text-zinc-500 text-[9px]">Inversión Ads Diaria</Label>
-                    <button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1 text-[8px] font-black uppercase">
-                      {form.fixedAdSpend
-                        ? <><ToggleRight size={20} className="text-emerald-400" /><span className="text-emerald-400">FIJA</span></>
-                        : <><ToggleLeft size={20} className="text-zinc-500" /><span className="text-zinc-500">MANUAL</span></>
-                      }
-                    </button>
-                  </div>
-                  <input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-xl outline-none placeholder:text-zinc-700" />
-                  <p className="text-[7px] text-zinc-600 font-semibold">
-                    {form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}
-                  </p>
+
+              <div className="bg-zinc-950 text-white p-3 rounded-xl space-y-2 sm:col-span-2">
+                <div className="flex justify-between items-center">
+                  <Label className="text-zinc-500 text-[9px]">Inversión Ads Diaria</Label>
+                  <button onClick={() => setField('fixedAdSpend', !form.fixedAdSpend)} className="flex items-center gap-1 text-[8px] font-black uppercase">
+                    {form.fixedAdSpend ? <><ToggleRight size={20} className="text-emerald-400" /><span className="text-emerald-400">FIJA</span></> : <><ToggleLeft size={20} className="text-zinc-500" /><span className="text-zinc-500">MANUAL</span></>}
+                  </button>
                 </div>
-              ) : (
-                <div className="bg-sky-950 text-white p-3 rounded-xl sm:col-span-2 flex items-center gap-3">
-                  <Globe size={18} className="text-sky-400 shrink-0" />
-                  <div>
-                    <p className="text-[9px] font-black text-sky-300 uppercase">Sin inversión en Ads</p>
-                    <p className="text-[7px] text-sky-500">Este producto es Web Sin Ads · No se registra ni calcula costo de publicidad</p>
-                  </div>
-                </div>
-              )}
- 
+                <input type="number" value={form.dailyAdSpend} onChange={e => setField('dailyAdSpend', e.target.value)} placeholder="$ 0" className="w-full bg-transparent text-emerald-400 font-black text-xl outline-none placeholder:text-zinc-700" />
+                <p className="text-[7px] text-zinc-600 font-semibold">
+                  {form.fixedAdSpend ? '✓ FIJA: Se aplica automáticamente a cada registro diario' : '⚠ MANUAL: Debes ingresar el valor en cada cierre diario'}
+                </p>
+              </div>
+
               {form.priceSingle && form.productCost && (
                 <div className={`p-3 rounded-xl border-2 ${previewProfit >= 0 ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'} sm:col-span-2`}>
-                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">
-                    Preview Utilidad Estimada por Pedido{form.esWebSinAds ? ' (sin ads)' : ''}
-                  </p>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Preview Utilidad Estimada por Pedido Registrado</p>
                   <p className={`text-xl md:text-2xl font-black font-mono ${previewProfit >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(previewProfit)}</p>
-                  <p className="text-[7px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos{form.esWebSinAds ? ' · Ads excluidos' : ''}</p>
+                  <p className="text-[7px] text-slate-400 mt-1">Aplicando IER, fletes y todos los costos</p>
                 </div>
               )}
- 
-              {/* Ajustes mensuales */}
+
+              {/* SECCIÓN DE AJUSTES MENSUALES - RESPONSIVA */}
               <div className="sm:col-span-2 border-t border-slate-200 pt-3 mt-1">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                   <Label className="text-slate-600 text-[9px] flex items-center gap-1">📅 Ajustes mensuales (Efectividad/Devolución)</Label>
-                  <button type="button" onClick={() => {
-                    const newMonth = prompt("Ingrese el mes (formato YYYY-MM, ej: 2025-04):");
-                    if (newMonth && /^\d{4}-\d{2}$/.test(newMonth)) {
-                      const current = form.monthlyIER || [];
-                      if (!current.find(a => a.month === newMonth)) {
-                        setForm(prev => ({ ...prev, monthlyIER: [...current, { month: newMonth, effectiveness: prev.effectiveness, returnRate: prev.returnRate }] }));
-                      } else alert("Ya existe un ajuste para ese mes");
-                    } else if (newMonth) alert("Formato inválido. Use YYYY-MM");
-                  }} className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full flex items-center justify-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newMonth = prompt("Ingrese el mes (formato YYYY-MM, ej: 2025-04):");
+                      if (newMonth && /^\d{4}-\d{2}$/.test(newMonth)) {
+                        const current = form.monthlyIER || [];
+                        if (!current.find(a => a.month === newMonth)) {
+                          setForm(prev => ({
+                            ...prev,
+                            monthlyIER: [...current, { month: newMonth, effectiveness: prev.effectiveness, returnRate: prev.returnRate }]
+                          }));
+                        } else alert("Ya existe un ajuste para ese mes");
+                      } else if (newMonth) alert("Formato inválido. Use YYYY-MM");
+                    }}
+                    className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full flex items-center justify-center gap-1"
+                  >
                     <Plus size={10} /> Agregar mes
                   </button>
                 </div>
+                
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {(form.monthlyIER && form.monthlyIER.length > 0) ? (
                     form.monthlyIER.map((adj, idx) => (
                       <div key={idx} className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl">
                         <span className="text-[9px] font-black bg-slate-200 px-2 py-1 rounded-lg w-16 text-center">{adj.month}</span>
-                        <input type="number" value={adj.effectiveness} onChange={(e) => { const newAdj = [...form.monthlyIER]; newAdj[idx].effectiveness = e.target.value; setForm(prev => ({ ...prev, monthlyIER: newAdj })); }} className="flex-1 min-w-[70px] px-2 py-1 rounded-lg text-xs bg-white border" placeholder="Eff %" />
-                        <input type="number" value={adj.returnRate} onChange={(e) => { const newAdj = [...form.monthlyIER]; newAdj[idx].returnRate = e.target.value; setForm(prev => ({ ...prev, monthlyIER: newAdj })); }} className="flex-1 min-w-[70px] px-2 py-1 rounded-lg text-xs bg-white border" placeholder="Ret %" />
-                        <button onClick={() => { const newAdj = form.monthlyIER.filter((_, i) => i !== idx); setForm(prev => ({ ...prev, monthlyIER: newAdj })); }} className="text-rose-500 hover:text-rose-700 p-1"><Trash2 size={12} /></button>
+                        <input
+                          type="number"
+                          value={adj.effectiveness}
+                          onChange={(e) => {
+                            const newAdj = [...form.monthlyIER];
+                            newAdj[idx].effectiveness = e.target.value;
+                            setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+                          }}
+                          className="flex-1 min-w-[70px] px-2 py-1 rounded-lg text-xs bg-white border"
+                          placeholder="Eff %"
+                        />
+                        <input
+                          type="number"
+                          value={adj.returnRate}
+                          onChange={(e) => {
+                            const newAdj = [...form.monthlyIER];
+                            newAdj[idx].returnRate = e.target.value;
+                            setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+                          }}
+                          className="flex-1 min-w-[70px] px-2 py-1 rounded-lg text-xs bg-white border"
+                          placeholder="Ret %"
+                        />
+                        <button onClick={() => {
+                          const newAdj = form.monthlyIER.filter((_, i) => i !== idx);
+                          setForm(prev => ({ ...prev, monthlyIER: newAdj }));
+                        }} className="text-rose-500 hover:text-rose-700 p-1">
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     ))
                   ) : (
@@ -643,9 +643,12 @@ function VistaConfig({ configs, onSaved }) {
                 <p className="text-[7px] text-slate-400 mt-2">💡 Los ajustes mensuales sobrescriben la efectividad y devolución para ese mes completo.</p>
               </div>
             </div>
- 
-            <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()}
-              className="w-full mt-5 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2">
+
+            <button
+              onClick={save}
+              disabled={!form.vendedora.trim() || !form.productName.trim()}
+              className="w-full mt-5 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2"
+            >
               <Save size={16} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}
             </button>
           </div>
@@ -654,8 +657,8 @@ function VistaConfig({ configs, onSaved }) {
     </div>
   );
 }
- 
-// ─── VISTA 2: REGISTRO DIARIO ────────────────────────────────────────────────
+
+// ─── VISTA 2: REGISTRO DIARIO (con filtro de productos activos en la fecha, y resumen de faltantes solo para productos que ya existían) ─────────
 function VistaRegistro({ configs, months, activeTab }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
@@ -665,96 +668,80 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
-  const [mostrarInactivos, setMostrarInactivos] = useState(false);
-  // ── NUEVO: checkbox para mostrar productos Web Sin Ads ──
-  const [mostrarWebSinAds, setMostrarWebSinAds] = useState(false);
- 
+ const [mostrarInactivos, setMostrarInactivos] = useState(false);
+  
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
     a[c.vendedora].push(c);
     return a;
   }, {}), [configs]);
   const vendors = useMemo(() => Object.keys(grouped).sort(), [grouped]);
+
+  // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
+
  
-  // ── NUEVO: productsOfVendor separado en normales / web / residuales ──
-  const productsOfVendor = useMemo(() => {
-    if (!selectedVendor) return [];
-    const productos = grouped[selectedVendor] || [];
-    const fechaRegistro = selectedDate;
- 
-    const normales = [];       // activos en fecha, NO web sin ads
-    const webSinAds = [];      // activos en fecha, SÍ web sin ads
-    const residuales = [];     // inactivos con permiteRegistrosResiduales
- 
-    productos.forEach(p => {
-      // Excluir productos no creados aún en esa fecha
-      if (p.fechaCreacion && p.fechaCreacion > fechaRegistro) return;
- 
-      const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
- 
-      if (estabaActivo) {
-        if (p.esWebSinAds === true) {
-          webSinAds.push({ ...p, esWebProducto: true });
-        } else {
-          normales.push(p);
-        }
-      } else if (p.permiteRegistrosResiduales === true) {
-        residuales.push({ ...p, esResidual: true });
-      }
-    });
- 
-    // Siempre mostramos normales.
-    // Web Sin Ads: solo si mostrarWebSinAds está activo.
-    // Residuales: solo si mostrarInactivos está activo.
-    const resultado = [...normales];
-    if (mostrarWebSinAds) resultado.push(...webSinAds);
-    if (mostrarInactivos) resultado.push(...residuales);
- 
-    return resultado;
-  }, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
- 
-  // Contadores para saber si hay productos en cada categoría oculta
-  const contadorWebSinAds = useMemo(() => {
-    if (!selectedVendor) return 0;
-    return (grouped[selectedVendor] || []).filter(p => {
-      if (p.esWebSinAds !== true) return false;
-      if (p.fechaCreacion && p.fechaCreacion > selectedDate) return false;
-      return isProductActiveOnDate(p, selectedDate);
-    }).length;
-  }, [selectedVendor, grouped, selectedDate]);
- 
-  const contadorInactivos = useMemo(() => {
-    if (!selectedVendor) return 0;
-    return (grouped[selectedVendor] || []).filter(p => {
-      if (p.fechaCreacion && p.fechaCreacion > selectedDate) return false;
-      return !isProductActiveOnDate(p, selectedDate) && p.permiteRegistrosResiduales === true;
-    }).length;
-  }, [selectedVendor, grouped, selectedDate]);
- 
+const productsOfVendor = useMemo(() => {
+  if (!selectedVendor) return [];
+  const productos = grouped[selectedVendor] || [];
+  const fechaRegistro = selectedDate;
+  
+  const activosEnFecha = [];
+  const residuales = [];
+  
+  productos.forEach(p => {
+    // Usar la función global (ya definida arriba)
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    
+    if (estabaActivo) {
+      activosEnFecha.push(p);
+    } else if (p.permiteRegistrosResiduales === true) {
+      residuales.push({ ...p, esResidual: true });
+    }
+  });
+  
+  if (mostrarInactivos) {
+    return [...activosEnFecha, ...residuales];
+  }
+  return activosEnFecha;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
- 
+
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
   const dayRecords = useMemo(() => (monthDoc?.records || []).filter(r => r.date === selectedDate), [monthDoc, selectedDate]);
- 
+
+  // Resumen de productos registrados vs activos (solo aquellos que deberían estar activos en la fecha)
   const summary = useMemo(() => {
+    // Productos que deberían estar activos según fecha de creación y desactivación
     let activeProducts = [];
-    const filterFn = (c) => {
-      if (c.esWebSinAds === true) return false; // Web Sin Ads no cuenta en el resumen de faltantes
-      const fechaCreacion = c.fechaCreacion ? parseColombiaDate(c.fechaCreacion) : null;
-      const fechaCierre = parseColombiaDate(selectedDate);
-      if (fechaCreacion && fechaCreacion > fechaCierre) return false;
-      return isProductActiveOnDate(c, selectedDate);
-    };
-    if (filterVendor === 'all') activeProducts = configs.filter(filterFn);
-    else activeProducts = configs.filter(c => c.vendedora === filterVendor && filterFn(c));
+    if (filterVendor === 'all') {
+      activeProducts = configs.filter(c => {
+        const fechaCreacion = c.fechaCreacion ? parseColombiaDate(c.fechaCreacion) : null;
+        const fechaDesactivacion = c.fechaDesactivacion ? parseColombiaDate(c.fechaDesactivacion) : null;
+        const fechaCierre = parseColombiaDate(selectedDate);
+        if (fechaCreacion && fechaCreacion > fechaCierre) return false;
+        if (c.activo === false && fechaDesactivacion && fechaDesactivacion <= fechaCierre) return false;
+        return true;
+      });
+    } else {
+      activeProducts = configs.filter(c => {
+        if (c.vendedora !== filterVendor) return false;
+        const fechaCreacion = c.fechaCreacion ? parseColombiaDate(c.fechaCreacion) : null;
+        const fechaDesactivacion = c.fechaDesactivacion ? parseColombiaDate(c.fechaDesactivacion) : null;
+        const fechaCierre = parseColombiaDate(selectedDate);
+        if (fechaCreacion && fechaCreacion > fechaCierre) return false;
+        if (c.activo === false && fechaDesactivacion && fechaDesactivacion <= fechaCierre) return false;
+        return true;
+      });
+    }
     const registeredProductIds = new Set(dayRecords.map(r => r.configId));
     const registeredActive = activeProducts.filter(p => registeredProductIds.has(p.id)).length;
     const totalActive = activeProducts.length;
     return { totalActive, registeredActive, missing: totalActive - registeredActive };
   }, [dayRecords, configs, filterVendor, selectedDate]);
- 
+
   const recordsByVendor = useMemo(() => {
     const map = new Map();
     dayRecords.forEach(rec => {
@@ -766,56 +753,74 @@ function VistaRegistro({ configs, months, activeTab }) {
     });
     return map;
   }, [dayRecords, configs]);
- 
+
   const filteredDayRecords = useMemo(() => {
     if (filterVendor === 'all') return dayRecords;
     return recordsByVendor.get(filterVendor) || [];
   }, [dayRecords, recordsByVendor, filterVendor]);
- 
+
   const { ultimoDia, diasFaltantes } = useMemo(() => {
     let maxDate = null;
     const fechasConRegistros = new Set();
     months.forEach(month => {
       month.records?.forEach(record => {
-        if (!record.restDay) { fechasConRegistros.add(record.date); if (record.date > (maxDate || '')) maxDate = record.date; }
+        if (!record.restDay) {
+          fechasConRegistros.add(record.date);
+          if (record.date > (maxDate || '')) maxDate = record.date;
+        }
       });
     });
     if (!maxDate) return { ultimoDia: null, diasFaltantes: [] };
+    const fechaUltimo = maxDate;
     const hoy = todayColombia();
     const allDates = [];
-    let current = parseColombiaDate(maxDate);
+    let current = parseColombiaDate(fechaUltimo);
     const end = parseColombiaDate(hoy);
     while (current <= end) {
       const year = current.getFullYear();
       const month = String(current.getMonth() + 1).padStart(2, '0');
       const day = String(current.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
-      if (!fechasConRegistros.has(dateStr) && dateStr !== maxDate) allDates.push(dateStr);
+      if (!fechasConRegistros.has(dateStr) && dateStr !== fechaUltimo) {
+        allDates.push(dateStr);
+      }
       current.setDate(current.getDate() + 1);
     }
-    return {
-      ultimoDia: maxDate,
-      diasFaltantes: allDates.map(d => ({
-        fecha: d,
-        nombre: parseColombiaDate(d).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
-      }))
-    };
+    const diasFaltantesFormateados = allDates.map(d => ({
+      fecha: d,
+      nombre: parseColombiaDate(d).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })
+    }));
+    return { ultimoDia: fechaUltimo, diasFaltantes: diasFaltantesFormateados };
   }, [months]);
- 
+
   const diferenciaDias = ultimoDia ? Math.floor((parseColombiaDate(todayColombia()) - parseColombiaDate(ultimoDia)) / (1000 * 60 * 60 * 24)) : null;
- 
+
   const setFormField = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const handleVendorChange = (vendor) => { setSelectedVendor(vendor); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); };
-  const handleProductChange = (productId) => { setSelectedProductId(productId); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); };
- 
+  const handleVendorChange = (vendor) => {
+    setSelectedVendor(vendor);
+    setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
+  };
+  const handleProductChange = (productId) => {
+    setSelectedProductId(productId);
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
+  };
+
   const save = async () => {
     setErrorMsg('');
-    if (!selectedVendor || !selectedProductId) { alert("Debes seleccionar una vendedora y un producto."); return; }
+    if (!selectedVendor || !selectedProductId) {
+      alert("Debes seleccionar una vendedora y un producto.");
+      return;
+    }
     if (!editingRec) {
       const exists = dayRecords.some(r => r.configId === selectedProductId);
       if (exists) {
         const config = configs.find(c => c.id === selectedProductId);
-        setErrorMsg(`❌ Ya existe un registro para ${config?.vendedora || selectedVendor} - ${config?.productName || 'Desconocido'} en esta fecha.`);
+        const vendorName = config?.vendedora || selectedVendor;
+        const productName = config?.productName || 'Desconocido';
+        setErrorMsg(`❌ Ya existe un registro para ${vendorName} - ${productName} en esta fecha. Puedes editarlo o eliminarlo.`);
         return;
       }
     }
@@ -825,9 +830,16 @@ function VistaRegistro({ configs, months, activeTab }) {
       setFormField('orders', '0'); setFormField('units', '0'); setFormField('revenue', '0');
       if (!selectedConfig?.fixedAdSpend) setFormField('adSpend', '0');
     } else {
-      if (!orders || !units || !revenue) { alert("Completa todos los campos obligatorios."); return; }
+      if (!orders || !units || !revenue) {
+        alert("Completa todos los campos obligatorios (guías, unidades y recaudo) o activa 'Día de descanso'.");
+        return;
+      }
     }
-    const rec = { configId: selectedProductId, orders, units, revenue, adSpend, date: selectedDate, id: editingRec?.id || Date.now().toString(), savedAt: Date.now(), restDay: form.restDay };
+    const rec = {
+      configId: selectedProductId, orders, units, revenue, adSpend,
+      date: selectedDate, id: editingRec?.id || Date.now().toString(),
+      savedAt: Date.now(), restDay: form.restDay
+    };
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
@@ -837,18 +849,26 @@ function VistaRegistro({ configs, months, activeTab }) {
       setEditingRec(null);
     } else {
       records = [...records, rec];
-      if (existing) await updateDoc(ref, { records }); else await setDoc(ref, { records });
+      if (existing) await updateDoc(ref, { records });
+      else await setDoc(ref, { records });
     }
+    //setSelectedVendor(''); setSelectedProductId('');
     setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
   };
- 
+
   const startEdit = (r) => {
     const config = configs.find(c => c.id === r.configId);
-    if (config) { setSelectedVendor(config.vendedora); setSelectedProductId(r.configId); setForm({ orders: r.orders, units: r.units, revenue: r.revenue, adSpend: r.adSpend || '', restDay: r.restDay || false }); setEditingRec(r); setErrorMsg(''); }
+    if (config) {
+      setSelectedVendor(config.vendedora);
+      setSelectedProductId(r.configId);
+      setForm({ orders: r.orders, units: r.units, revenue: r.revenue, adSpend: r.adSpend || '', restDay: r.restDay || false });
+      setEditingRec(r);
+      setErrorMsg('');
+    }
   };
- 
+
   const deleteRec = async (id) => {
     if (!window.confirm('¿Eliminar este registro?')) return;
     const ref = doc(db, 'sales_months', monthId);
@@ -857,12 +877,19 @@ function VistaRegistro({ configs, months, activeTab }) {
     await setDoc(ref, { records });
     if (editingRec?.id === id) cancelEdit();
   };
- 
-  const cancelEdit = () => { setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); };
- 
-  const avgUnits = (!form.restDay && form.orders && form.units && parseFloat(form.orders) > 0) ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2) : null;
-  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0 ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
- 
+
+  const cancelEdit = () => {
+    setEditingRec(null);
+    setSelectedVendor(''); setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
+  };
+
+  const avgUnits = (!form.restDay && form.orders && form.units && parseFloat(form.orders) > 0)
+    ? (parseFloat(form.units) / parseFloat(form.orders)).toFixed(2) : null;
+  const extraPerGuide = avgUnits && parseFloat(avgUnits) > 1 && extraUnitCharge > 0
+    ? (parseFloat(avgUnits) - 1) * extraUnitCharge : 0;
+
   const moveDate = (days) => {
     const date = parseColombiaDate(selectedDate);
     date.setDate(date.getDate() + days);
@@ -870,14 +897,16 @@ function VistaRegistro({ configs, months, activeTab }) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     setSelectedDate(`${year}-${month}-${day}`);
-    setEditingRec(null); setSelectedVendor(''); setSelectedProductId('');
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg('');
+    setEditingRec(null);
+    setSelectedVendor(''); setSelectedProductId('');
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setErrorMsg('');
   };
- 
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 anim-slide">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Cierre Diario</h2><p className="text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 2 · Registro de Operación</p></div>
- 
+
       {ultimoDia && (
         <div className={`rounded-2xl p-3 md:p-4 border-l-8 shadow-sm ${diferenciaDias > 1 ? 'bg-amber-50 border-amber-400 text-amber-800' : 'bg-blue-50 border-blue-400 text-blue-800'}`}>
           <div className="flex flex-col md:flex-row justify-between items-start gap-3">
@@ -885,11 +914,13 @@ function VistaRegistro({ configs, months, activeTab }) {
               <CalendarDays size={18} className="mt-0.5 flex-shrink-0" />
               <div>
                 <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest opacity-70">Último día registrado</p>
-                <p className="font-black text-xs md:text-base">{parseColombiaDate(ultimoDia).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}</p>
+                <p className="font-black text-xs md:text-base">
+                  {parseColombiaDate(ultimoDia).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}
+                </p>
                 <p className="text-[8px] md:text-[9px] font-semibold mt-1">
-                  {diferenciaDias === 0 && '✅ Hoy ya hay actividad.'}
-                  {diferenciaDias === 1 && '⚠️ Ayer fue el último día. Hoy aún no hay registros.'}
-                  {diferenciaDias > 1 && `❗ Han pasado ${diferenciaDias} días sin registrar.`}
+                  {diferenciaDias === 0 && ' ✅ Hoy ya hay actividad.'}
+                  {diferenciaDias === 1 && ' ⚠️ Ayer fue el último día. Hoy aún no hay registros.'}
+                  {diferenciaDias > 1 && ` ❗ Han pasado ${diferenciaDias} días sin registrar.`}
                 </p>
               </div>
             </div>
@@ -897,7 +928,9 @@ function VistaRegistro({ configs, months, activeTab }) {
               <div className="bg-white/80 rounded-xl p-2 max-h-32 overflow-y-auto text-[10px] w-full md:w-auto">
                 <p className="font-black uppercase text-[8px] flex items-center gap-1"><ListChecks size={10} /> Días sin registrar:</p>
                 <ul className="mt-1 space-y-0.5">
-                  {diasFaltantes.slice(0, 4).map(d => <li key={d.fecha} className="text-[9px]">📅 {d.nombre}</li>)}
+                  {diasFaltantes.slice(0, 4).map(d => (
+                    <li key={d.fecha} className="text-[9px]">📅 {d.nombre}</li>
+                  ))}
                   {diasFaltantes.length > 4 && <li className="text-[8px] text-amber-600">... y {diasFaltantes.length - 4} más</li>}
                 </ul>
               </div>
@@ -905,142 +938,95 @@ function VistaRegistro({ configs, months, activeTab }) {
           </div>
         </div>
       )}
- 
+
       <Card className={`space-y-4 md:space-y-5 ${editingRec ? 'border-2 border-amber-400' : ''}`}>
-        {editingRec && <div className="flex items-center gap-2 text-amber-600 text-[10px] font-black uppercase bg-amber-50 px-3 py-2 rounded-xl"><Pencil size={12} /> Editando registro · <button onClick={cancelEdit} className="text-slate-500 underline ml-auto">Cancelar</button></div>}
-        {errorMsg && <div className="flex items-center gap-2 text-rose-600 text-[10px] font-black uppercase bg-rose-50 px-3 py-2 rounded-xl border border-rose-200"><AlertTriangle size={12} /> {errorMsg}</div>}
- 
+        {editingRec && (<div className="flex items-center gap-2 text-amber-600 text-[10px] font-black uppercase bg-amber-50 px-3 py-2 rounded-xl"><Pencil size={12} /> Editando registro · <button onClick={cancelEdit} className="text-slate-500 underline ml-auto">Cancelar</button></div>)}
+        {errorMsg && (<div className="flex items-center gap-2 text-rose-600 text-[10px] font-black uppercase bg-rose-50 px-3 py-2 rounded-xl border border-rose-200"><AlertTriangle size={12} /> {errorMsg}</div>)}
+
         <div className="bg-zinc-950 px-4 py-3 rounded-2xl text-white space-y-3">
-          <div className="flex items-center gap-2"><Calendar size={16} className="text-emerald-400" /><div><p className="text-[8px] font-black text-zinc-500 uppercase">Fecha del Registro · Selección libre (Hora Colombia)</p></div></div>
-          <div className="space-y-2">
-            <input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-sm md:text-base rounded-xl px-3 py-2 cursor-pointer border-2 border-emerald-400" />
-            <div className="grid grid-cols-3 gap-1">
-              <button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día anterior</button>
-              <button onClick={() => { setSelectedDate(todayColombia()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-2 py-1.5 rounded-xl text-[9px] font-black">Hoy</button>
-              <button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día siguiente</button>
-            </div>
-          </div>
+          <div className="flex items-center gap-2"><Calendar size={16} className="text-emerald-400" /><div><p className="text-[8px] font-black text-zinc-500 uppercase">Fecha del Registro · Selección libre (Hora Colombia)</p><p className="text-[8px] text-zinc-600">Cualquier día pasado, presente o futuro</p></div></div>
+          <div className="space-y-2"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-sm md:text-base rounded-xl px-3 py-2 cursor-pointer border-2 border-emerald-400" /><div className="grid grid-cols-3 gap-1"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día anterior</button><button onClick={() => { setSelectedDate(todayColombia()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-2 py-1.5 rounded-xl text-[9px] font-black">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2"><p className="text-[9px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{parseColombiaDate(selectedDate).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}</span></p></div>
         </div>
- 
+
         <div className={`rounded-xl p-3 flex items-center justify-between ${form.restDay ? 'bg-amber-100 border-2 border-amber-300' : 'bg-slate-100'}`}>
           <div className="flex items-center gap-2"><Coffee size={16} className="text-amber-600" /><div><p className="text-[9px] font-black uppercase">Día de descanso / Sin campaña</p><p className="text-[8px] text-slate-500">Los campos se guardarán como 0.</p></div></div>
-          <button onClick={() => setFormField('restDay', !form.restDay)} className="flex items-center gap-1 text-[8px] font-black">
-            {form.restDay ? <><ToggleRight size={22} className="text-amber-500" /><span className="text-amber-600">DESCANSO</span></> : <><ToggleLeft size={22} className="text-slate-400" /><span className="text-slate-500">Activo</span></>}
-          </button>
+          <button onClick={() => setFormField('restDay', !form.restDay)} className="flex items-center gap-1 text-[8px] font-black">{form.restDay ? (<><ToggleRight size={22} className="text-amber-500" /><span className="text-amber-600">DESCANSO</span></>) : (<><ToggleLeft size={22} className="text-slate-400" /><span className="text-slate-500">Activo</span></>)}</button>
         </div>
- 
-        <div className="space-y-1.5"><Label>Vendedora</Label>
-          <select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100">
-            <option value="">Seleccionar vendedora...</option>
-            {vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}
-          </select>
-        </div>
- 
-        {/* ── NUEVO: Checkboxes de filtro de productos ── */}
-        {selectedVendor && (
-          <div className="flex flex-wrap gap-2">
-            {/* Checkbox Web Sin Ads: solo aparece si hay productos de ese tipo */}
-            {contadorWebSinAds > 0 && (
-              <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl cursor-pointer border transition-all text-[10px] font-black uppercase select-none ${mostrarWebSinAds ? 'bg-sky-100 border-sky-400 text-sky-700' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-                <input type="checkbox" checked={mostrarWebSinAds} onChange={(e) => setMostrarWebSinAds(e.target.checked)} className="w-3.5 h-3.5 accent-sky-500" />
-                <Globe size={11} /> 🌐 Mostrar Web Sin Ads ({contadorWebSinAds})
-              </label>
-            )}
-            {/* Checkbox residuales */}
-            {contadorInactivos > 0 && (
-              <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl cursor-pointer border transition-all text-[10px] font-black uppercase select-none ${mostrarInactivos ? 'bg-rose-100 border-rose-400 text-rose-700' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-                <input type="checkbox" checked={mostrarInactivos} onChange={(e) => setMostrarInactivos(e.target.checked)} className="w-3.5 h-3.5 accent-rose-500" />
-                📦 Inactivos residuales ({contadorInactivos})
-              </label>
-            )}
-          </div>
-        )}
- 
-        <div className="space-y-1.5"><Label>Producto</Label>
-          <select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100">
-            <option value="">Seleccionar producto...</option>
-            {productsOfVendor.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.esWebProducto ? '🌐 ' : ''}{p.productName}{p.esResidual ? ' (INACTIVO - residual)' : ''}
-              </option>
-            ))}
-          </select>
-          {editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}
- 
-          {/* ── NUEVO: indicador visual cuando seleccionas un producto Web Sin Ads ── */}
-          {selectedConfig?.esWebSinAds && (
-            <div className="flex items-center gap-2 bg-sky-50 border border-sky-200 px-3 py-2 rounded-xl mt-1">
-              <Globe size={14} className="text-sky-600 shrink-0" />
-              <div>
-                <p className="text-[9px] font-black text-sky-700 uppercase">Producto Web Sin Ads</p>
-                <p className="text-[7px] text-sky-500">No se carga ningún costo de publicidad en este registro</p>
-              </div>
-            </div>
-          )}
-        </div>
- 
-        {/* Ads: se muestra solo si NO es Web Sin Ads */}
-        {selectedConfig && !selectedConfig.fixedAdSpend && !selectedConfig.esWebSinAds && (
-          <div className="bg-zinc-950 text-white px-4 py-3 rounded-xl space-y-1">
-            <Label className="text-zinc-500 text-[9px]">Inversión Ads de Hoy (MANUAL)</Label>
-            <input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full bg-transparent font-black text-xl outline-none ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`} />
-            {form.restDay && <p className="text-[8px] text-amber-400">Se guardará como 0.</p>}
-          </div>
-        )}
-        {selectedConfig?.fixedAdSpend && !selectedConfig.esWebSinAds && (
-          <div className="flex items-center gap-2 text-emerald-600 text-[8px] font-black bg-emerald-50 px-3 py-2 rounded-xl uppercase">
-            <ToggleRight size={14} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático
-          </div>
-        )}
- 
+
+        <div className="space-y-1.5"><Label>Vendedora</Label><select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar vendedora...</option>{vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
+        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => (
+  <option key={p.id} value={p.id} className={p.esResidual ? 'text-red-500 line-through' : ''}>
+    {p.productName} {p.esResidual && '(INACTIVO - residual)'}
+  </option>
+))}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
+
+<div className="flex items-center gap-2 mt-2 mb-2">
+  <input
+    type="checkbox"
+    id="mostrarInactivos"
+    checked={mostrarInactivos}
+    onChange={(e) => setMostrarInactivos(e.target.checked)}
+    className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500"
+  />
+  <label htmlFor="mostrarInactivos" className="text-[10px] font-black uppercase text-slate-500">
+    📦 Mostrar productos inactivos (ventas residuales)
+  </label>
+</div>
+
+        {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-4 py-3 rounded-xl space-y-1"><Label className="text-zinc-500 text-[9px]">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full bg-transparent font-black text-xl outline-none ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`} />{form.restDay && <p className="text-[8px] text-amber-400">Se guardará como 0.</p>}</div>)}
+        {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[8px] font-black bg-emerald-50 px-3 py-2 rounded-xl uppercase"><ToggleRight size={14} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
+
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-slate-50 p-3 rounded-xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Package size={12} /><Label className="!mb-0">Total Guías</Label></div><input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} /></div>
-          <div className="bg-slate-50 p-3 rounded-xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Layers size={12} /><Label className="!mb-0">Total Unidades</Label></div><input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} /></div>
+          <div className="bg-slate-50 p-3 rounded-xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Package size={12} /><Label className="!mb-0">Total Guías</Label></div><input type="number" value={form.orders} onChange={e => setFormField('orders', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} />{form.restDay && <p className="text-[7px] text-amber-500">→ 0</p>}</div>
+          <div className="bg-slate-50 p-3 rounded-xl space-y-1"><div className="flex items-center gap-2 text-slate-400"><Layers size={12} /><Label className="!mb-0">Total Unidades</Label></div><input type="number" value={form.units} onChange={e => setFormField('units', e.target.value)} placeholder="0" disabled={form.restDay} className={`w-full bg-transparent font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-slate-900'}`} />{form.restDay && <p className="text-[7px] text-amber-500">→ 0</p>}</div>
         </div>
- 
-        {!form.restDay && avgUnits && (
-          <div className="text-center space-y-0.5">
-            <p className="text-[9px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unid/guía</span></p>
-            {extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && <p className="text-[8px] font-bold text-yellow-600">Extra: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits) - 1)} = {fmt(extraPerGuide)}</p>}
-          </div>
-        )}
- 
-        <div className="space-y-1.5"><Label>Recaudo Bruto Total del Día</Label>
-          <input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`} />
-          {form.restDay && <p className="text-[8px] text-amber-500 text-center">→ 0</p>}
-        </div>
- 
-        <button onClick={save} disabled={!selectedVendor || !selectedProductId} className="w-full bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 disabled:opacity-30 flex items-center justify-center gap-2">
-          <Save size={14} /> {editingRec ? 'Actualizar' : 'Guardar'}
-        </button>
+
+        {!form.restDay && avgUnits && (<div className="text-center space-y-0.5"><p className="text-[9px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unid/guía</span></p>{extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[8px] font-bold text-yellow-600">Extra: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits) - 1)} = {fmt(extraPerGuide)}</p>)}</div>)}
+
+        <div className="space-y-1.5"><Label>Recaudo Bruto Total del Día</Label><input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`} />{form.restDay && <p className="text-[8px] text-amber-500 text-center">→ 0</p>}</div>
+
+        <button onClick={save} disabled={!selectedVendor || !selectedProductId} className="w-full bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 disabled:opacity-30 flex items-center justify-center gap-2"><Save size={14} /> {editingRec ? 'Actualizar' : 'Guardar'}</button>
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
       </Card>
- 
+
+      {/* Resumen de productos registrados vs activos (solo los que deberían estar activos en esta fecha) */}
       {summary.totalActive > 0 && (
         <Card className={`p-3 text-center ${summary.missing === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
           <div className="flex items-center justify-center gap-2">
             <CheckCircle2 size={16} className={summary.missing === 0 ? 'text-green-600' : 'text-amber-600'} />
             <span className="text-[11px] font-black uppercase tracking-wider">
-              {summary.missing === 0 ? '✅ TODOS LOS PRODUCTOS ACTIVOS REGISTRADOS' : `⚠️ FALTAN ${summary.missing} PRODUCTO${summary.missing !== 1 ? 'S' : ''} POR REGISTRAR`}
+              {summary.missing === 0 
+                ? '✅ TODOS LOS PRODUCTOS ACTIVOS REGISTRADOS' 
+                : `⚠️ FALTAN ${summary.missing} PRODUCTO${summary.missing !== 1 ? 'S' : ''} POR REGISTRAR`}
             </span>
           </div>
-          <p className="text-[10px] font-semibold mt-1">Registrados hoy: <strong>{summary.registeredActive}</strong> de <strong>{summary.totalActive}</strong> productos activos en esta fecha</p>
-          <p className="text-[8px] text-slate-400 mt-0.5">* Los productos Web Sin Ads no se incluyen en este conteo</p>
+          <p className="text-[10px] font-semibold mt-1">
+            Registrados hoy: <strong>{summary.registeredActive}</strong> de <strong>{summary.totalActive}</strong> productos activos en esta fecha
+          </p>
         </Card>
       )}
- 
+
       {dayRecords.length > 0 && (
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Registros del día</p>
-            <select value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)} className="text-[10px] font-black uppercase bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:border-emerald-400">
+            <select
+              value={filterVendor}
+              onChange={(e) => setFilterVendor(e.target.value)}
+              className="text-[10px] font-black uppercase bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:border-emerald-400"
+            >
               <option value="all">TODAS LAS VENDEDORAS</option>
-              {Array.from(recordsByVendor.keys()).sort().map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}
+              {Array.from(recordsByVendor.keys()).sort().map(v => (
+                <option key={v} value={v}>{v.toUpperCase()}</option>
+              ))}
             </select>
           </div>
+          
           {filteredDayRecords.length === 0 ? (
-            <Card className="text-center py-8 text-slate-400 text-[10px]">No hay registros para la vendedora seleccionada en esta fecha.</Card>
+            <Card className="text-center py-8 text-slate-400 text-[10px]">
+              No hay registros para la vendedora seleccionada en esta fecha.
+            </Card>
           ) : (
             <div className="space-y-2">
               {filteredDayRecords.map(r => {
@@ -1053,17 +1039,14 @@ function VistaRegistro({ configs, months, activeTab }) {
                 const avgU = orders > 0 ? units / orders : 1;
                 const deliveries = orders * IER;
                 const unitsDelivered = deliveries * avgU;
-                const isWeb = c?.esWebSinAds === true;
                 return (
-                  <Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 ${r.restDay ? 'bg-slate-100' : isWeb ? 'bg-sky-50 border-sky-200' : ''}`}>
+                  <Card key={r.id} className={`flex flex-col sm:flex-row sm:items-center gap-2 ${r.restDay ? 'bg-slate-100' : ''}`}>
                     <div className="flex-1">
                       <div className="flex flex-wrap items-center gap-1">
-                        <span className={`font-black text-xs ${isWeb ? 'text-sky-700' : 'text-emerald-600'}`}>{c?.vendedora}</span>
+                        <span className="font-black text-emerald-600 text-xs">{c?.vendedora}</span>
                         <span className="text-slate-300">·</span>
                         <span className="font-semibold text-xs">{c?.productName}</span>
                         {r.restDay && <span className="text-[8px] font-black bg-amber-100 text-amber-700 px-1 rounded-full"><Moon size={8} /> DESCANSO</span>}
-                        {/* ── NUEVO: badge en la lista de registros ── */}
-                        {isWeb && <WebSinAdsBadge small />}
                       </div>
                       <div className="flex flex-wrap gap-1 mt-1">
                         <span className="text-[8px] font-black bg-slate-100 px-1.5 py-0.5 rounded">{r.orders} guías</span>
@@ -1071,7 +1054,6 @@ function VistaRegistro({ configs, months, activeTab }) {
                         <span className="text-[8px] font-black bg-emerald-50 px-1.5 py-0.5 rounded">{fmtN(deliveries)} entregas</span>
                         <span className="text-[8px] font-black bg-blue-50 px-1.5 py-0.5 rounded">{fmtN(unitsDelivered)} prod.</span>
                         <span className="text-[8px] font-black bg-zinc-100 px-1.5 py-0.5 rounded">{fmt(r.revenue)}</span>
-                        {isWeb && <span className="text-[8px] font-black bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">$0 ads</span>}
                       </div>
                     </div>
                     <div className="flex gap-1 justify-end">
@@ -1088,49 +1070,62 @@ function VistaRegistro({ configs, months, activeTab }) {
     </div>
   );
 }
- 
-// ─── VISTA 3: DASHBOARD ──────────────────────────────────────────────────────
+
+// ─── VISTA 3: DASHBOARD (igual que antes, sin cambios) ──────────────────────
 function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia() });
   const [selectedVendors, setSelectedVendors] = useState([]);
   const [selectedProductsByVendor, setSelectedProductsByVendor] = useState({});
- 
-  useEffect(() => {
-    const savedStartDate = localStorage.getItem('dashboard_filters_startDate');
-    const savedEndDate = localStorage.getItem('dashboard_filters_endDate');
-    const savedVendors = localStorage.getItem('dashboard_selectedVendors');
-    const savedProducts = localStorage.getItem('dashboard_selectedProductsByVendor');
-    if (savedStartDate) setFilter(f => ({ ...f, startDate: savedStartDate }));
-    if (savedEndDate) setFilter(f => ({ ...f, endDate: savedEndDate }));
-    if (savedVendors) setSelectedVendors(JSON.parse(savedVendors));
-    if (savedProducts) setSelectedProductsByVendor(JSON.parse(savedProducts));
-  }, []);
- 
-  useEffect(() => {
-    localStorage.setItem('dashboard_filters_startDate', filter.startDate);
-    localStorage.setItem('dashboard_filters_endDate', filter.endDate);
-    localStorage.setItem('dashboard_selectedVendors', JSON.stringify(selectedVendors));
-    localStorage.setItem('dashboard_selectedProductsByVendor', JSON.stringify(selectedProductsByVendor));
-  }, [filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
- 
+  // Cargar filtros guardados al montar el componente
+useEffect(() => {
+  const savedStartDate = localStorage.getItem('dashboard_filters_startDate');
+  const savedEndDate = localStorage.getItem('dashboard_filters_endDate');
+  const savedVendors = localStorage.getItem('dashboard_selectedVendors');
+  const savedProducts = localStorage.getItem('dashboard_selectedProductsByVendor');
+  
+  if (savedStartDate) setFilter(f => ({ ...f, startDate: savedStartDate }));
+  if (savedEndDate) setFilter(f => ({ ...f, endDate: savedEndDate }));
+  if (savedVendors) setSelectedVendors(JSON.parse(savedVendors));
+  if (savedProducts) setSelectedProductsByVendor(JSON.parse(savedProducts));
+}, []);
+
+// Guardar filtros cuando cambien
+useEffect(() => {
+  localStorage.setItem('dashboard_filters_startDate', filter.startDate);
+  localStorage.setItem('dashboard_filters_endDate', filter.endDate);
+  localStorage.setItem('dashboard_selectedVendors', JSON.stringify(selectedVendors));
+  localStorage.setItem('dashboard_selectedProductsByVendor', JSON.stringify(selectedProductsByVendor));
+}, [filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
+
+  // ========== OBTENER PRODUCTOS QUE TIENEN REGISTROS EN EL RANGO ==========
   const getProductsWithRecordsInRange = useMemo(() => {
     const productsMap = new Map();
     const allRecords = months.flatMap(m => m.records || []);
+    const startDate = filter.startDate;
+    const endDate = filter.endDate;
+    
     allRecords.forEach(record => {
-      if (record.date < filter.startDate || record.date > filter.endDate) return;
+      if (record.date < startDate || record.date > endDate) return;
       const config = configs.find(c => c.id === record.configId);
       if (!config) return;
       const vendor = config.vendedora;
       if (!productsMap.has(vendor)) productsMap.set(vendor, new Map());
-      if (!productsMap.get(vendor).has(config.id)) productsMap.get(vendor).set(config.id, config);
+      const vendorProducts = productsMap.get(vendor);
+      if (!vendorProducts.has(config.id)) {
+        vendorProducts.set(config.id, config);
+      }
     });
+    
     const result = new Map();
-    for (const [vendor, productMap] of productsMap.entries()) result.set(vendor, Array.from(productMap.values()));
+    for (const [vendor, productMap] of productsMap.entries()) {
+      result.set(vendor, Array.from(productMap.values()));
+    }
     return result;
   }, [months, configs, filter.startDate, filter.endDate]);
- 
+
   const availableVendors = useMemo(() => Array.from(getProductsWithRecordsInRange.keys()).sort(), [getProductsWithRecordsInRange]);
- 
+
+  // ========== FILTRADO DE REGISTROS ==========
   const filteredRecords = useMemo(() => {
     const all = months.flatMap(m => m.records || []);
     return all.filter(r => {
@@ -1143,7 +1138,8 @@ function VistaDashboard({ configs, months }) {
       return true;
     });
   }, [months, configs, filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
- 
+
+  // Resetear selección cuando cambian fechas
   useEffect(() => {
     const newSelected = {};
     for (const vendor of selectedVendors) {
@@ -1154,25 +1150,41 @@ function VistaDashboard({ configs, months }) {
     }
     setSelectedProductsByVendor(newSelected);
   }, [filter.startDate, filter.endDate, getProductsWithRecordsInRange, selectedVendors]);
- 
+
   const setF = (k, v) => setFilter(f => ({ ...f, [k]: v }));
+  
   const [openSections, setOpenSections] = useState({
-    embudo: false, costos: false, ranking: false, proyeccion: false,
-    analisisProductos: false, comparativaVendedoras: false, productosRevision: true,
-    webSinAdsPanel: true  // ── NUEVO ──
+    embudo: false,
+    costos: false,
+    ranking: false,
+    proyeccion: false,
+    analisisProductos: false,
+    comparativaVendedoras: false,
+    productosRevision: true
   });
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
- 
+
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
-  const activeDays = useMemo(() => new Set(filteredRecords.filter(r => !r.restDay).map(r => r.date)).size, [filteredRecords]);
+  const activeDays = useMemo(() => {
+    const activeRecords = filteredRecords.filter(r => !r.restDay);
+    const uniqueDates = new Set(activeRecords.map(r => r.date));
+    return uniqueDates.size;
+  }, [filteredRecords]);
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
- 
+  
   const targetProfit = useMemo(() => {
     let total = 0;
     for (const [vendor, productIds] of Object.entries(selectedProductsByVendor)) {
-      if (productIds.length) productIds.forEach(pid => { const c = configs.find(c => c.id === pid); if (c) total += parseFloat(c.targetProfit) || 0; });
-      else { const prods = getProductsWithRecordsInRange.get(vendor) || []; total += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0); }
+      if (productIds.length) {
+        productIds.forEach(pid => {
+          const c = configs.find(c => c.id === pid);
+          if (c) total += parseFloat(c.targetProfit) || 0;
+        });
+      } else {
+        const prods = getProductsWithRecordsInRange.get(vendor) || [];
+        total += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
+      }
     }
     if (total > 0) return total;
     if (selectedVendors.length === 1 && !Object.keys(selectedProductsByVendor).length) {
@@ -1180,76 +1192,98 @@ function VistaDashboard({ configs, months }) {
       return prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
     }
     let allProfit = 0;
-    for (const prods of getProductsWithRecordsInRange.values()) allProfit += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
+    for (const prods of getProductsWithRecordsInRange.values()) {
+      allProfit += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
+    }
     return allProfit;
   }, [selectedVendors, selectedProductsByVendor, configs, getProductsWithRecordsInRange]);
- 
+
   let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
   if (proyeccion30 >= 1_000_000) semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
   else if (proyeccion30 >= targetProfit && targetProfit > 0) semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
- 
+
   let cpaColor = '', cpaMensaje = '';
-  if (stats.cpaReal > stats.cpaEquilibrioPonderado) { cpaColor = 'bg-red-100 border-red-500 text-red-700'; cpaMensaje = '⚠️ CPA por encima del equilibrio → No rentable'; }
-  else if (stats.cpaReal <= stats.cpaEquilibrioPonderado * 0.75) { cpaColor = 'bg-green-100 border-green-500 text-green-700'; cpaMensaje = '🚀 CPA excelente (25%+ por debajo) → ESCALAR'; }
-  else { cpaColor = 'bg-yellow-100 border-yellow-500 text-yellow-700'; cpaMensaje = '✅ CPA por debajo del equilibrio → Rentable'; }
- 
+  if (stats.cpaReal > stats.cpaEquilibrioPonderado) {
+    cpaColor = 'bg-red-100 border-red-500 text-red-700';
+    cpaMensaje = '⚠️ CPA por encima del equilibrio → No rentable';
+  } else if (stats.cpaReal <= stats.cpaEquilibrioPonderado * 0.75) {
+    cpaColor = 'bg-green-100 border-green-500 text-green-700';
+    cpaMensaje = '🚀 CPA excelente (25%+ por debajo) → ESCALAR';
+  } else {
+    cpaColor = 'bg-yellow-100 border-yellow-500 text-yellow-700';
+    cpaMensaje = '✅ CPA por debajo del equilibrio → Rentable';
+  }
+
   const costItems = [
     { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas`, icon: Package },
     { label: 'Fletes Totales', value: stats.totalFreightCost, note: 'Incluye cargos extra', icon: Truck },
     { label: 'Fulfillment', value: stats.totalFulfillment, note: 'Por guía despachada', icon: Boxes },
     { label: 'Comisiones', value: stats.totalCommissions, note: 'Solo entregas exitosas', icon: DollarSign },
     { label: 'Costos Fijos', value: stats.totalFixedCosts, note: 'Prorrateo por entrega', icon: Activity },
-    { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads · Web Sin Ads excluidos', icon: Target },
+    { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads', icon: Target },
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
- 
+
+  // ========== PRODUCTOS EN REVISIÓN (ordenados: primero activos, luego inactivos) ==========
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
     const productosMap = new Map();
+    
     filteredRecords.forEach(record => {
       const config = configs.find(c => c.id === record.configId);
       if (!config) return;
       if (!productosMap.has(record.configId)) {
         productosMap.set(record.configId, {
-          configId: record.configId, vendedora: config.vendedora, productName: config.productName,
+          configId: record.configId,
+          vendedora: config.vendedora,
+          productName: config.productName,
           targetProfit: parseFloat(config.targetProfit) || 0,
           isActive: config.activo !== false,
-          esWebSinAds: config.esWebSinAds === true,  // ── NUEVO ──
           records: []
         });
       }
       productosMap.get(record.configId).records.push(record);
     });
+    
     const resultados = [];
     for (const [configId, producto] of productosMap) {
-      const { records, vendedora, productName, targetProfit, isActive, esWebSinAds } = producto;
+      const { records, vendedora, productName, targetProfit, isActive } = producto;
       const statsProd = calcularStats(records, configs);
       const activeRecords = records.filter(r => !r.restDay);
       const uniqueDates = new Set(activeRecords.map(r => r.date));
       const activeDaysProd = uniqueDates.size;
       const avgDiarioProd = activeDaysProd > 0 ? statsProd.net / activeDaysProd : 0;
       const proyeccion30Prod = avgDiarioProd * 30;
+      
       let estado = { texto: 'REVISIÓN', emoji: '🔴', color: 'bg-rose-500', textColor: 'text-rose-500' };
       if (proyeccion30Prod >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
       else if (proyeccion30Prod >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+      
       if (estado.texto === 'REVISIÓN') {
         resultados.push({
-          configId, vendedora, productName, targetProfit, proyeccion30: proyeccion30Prod,
-          avgDiario: avgDiarioProd, utilidadPeriodo: statsProd.net, ier: statsProd.ierGlobal,
-          roas: statsProd.roas, cpaReal: statsProd.cpaReal,
+          configId, vendedora, productName, targetProfit, 
+          proyeccion30: proyeccion30Prod, 
+          avgDiario: avgDiarioProd,
+          utilidadPeriodo: statsProd.net, 
+          ier: statsProd.ierGlobal, 
+          roas: statsProd.roas,
+          cpaReal: statsProd.cpaReal,
           cpaEquilibrio: parseFloat(configs.find(c => c.id === configId)?.cpaEquilibrio) || 0,
-          pedidos: statsProd.grossOrd, entregas: statsProd.finalDeliveries,
-          diasActivos: activeDaysProd, estado, isActive,
-          esWebSinAds  // ── NUEVO ──
+          pedidos: statsProd.grossOrd, 
+          entregas: statsProd.finalDeliveries, 
+          diasActivos: activeDaysProd, 
+          estado,
+          isActive
         });
       }
     }
-    const activos = resultados.filter(p => p.isActive && !p.esWebSinAds).sort((a, b) => a.proyeccion30 - b.proyeccion30);
-    const web = resultados.filter(p => p.esWebSinAds).sort((a, b) => a.proyeccion30 - b.proyeccion30);
-    const inactivos = resultados.filter(p => !p.isActive && !p.esWebSinAds).sort((a, b) => a.proyeccion30 - b.proyeccion30);
-    return [...activos, ...web, ...inactivos];
+    
+    // Ordenar: primero activos (por proyección), luego inactivos (por proyección)
+    const activos = resultados.filter(p => p.isActive).sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    const inactivos = resultados.filter(p => !p.isActive).sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    return [...activos, ...inactivos];
   }, [filteredRecords, configs]);
- 
+
   const SectionHeader = ({ title, icon: Icon, section, totalItems = null }) => (
     <button onClick={() => toggleSection(section)} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
       <div className="flex items-center gap-1.5 md:gap-2">
@@ -1260,11 +1294,11 @@ function VistaDashboard({ configs, months }) {
       {openSections[section] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
     </button>
   );
- 
+
   return (
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div><h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter">Dashboard General</h2><p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-widest mt-1">Módulo 3 · Análisis de Rendimiento</p></div>
- 
+
       {/* FILTROS */}
       <Card className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1276,15 +1310,21 @@ function VistaDashboard({ configs, months }) {
           <div className="flex flex-wrap gap-2">
             {availableVendors.map(v => (
               <button key={v} onClick={() => {
-                if (selectedVendors.includes(v)) { setSelectedVendors(selectedVendors.filter(vv => vv !== v)); const newSelected = { ...selectedProductsByVendor }; delete newSelected[v]; setSelectedProductsByVendor(newSelected); }
-                else setSelectedVendors([...selectedVendors, v]);
+                if (selectedVendors.includes(v)) {
+                  setSelectedVendors(selectedVendors.filter(vv => vv !== v));
+                  const newSelected = { ...selectedProductsByVendor };
+                  delete newSelected[v];
+                  setSelectedProductsByVendor(newSelected);
+                } else {
+                  setSelectedVendors([...selectedVendors, v]);
+                }
               }} className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase transition-all ${selectedVendors.includes(v) ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600'}`}>{v}</button>
             ))}
           </div>
         </div>
         {selectedVendors.length > 0 && (
           <div className="space-y-3 border-t pt-3">
-            <Label>Productos con registros en el período</Label>
+            <Label>Productos con registros en el período (inactivos se muestran tachados)</Label>
             {selectedVendors.map(vendor => {
               const productsForVendor = getProductsWithRecordsInRange.get(vendor) || [];
               return (
@@ -1295,108 +1335,55 @@ function VistaDashboard({ configs, months }) {
                     <button onClick={() => { const newSelected = { ...selectedProductsByVendor }; delete newSelected[vendor]; setSelectedProductsByVendor(newSelected); }} className="text-[8px] font-black bg-red-100 text-red-700 px-2 py-1 rounded-full">Ninguno</button>
                     {productsForVendor.map(product => {
                       const isActiveNow = product.activo !== false;
-                      const isWeb = product.esWebSinAds === true;
                       return (
-                        <button key={product.id}
+                        <button
+                          key={product.id}
                           onClick={() => {
                             const current = selectedProductsByVendor[vendor] || [];
-                            if (current.includes(product.id)) setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
-                            else setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
+                            if (current.includes(product.id)) {
+                              setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: current.filter(id => id !== product.id) }));
+                            } else {
+                              setSelectedProductsByVendor(prev => ({ ...prev, [vendor]: [...current, product.id] }));
+                            }
                           }}
-                          className={`text-[8px] font-black px-2 py-1 rounded-full flex items-center gap-1 transition-all ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? (isWeb ? 'bg-sky-500 text-white' : 'bg-blue-500 text-white') : isWeb ? 'bg-sky-50 border border-sky-300 text-sky-700' : isActiveNow ? 'bg-white border border-slate-300 text-slate-600' : 'bg-gray-200 border border-gray-400 text-gray-500 line-through'}`}
+                          className={`text-[8px] font-black px-2 py-1 rounded-full flex items-center gap-1 transition-all ${(selectedProductsByVendor[vendor] || []).includes(product.id) ? 'bg-blue-500 text-white' : isActiveNow ? 'bg-white border border-slate-300 text-slate-600' : 'bg-gray-200 border border-gray-400 text-gray-500 line-through'}`}
                         >
-                          {isWeb && <Globe size={9} />}
-                          {!isActiveNow && !isWeb && <PowerOff size={10} />}
+                          {!isActiveNow && <PowerOff size={10} />}
                           {product.productName}
-                          {isWeb && <span className="text-[6px] font-black ml-0.5">web</span>}
-                          {!isActiveNow && !isWeb && <span className="text-[6px] font-black ml-1">(inactivo)</span>}
+                          {!isActiveNow && <span className="text-[6px] font-black ml-1">(inactivo)</span>}
                         </button>
                       );
                     })}
                   </div>
-                  <p className="text-[7px] text-slate-400 mt-2">🌐 = Web Sin Ads · Los productos web se distinguen en celeste</p>
+                  <p className="text-[7px] text-slate-400 mt-2">* Productos inactivos visibles para revisar su historial en el rango seleccionado.</p>
                 </div>
               );
             })}
           </div>
         )}
-        <div className="col-span-2 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl">
-          <Info size={12} className="text-slate-400 shrink-0" />
-          <p className="text-[8px] md:text-[9px] font-black text-slate-400">
-            Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> · Proyección a 30 días
-            {stats.webSinAds.totalProductos > 0 && <span className="text-sky-600"> · 🌐 {stats.webSinAds.totalProductos} producto{stats.webSinAds.totalProductos !== 1 ? 's' : ''} Web Sin Ads incluido{stats.webSinAds.totalProductos !== 1 ? 's' : ''}</span>}
-          </p>
-        </div>
+        <div className="col-span-2 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl"><Info size={12} className="text-slate-400 shrink-0" /><p className="text-[8px] md:text-[9px] font-black text-slate-400">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · Proyección a 30 días = promedio diario × 30</p></div>
       </Card>
- 
+
       {filteredRecords.length === 0 || activeDays === 0 ? (
         <Card className="text-center py-12 text-slate-300"><BarChart3 size={32} className="mx-auto mb-3 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card>
       ) : (
         <>
-          {/* ── NUEVO: Panel Web Sin Ads (aparece solo si hay datos) ── */}
-          {stats.webSinAds.grossOrd > 0 && (
-            <div className="space-y-2">
-              <button onClick={() => toggleSection('webSinAdsPanel')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-sky-50 hover:bg-sky-100 rounded-xl transition-colors border border-sky-200">
-                <div className="flex items-center gap-1.5 md:gap-2">
-                  <Globe size={14} className="text-sky-600" />
-                  <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-sky-700">🌐 PRODUCTOS WEB SIN ADS ({stats.webSinAds.totalProductos})</span>
-                </div>
-                {openSections.webSinAdsPanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
-              {openSections.webSinAdsPanel && (
-                <Card className="border-sky-200 bg-sky-50/30">
-                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-sky-100">
-                    <Globe size={16} className="text-sky-600" />
-                    <div>
-                      <p className="text-xs font-black text-sky-800 uppercase">Canal Web Sin Ads — Métricas del período</p>
-                      <p className="text-[8px] text-sky-500">Ventas sin inversión en publicidad pagada · Costos de operación normales</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white rounded-xl p-3 border border-sky-100">
-                      <p className="text-[8px] font-black text-sky-500 uppercase">Pedidos</p>
-                      <p className="text-xl font-black text-sky-800">{fmtN(stats.webSinAds.grossOrd)}</p>
-                    </div>
-                    <div className="bg-white rounded-xl p-3 border border-sky-100">
-                      <p className="text-[8px] font-black text-sky-500 uppercase">Recaudo Bruto</p>
-                      <p className="text-xl font-black text-sky-800">{fmt(stats.webSinAds.grossRev)}</p>
-                    </div>
-                    <div className="bg-white rounded-xl p-3 border border-sky-100">
-                      <p className="text-[8px] font-black text-sky-500 uppercase">Recaudo Neto</p>
-                      <p className="text-xl font-black text-sky-800">{fmt(stats.webSinAds.realRev)}</p>
-                    </div>
-                    <div className={`rounded-xl p-3 border ${stats.webSinAds.net >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                      <p className="text-[8px] font-black text-slate-500 uppercase">Utilidad Neta</p>
-                      <p className={`text-xl font-black ${stats.webSinAds.net >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{fmt(stats.webSinAds.net)}</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 bg-sky-100 rounded-xl px-3 py-2 flex items-center gap-2">
-                    <Info size={12} className="text-sky-600 shrink-0" />
-                    <p className="text-[8px] text-sky-700 font-semibold">
-                      Ads ahorrados vs canal normal: la utilidad incluye flete, fulfillment, comisiones y costos fijos pero <strong>$0 de publicidad</strong>.
-                    </p>
-                  </div>
-                </Card>
-              )}
-            </div>
-          )}
- 
           {/* CPA */}
           <div className={`rounded-xl p-3 md:p-5 border-2 ${cpaColor} shadow-md`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-              <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Solo productos con ads · Web Sin Ads excluidos</p></div>
-              <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p></div>
+              <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Costo por adquisición real</p></div>
+              <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p><p className="text-[8px] md:text-[9px] font-semibold">Basado en cada producto</p></div>
               <div className="text-right"><div className="inline-block px-2 py-1 rounded-lg bg-white/50 backdrop-blur-sm"><p className="text-[8px] md:text-[10px] font-black">{cpaMensaje}</p></div></div>
             </div>
           </div>
- 
+
           {/* Resumen rápido */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
             <Card className="border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
             <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(stats.grossRev - stats.realRev)}</p></Card>
             <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
           </div>
- 
+
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
             <Stat label="AOV" value={fmt(stats.aov)} sub={`${fmtN(stats.grossOrd)} pedidos`} highlight />
             <Stat label="Flete x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`${fmtN(stats.finalDeliveries)} entregas`} />
@@ -1404,7 +1391,7 @@ function VistaDashboard({ configs, months }) {
             <Stat label="Utilidad Neta" value={fmt(stats.net)} sub={`${stats.net >= 0 ? '💰' : '⚠️'}`} />
             <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight />
           </div>
- 
+
           {/* EMBUDO */}
           <div className="space-y-2">
             <SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />
@@ -1429,7 +1416,7 @@ function VistaDashboard({ configs, months }) {
               </Card>
             )}
           </div>
- 
+
           {/* COSTOS */}
           <div className="space-y-2">
             <SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />
@@ -1449,7 +1436,7 @@ function VistaDashboard({ configs, months }) {
               </Card>
             )}
           </div>
- 
+
           {/* RANKING */}
           <div className="space-y-2">
             <SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />
@@ -1462,7 +1449,7 @@ function VistaDashboard({ configs, months }) {
                   <tbody className="divide-y divide-slate-100">
                     {stats.rankingVendedoras?.map((v, idx) => (
                       <tr key={v.vendedora} className="hover:bg-slate-50">
-                        <td className="p-2 font-black text-emerald-600">{idx + 1}</td>
+                        <td className="p-2 font-black text-emerald-600">{idx+1}</td>
                         <td className="p-2 font-bold uppercase">{v.vendedora}</td>
                         <td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td>
                         <td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td>
@@ -1475,7 +1462,7 @@ function VistaDashboard({ configs, months }) {
               </div>
             )}
           </div>
- 
+
           {/* PROYECCIÓN */}
           <div className="space-y-2">
             <SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />
@@ -1500,13 +1487,13 @@ function VistaDashboard({ configs, months }) {
                 {targetProfit > 0 && (
                   <Card className="col-span-2">
                     <div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div>
                   </Card>
                 )}
               </div>
             )}
           </div>
- 
+
           {/* PRODUCTOS EN REVISIÓN */}
           <div className="space-y-2">
             <button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500">
@@ -1539,33 +1526,40 @@ function VistaDashboard({ configs, months }) {
                           const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
                           const alertas = [];
                           if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida');
-                          if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier, 1)}%`);
-                          if (p.roas < 1.5 && p.roas > 0 && !p.esWebSinAds) alertas.push(`📊 ROAS ${fmtDec(p.roas, 2)}x`);
-                          if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio && !p.esWebSinAds) alertas.push('🎯 CPA alto');
+                          if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`);
+                          if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`);
+                          if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto');
                           if (p.pedidos === 0) alertas.push('⚠️ sin pedidos');
-                          if (!p.isActive) alertas.push('🔴 DESACTIVADO');
-                          if (p.esWebSinAds) alertas.push('🌐 canal web');
+                          
+                          // Si el producto está inactivo, agregar alerta especial
+                          if (!p.isActive) alertas.push('🔴 PRODUCTO DESACTIVADO');
+                          
                           return (
-                            <tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : p.esWebSinAds ? 'bg-sky-50/40' : ''}`}>
+                            <tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : ''}`}>
                               <td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td>
                               <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-gray-500' : ''}`}>
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {p.productName}
-                                  {p.esWebSinAds && <WebSinAdsBadge small />}
-                                  {!p.isActive && !p.esWebSinAds && <span className="ml-1 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}
-                                </div>
+                                {p.productName}
+                                {!p.isActive && <span className="ml-2 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}
                               </td>
-                              <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td>
+                              <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                                {fmt(p.utilidadPeriodo)}
+                              </td>
                               <td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
-                              <td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td>
+                              <td className="p-2 md:p-3 text-right font-mono font-black">
+                                <span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>
+                                  {fmtDec(porcentajeMeta, 1)}%
+                                </span>
+                              </td>
                               <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td>
-                              <td className="p-2 md:p-3 text-right font-mono">{p.esWebSinAds ? <span className="text-sky-600">N/A</span> : `${fmtDec(p.roas, 2)}x`}</td>
-                              <td className="p-2 md:p-3 text-right font-mono">{p.esWebSinAds ? <span className="text-sky-600">$0</span> : fmt(p.cpaReal)}</td>
+                              <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
+                              <td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td>
                               <td className="p-2 md:p-3">
                                 <div className="flex flex-wrap gap-1">
                                   {alertas.map((a, i) => (
-                                    <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : a.includes('web') ? 'bg-sky-100 text-sky-700' : 'bg-red-100 text-red-600'}`}>{a}</span>
+                                    <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : 'bg-red-100 text-red-600'}`}>
+                                      {a}
+                                    </span>
                                   ))}
                                 </div>
                               </td>
@@ -1574,10 +1568,10 @@ function VistaDashboard({ configs, months }) {
                         })}
                       </tbody>
                     </table>
-                    {productosEnRevision.some(p => !p.isActive || p.esWebSinAds) && (
+                    {productosEnRevision.some(p => !p.isActive) && (
                       <div className="p-3 bg-gray-100 text-[8px] font-black text-gray-600 flex items-center gap-2 border-t">
                         <Info size={12} />
-                        <span>📌 Productos tachados = desactivados · 🌐 = Web Sin Ads (ROAS y CPA no aplican)</span>
+                        <span>📌 Los productos tachados están DESACTIVADOS. Su historial se muestra solo para referencia, pero ya no requieren acción.</span>
                       </div>
                     )}
                   </div>
@@ -1585,7 +1579,7 @@ function VistaDashboard({ configs, months }) {
               </Card>
             )}
           </div>
- 
+
           {/* ANÁLISIS TEMPORAL POR PRODUCTO */}
           <div className="space-y-2">
             <SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />
@@ -1608,29 +1602,16 @@ function VistaDashboard({ configs, months }) {
                     {stats.detalleProductos.map(p => {
                       const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000 * 60 * 60 * 24)) + 1;
                       const isActive = p.activo !== false;
-                      const isWeb = p.esWebSinAds === true;
                       return (
-                        <tr key={p.configId} className={`hover:bg-slate-50 ${isWeb ? 'bg-sky-50/30' : ''}`}>
+                        <tr key={p.configId} className="hover:bg-slate-50">
                           <td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td>
-                          <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>
-                            <div className="flex items-center gap-1">
-                              {p.productName}
-                              {isWeb && <WebSinAdsBadge small />}
-                            </div>
-                          </td>
+                          <td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaCreacion ? parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO') : '-'}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO') : '-'}</td>
                           <td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td>
-                          <td className="p-2">
-                            {isWeb
-                              ? <span className="text-[8px] font-black bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Globe size={10} /> WEB S/ADS</span>
-                              : !isActive
-                                ? <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><PowerOff size={10} /> INACTIVO</span>
-                                : <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Power size={10} /> ACTIVO</span>
-                            }
-                          </td>
+                          <td className="p-2">{!isActive ? <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><PowerOff size={10} /> INACTIVO</span> : <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Power size={10} /> ACTIVO</span>}</td>
                         </tr>
                       );
                     })}
@@ -1639,7 +1620,7 @@ function VistaDashboard({ configs, months }) {
               </div>
             )}
           </div>
- 
+
           {/* COMPARATIVA ENTRE VENDEDORAS */}
           <div className="space-y-2">
             <button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
@@ -1657,7 +1638,10 @@ function VistaDashboard({ configs, months }) {
                       <tr><td colSpan="8" className="p-4 text-center text-slate-400">Selecciona al menos una vendedora en los filtros para ver la comparativa.</td></tr>
                     ) : (
                       selectedVendors.map(vendor => {
-                        const vendorRecords = filteredRecords.filter(r => { const c = configs.find(x => x.id === r.configId); return c && c.vendedora === vendor; });
+                        const vendorRecords = filteredRecords.filter(r => {
+                          const c = configs.find(x => x.id === r.configId);
+                          return c && c.vendedora === vendor;
+                        });
                         const vendorStats = calcularStats(vendorRecords, configs);
                         const activeDaysV = new Set(vendorRecords.filter(r => !r.restDay).map(r => r.date)).size;
                         const proy30 = activeDaysV > 0 ? (vendorStats.net / activeDaysV) * 30 : 0;
@@ -1691,29 +1675,31 @@ function VistaDashboard({ configs, months }) {
     </div>
   );
 }
- 
-// ==================== AGENDA ====================
+// ==================== COMPONENTE AGENDA (ADAPTADO A TU ENTORNO) ====================
 const RESPONSIBLES = [
   { id: 'david', name: 'David', color: 'blue', bgLight: 'bg-blue-50', bgDark: 'bg-blue-600', borderColor: 'border-blue-200' },
   { id: 'julian', name: 'Julián', color: 'purple', bgLight: 'bg-purple-50', bgDark: 'bg-purple-600', borderColor: 'border-purple-200' },
   { id: 'william', name: 'William', color: 'green', bgLight: 'bg-green-50', bgDark: 'bg-green-600', borderColor: 'border-green-200' }
 ];
+
 const TASK_STATUS = {
   pending: { id: 'pending', label: 'Pendiente', emoji: '⏳', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
   approved: { id: 'approved', label: 'Aprobado', emoji: '✅', color: 'bg-green-100 text-green-800 border-green-300' },
   rejected: { id: 'rejected', label: 'Rechazado', emoji: '❌', color: 'bg-red-100 text-red-800 border-red-300' }
 };
+
 const PRIORITIES = {
   alta: { id: 'alta', label: 'Alta', emoji: '🔴', color: 'bg-red-100 text-red-700 border-red-300' },
   media: { id: 'media', label: 'Media', emoji: '🟡', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
   baja: { id: 'baja', label: 'Baja', emoji: '🟢', color: 'bg-green-100 text-green-700 border-green-300' }
 };
+
 const AGENDA_TABS = [
   { id: 'pending', label: 'Pendientes', emoji: '📋', color: 'bg-amber-500' },
   { id: 'approved', label: 'Aprobadas', emoji: '✅', color: 'bg-emerald-500' },
   { id: 'rejected', label: 'Rechazadas', emoji: '❌', color: 'bg-rose-500' }
 ];
- 
+
 function AgendaModule() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState([]);
@@ -1727,44 +1713,72 @@ function AgendaModule() {
   const [newComment, setNewComment] = useState({});
   const [sortBy, setSortBy] = useState('dueDate');
   const [approvalModal, setApprovalModal] = useState({ show: false, taskId: null, justification: '', dueDate: null });
-  const [formData, setFormData] = useState({ title: '', description: '', responsible: 'david', priority: 'media', status: 'pending', dueDate: '' });
- 
+  const [formData, setFormData] = useState({
+    title: '', description: '', responsible: 'david', priority: 'media', status: 'pending', dueDate: ''
+  });
+
   useEffect(() => {
     if (!user) return;
-    const unsubscribe = onSnapshot(collection(db, 'agenda_tasks'), (snapshot) => {
+    const tasksRef = collection(db, 'agenda_tasks');
+    const unsubscribe = onSnapshot(tasksRef, (snapshot) => {
       const loaded = snapshot.docs.map(doc => {
         const data = doc.data();
         let createdAtFormatted = '';
-        if (data.createdAt?.toDate) { const d = data.createdAt.toDate(); createdAtFormatted = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
+        if (data.createdAt?.toDate) {
+          const d = data.createdAt.toDate();
+          createdAtFormatted = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+        }
         let dueDateStr = data.dueDate?.toDate ? data.dueDate.toDate().toISOString().split('T')[0] : '';
         let approvedAtFormatted = '';
-        if (data.approvedAt?.toDate) { const d = data.approvedAt.toDate(); approvedAtFormatted = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
+        if (data.approvedAt?.toDate) {
+          const d = data.approvedAt.toDate();
+          approvedAtFormatted = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+        }
         return { id: doc.id, ...data, createdAtFormatted, dueDate: dueDateStr, approvedAtFormatted, comments: data.comments || [] };
       });
       setTasks(loaded);
     });
     return () => unsubscribe();
   }, [user]);
- 
+
   const handleFormChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
- 
+
   const saveTask = async () => {
     if (!formData.title.trim()) { alert("El título es obligatorio"); return; }
-    const payload = { title: formData.title.trim(), description: formData.description.trim(), responsible: formData.responsible, priority: formData.priority, status: formData.status, dueDate: formData.dueDate ? Timestamp.fromDate(new Date(formData.dueDate)) : null, updatedAt: serverTimestamp(), createdBy: user?.uid };
+    const payload = {
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      responsible: formData.responsible,
+      priority: formData.priority,
+      status: formData.status,
+      dueDate: formData.dueDate ? Timestamp.fromDate(new Date(formData.dueDate)) : null,
+      updatedAt: serverTimestamp(),
+      createdBy: user?.uid
+    };
     try {
-      if (editingTask) await updateDoc(doc(db, 'agenda_tasks', editingTask.id), payload);
-      else await addDoc(collection(db, 'agenda_tasks'), { ...payload, createdAt: serverTimestamp(), comments: [] });
+      if (editingTask) {
+        await updateDoc(doc(db, 'agenda_tasks', editingTask.id), payload);
+      } else {
+        await addDoc(collection(db, 'agenda_tasks'), { ...payload, createdAt: serverTimestamp(), comments: [] });
+      }
       resetForm();
     } catch (err) { console.error(err); alert("Error al guardar la tarea"); }
   };
- 
-  const deleteTask = async (id) => { if (window.confirm("¿Eliminar esta tarea?")) await deleteDoc(doc(db, 'agenda_tasks', id)); };
- 
-  const handleStatusChange = async (taskId, newStatus, taskDueDate) => {
-    if (newStatus === 'approved') setApprovalModal({ show: true, taskId, justification: '', dueDate: taskDueDate });
-    else await updateDoc(doc(db, 'agenda_tasks', taskId), { status: newStatus, updatedAt: serverTimestamp() });
+
+  const deleteTask = async (id) => {
+    if (window.confirm("¿Eliminar esta tarea?")) {
+      await deleteDoc(doc(db, 'agenda_tasks', id));
+    }
   };
- 
+
+  const handleStatusChange = async (taskId, newStatus, taskDueDate) => {
+    if (newStatus === 'approved') {
+      setApprovalModal({ show: true, taskId, justification: '', dueDate: taskDueDate });
+    } else {
+      await updateDoc(doc(db, 'agenda_tasks', taskId), { status: newStatus, updatedAt: serverTimestamp() });
+    }
+  };
+
   const confirmApproval = async () => {
     const { taskId, justification, dueDate } = approvalModal;
     if (!justification.trim()) { alert("Debes escribir una justificación"); return; }
@@ -1779,49 +1793,96 @@ function AgendaModule() {
       else delayInfo = { status: 'justo', message: '🎯 Completado justo a tiempo' };
     } else delayInfo = { status: 'sin_fecha', message: '📅 Sin fecha límite definida' };
     try {
-      await updateDoc(doc(db, 'agenda_tasks', taskId), { status: 'approved', approvedAt, approvedAtFormatted, approvalJustification: justification.trim(), approvalDelayInfo: delayInfo, updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, 'agenda_tasks', taskId), {
+        status: 'approved',
+        approvedAt,
+        approvedAtFormatted,
+        approvalJustification: justification.trim(),
+        approvalDelayInfo: delayInfo,
+        updatedAt: serverTimestamp()
+      });
       setApprovalModal({ show: false, taskId: null, justification: '', dueDate: null });
     } catch (err) { console.error(err); alert("Error al guardar la aprobación"); }
   };
- 
+
   const addComment = async (taskId) => {
     const commentText = newComment[taskId]?.trim();
     if (!commentText) return;
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     const responsibleName = RESPONSIBLES.find(r => r.id === task.responsible)?.name || 'Usuario';
-    const comment = { id: Date.now().toString(), text: commentText, author: responsibleName, authorId: task.responsible, createdAt: new Date().toLocaleString('es-CO') };
+    const comment = {
+      id: Date.now().toString(),
+      text: commentText,
+      author: responsibleName,
+      authorId: task.responsible,
+      createdAt: new Date().toLocaleString('es-CO')
+    };
+    const updatedComments = [...(task.comments || []), comment];
     try {
-      await updateDoc(doc(db, 'agenda_tasks', taskId), { comments: [...(task.comments || []), comment], updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, 'agenda_tasks', taskId), { comments: updatedComments, updatedAt: serverTimestamp() });
       setNewComment(prev => ({ ...prev, [taskId]: '' }));
     } catch (err) { console.error(err); alert("Error al guardar el comentario"); }
   };
- 
-  const resetForm = () => { setFormData({ title: '', description: '', responsible: 'david', priority: 'media', status: 'pending', dueDate: '' }); setEditingTask(null); setShowForm(false); };
-  const editTask = (task) => { setFormData({ title: task.title, description: task.description || '', responsible: task.responsible, priority: task.priority || 'media', status: task.status, dueDate: task.dueDate || '' }); setEditingTask(task); setShowForm(true); };
+
+  const resetForm = () => {
+    setFormData({ title: '', description: '', responsible: 'david', priority: 'media', status: 'pending', dueDate: '' });
+    setEditingTask(null); setShowForm(false);
+  };
+
+  const editTask = (task) => {
+    setFormData({
+      title: task.title,
+      description: task.description || '',
+      responsible: task.responsible,
+      priority: task.priority || 'media',
+      status: task.status,
+      dueDate: task.dueDate || ''
+    });
+    setEditingTask(task); setShowForm(true);
+  };
+
   const toggleComments = (taskId) => setExpandedComments(prev => ({ ...prev, [taskId]: !prev[taskId] }));
- 
-  const filteredTasks = tasks.filter(t => t.status === activeTab).filter(t => filterResponsible === 'all' || t.responsible === filterResponsible).filter(t => t.title?.toLowerCase().includes(searchTerm.toLowerCase()) || t.description?.toLowerCase().includes(searchTerm.toLowerCase())).sort((a, b) => {
-    if (sortBy === 'dueDate') { if (!a.dueDate) return 1; if (!b.dueDate) return -1; return new Date(a.dueDate) - new Date(b.dueDate); }
-    if (sortBy === 'priority') { const order = { alta: 0, media: 1, baja: 2 }; return (order[a.priority] || 1) - (order[b.priority] || 1); }
-    return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-  });
- 
+
+  const filteredTasks = tasks
+    .filter(t => t.status === activeTab)
+    .filter(t => filterResponsible === 'all' || t.responsible === filterResponsible)
+    .filter(t => t.title?.toLowerCase().includes(searchTerm.toLowerCase()) || t.description?.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === 'dueDate') {
+        if (!a.dueDate) return 1; if (!b.dueDate) return -1;
+        return new Date(a.dueDate) - new Date(b.dueDate);
+      }
+      if (sortBy === 'priority') {
+        const order = { alta: 0, media: 1, baja: 2 };
+        return (order[a.priority] || 1) - (order[b.priority] || 1);
+      }
+      return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+    });
+
   const getTaskCount = (status) => tasks.filter(t => t.status === status).length;
-  const getComplianceByResponsible = () => RESPONSIBLES.map(resp => {
-    const userTasks = tasks.filter(t => t.responsible === resp.id);
-    const total = userTasks.length; const approved = userTasks.filter(t => t.status === 'approved').length;
-    const rejected = userTasks.filter(t => t.status === 'rejected').length; const pending = total - approved - rejected;
-    const percent = total === 0 ? 0 : Math.round((approved / total) * 100);
-    let barColor = 'bg-emerald-500'; if (percent < 30) barColor = 'bg-rose-500'; else if (percent < 70) barColor = 'bg-amber-500';
-    return { ...resp, total, approved, rejected, pending, percent, barColor };
-  });
- 
+
+  const getComplianceByResponsible = () => {
+    return RESPONSIBLES.map(resp => {
+      const userTasks = tasks.filter(t => t.responsible === resp.id);
+      const total = userTasks.length;
+      const approved = userTasks.filter(t => t.status === 'approved').length;
+      const rejected = userTasks.filter(t => t.status === 'rejected').length;
+      const pending = total - approved - rejected;
+      const percent = total === 0 ? 0 : Math.round((approved / total) * 100);
+      let barColor = 'bg-emerald-500';
+      if (percent < 30) barColor = 'bg-rose-500';
+      else if (percent < 70) barColor = 'bg-amber-500';
+      return { ...resp, total, approved, rejected, pending, percent, barColor };
+    });
+  };
+
   const complianceData = getComplianceByResponsible();
-  const overallTotal = tasks.length; const overallApproved = tasks.filter(t => t.status === 'approved').length;
+  const overallTotal = tasks.length;
+  const overallApproved = tasks.filter(t => t.status === 'approved').length;
   const overallPercent = overallTotal === 0 ? 0 : Math.round((overallApproved / overallTotal) * 100);
   const pendingByResponsible = RESPONSIBLES.map(resp => ({ ...resp, total: tasks.filter(t => t.status === 'pending' && t.responsible === resp.id).length }));
- 
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {approvalModal.show && (
@@ -1836,6 +1897,7 @@ function AgendaModule() {
           </div>
         </div>
       )}
+
       {selectedTask && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-40 p-4" onClick={() => setSelectedTask(null)}>
           <div className="bg-white rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -1858,19 +1920,14 @@ function AgendaModule() {
               <div className="bg-zinc-50 p-3 rounded-xl">
                 <p className="text-xs font-black">💬 Comentarios ({selectedTask.comments?.length || 0})</p>
                 <div className="max-h-32 overflow-y-auto space-y-1 my-2">{selectedTask.comments?.map(c => <div key={c.id} className="text-xs border-b pb-1"><b>{c.author}</b> ({c.createdAt}): {c.text}</div>)}</div>
-                <div className="flex gap-2 mt-2">
-                  <input value={newComment[selectedTask.id] || ''} onChange={(e) => setNewComment(prev => ({ ...prev, [selectedTask.id]: e.target.value }))} placeholder="Escribe un comentario..." className="flex-1 border rounded-xl px-3 py-1 text-sm" />
-                  <button onClick={() => addComment(selectedTask.id)} className="bg-blue-600 text-white px-3 rounded-xl text-sm">Enviar</button>
-                </div>
+                <div className="flex gap-2 mt-2"><input value={newComment[selectedTask.id] || ''} onChange={(e) => setNewComment(prev => ({ ...prev, [selectedTask.id]: e.target.value }))} placeholder="Escribe un comentario..." className="flex-1 border rounded-xl px-3 py-1 text-sm" /><button onClick={() => addComment(selectedTask.id)} className="bg-blue-600 text-white px-3 rounded-xl text-sm">Enviar</button></div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => { setSelectedTask(null); editTask(selectedTask); }} className="flex-1 bg-indigo-50 py-2 rounded-xl">✏️ Editar</button>
-                <button onClick={() => { deleteTask(selectedTask.id); setSelectedTask(null); }} className="flex-1 bg-rose-50 py-2 rounded-xl">🗑️ Eliminar</button>
-              </div>
+              <div className="flex gap-2"><button onClick={() => { setSelectedTask(null); editTask(selectedTask); }} className="flex-1 bg-indigo-50 py-2 rounded-xl">✏️ Editar</button><button onClick={() => { deleteTask(selectedTask.id); setSelectedTask(null); }} className="flex-1 bg-rose-50 py-2 rounded-xl">🗑️ Eliminar</button></div>
             </div>
           </div>
         </div>
       )}
+
       <div className="bg-white rounded-2xl p-4 shadow-sm border">
         <div className="flex justify-between items-center mb-3"><h3 className="font-black">📊 Cumplimiento por Responsable</h3><span className="text-xs">Total: {overallApproved}/{overallTotal} ({overallPercent}%)</span></div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1886,6 +1943,7 @@ function AgendaModule() {
           ))}
         </div>
       </div>
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {pendingByResponsible.map(resp => (
           <div key={resp.id} className="bg-white rounded-xl p-3 text-center shadow-sm border">
@@ -1894,6 +1952,7 @@ function AgendaModule() {
           </div>
         ))}
       </div>
+
       <div className="bg-white rounded-xl p-1 shadow-sm border">
         <div className="flex flex-wrap gap-1 justify-center">
           {AGENDA_TABS.map(tab => (
@@ -1903,6 +1962,7 @@ function AgendaModule() {
           ))}
         </div>
       </div>
+
       <div className="flex flex-col md:flex-row gap-3">
         <input type="text" placeholder="🔍 Buscar tarea..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="flex-1 border rounded-xl px-3 py-2 text-sm" />
         <select value={filterResponsible} onChange={(e) => setFilterResponsible(e.target.value)} className="border rounded-xl px-3 py-2 text-sm">
@@ -1915,9 +1975,11 @@ function AgendaModule() {
           <option value="createdAt">🕒 Creación</option>
         </select>
       </div>
+
       <div className="flex justify-end">
         <button onClick={() => { resetForm(); setShowForm(true); }} className="bg-zinc-900 text-white px-5 py-2 rounded-xl text-xs font-black">➕ Nueva Tarea</button>
       </div>
+
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-5">
@@ -1926,11 +1988,17 @@ function AgendaModule() {
               <input name="title" value={formData.title} onChange={handleFormChange} placeholder="Título *" className="w-full border rounded-xl p-2" />
               <textarea name="description" value={formData.description} onChange={handleFormChange} rows={2} placeholder="Descripción" className="w-full border rounded-xl p-2" />
               <div className="grid grid-cols-2 gap-2">
-                <select name="responsible" value={formData.responsible} onChange={handleFormChange} className="border rounded-xl p-2">{RESPONSIBLES.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
-                <select name="priority" value={formData.priority} onChange={handleFormChange} className="border rounded-xl p-2">{Object.entries(PRIORITIES).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}</select>
+                <select name="responsible" value={formData.responsible} onChange={handleFormChange} className="border rounded-xl p-2">
+                  {RESPONSIBLES.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+                <select name="priority" value={formData.priority} onChange={handleFormChange} className="border rounded-xl p-2">
+                  {Object.entries(PRIORITIES).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <select name="status" value={formData.status} onChange={handleFormChange} className="border rounded-xl p-2">{Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}</select>
+                <select name="status" value={formData.status} onChange={handleFormChange} className="border rounded-xl p-2">
+                  {Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}
+                </select>
                 <input type="date" name="dueDate" value={formData.dueDate} onChange={handleFormChange} className="border rounded-xl p-2" />
               </div>
             </div>
@@ -1941,6 +2009,7 @@ function AgendaModule() {
           </div>
         </div>
       )}
+
       <div className="hidden md:block bg-white rounded-2xl shadow-sm border overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-zinc-50 border-b">
@@ -1955,146 +2024,197 @@ function AgendaModule() {
             </tr>
           </thead>
           <tbody>
-            {filteredTasks.length === 0 ? <tr><td colSpan="7" className="text-center py-8 text-zinc-400">No hay tareas</td></tr> : filteredTasks.map(task => {
-              const resp = RESPONSIBLES.find(r => r.id === task.responsible);
-              const priorityConfig = PRIORITIES[task.priority] || PRIORITIES.media;
-              const statusConfig = TASK_STATUS[task.status] || TASK_STATUS.pending;
-              const isOverdue = task.dueDate && task.status !== 'approved' && new Date(task.dueDate) < new Date();
-              const isCommentsOpen = expandedComments[task.id];
-              return (
-                <React.Fragment key={task.id}>
-                  <tr className="border-b hover:bg-zinc-50 transition">
-                    <td className="px-4 py-2">
-                      <button onClick={() => setSelectedTask(task)} className="font-bold text-sm text-left hover:text-indigo-600">
-                        {task.title}
-                        {task.description && <div className="text-[10px] text-zinc-400 font-normal">{task.description}</div>}
-                        {task.status === 'approved' && task.approvalDelayInfo && <div className="text-[9px] text-orange-600">{task.approvalDelayInfo.message}</div>}
-                      </button>
-                    </td>
-                    <td className="px-4 py-2"><span className={`inline-block px-2 py-1 rounded-full text-[10px] font-black ${resp?.color === 'blue' ? 'bg-blue-100 text-blue-700' : resp?.color === 'purple' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>{resp?.name}</span></td>
-                    <td className="px-4 py-2"><span className={`inline-block px-2 py-1 rounded-full text-[10px] font-bold ${priorityConfig.color}`}>{priorityConfig.emoji} {priorityConfig.label}</span></td>
-                    <td className="px-4 py-2"><select value={task.status} onChange={(e) => handleStatusChange(task.id, e.target.value, task.dueDate)} className={`text-[10px] font-bold rounded-full px-2 py-1 border ${statusConfig.color}`} disabled={task.status === 'approved'}>{Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}</select></td>
-                    <td className="px-4 py-2 text-sm">{task.dueDate ? <span className={isOverdue ? 'text-rose-600 font-bold' : ''}>{task.dueDate}</span> : '-'}</td>
-                    <td className="px-4 py-2 text-xs text-zinc-500">{task.createdAtFormatted || '-'}</td>
-                    <td className="px-4 py-2 flex gap-1">
-                      <button onClick={() => toggleComments(task.id)} className="text-blue-600 hover:text-blue-800" title="Comentarios">💬 {task.comments?.length || 0}</button>
-                      <button onClick={() => editTask(task)} className="text-indigo-600 hover:text-indigo-800" title="Editar">✏️</button>
-                      <button onClick={() => deleteTask(task.id)} className="text-rose-600 hover:text-rose-800" title="Eliminar">🗑️</button>
-                    </td>
-                  </tr>
-                  {isCommentsOpen && (
-                    <tr className="bg-zinc-50/80">
-                      <td colSpan="7" className="px-4 py-3">
-                        <div className="space-y-3 max-h-64 overflow-y-auto">
-                          <p className="text-[9px] font-black text-zinc-400 uppercase">💬 Comentarios</p>
-                          {task.comments && task.comments.length > 0 ? task.comments.map(comment => {
-                            const authorResp = RESPONSIBLES.find(r => r.id === comment.authorId);
-                            return (
-                              <div key={comment.id} className={`${authorResp?.bgLight || 'bg-gray-50'} rounded-xl p-2`}>
-                                <div className="flex justify-between items-start mb-1">
-                                  <span className={`text-[10px] font-black ${authorResp?.color === 'blue' ? 'text-blue-700' : authorResp?.color === 'purple' ? 'text-purple-700' : 'text-green-700'}`}>👤 {comment.author}</span>
-                                  <span className="text-[9px] text-zinc-400">{comment.createdAt}</span>
-                                </div>
-                                <p className="text-xs text-zinc-700">{comment.text}</p>
-                              </div>
-                            );
-                          }) : <div className="text-xs text-zinc-400 text-center py-2">No hay comentarios aún</div>}
-                        </div>
-                        <div className="mt-3 flex gap-2">
-                          <input type="text" value={newComment[task.id] || ''} onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))} placeholder="Escribe un comentario..." className="flex-1 bg-white border rounded-xl px-3 py-2 text-sm" onKeyPress={(e) => e.key === 'Enter' && addComment(task.id)} />
-                          <button onClick={() => addComment(task.id)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Enviar</button>
-                        </div>
+            {filteredTasks.length === 0 ? (
+              <tr><td colSpan="7" className="text-center py-8 text-zinc-400">No hay tareas</td></tr>
+            ) : (
+              filteredTasks.map(task => {
+                const resp = RESPONSIBLES.find(r => r.id === task.responsible);
+                const priorityConfig = PRIORITIES[task.priority] || PRIORITIES.media;
+                const statusConfig = TASK_STATUS[task.status] || TASK_STATUS.pending;
+                const isOverdue = task.dueDate && task.status !== 'approved' && new Date(task.dueDate) < new Date();
+                const delayInfo = task.approvalDelayInfo;
+                const isCommentsOpen = expandedComments[task.id];
+                return (
+                  <React.Fragment key={task.id}>
+                    <tr className="border-b hover:bg-zinc-50 transition">
+                      <td className="px-4 py-2">
+                        <button onClick={() => setSelectedTask(task)} className="font-bold text-sm text-left hover:text-indigo-600">
+                          {task.title}
+                          {task.description && <div className="text-[10px] text-zinc-400 font-normal">{task.description}</div>}
+                          {task.status === 'approved' && delayInfo && <div className="text-[9px] text-orange-600">{delayInfo.message}</div>}
+                        </button>
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-black ${resp?.color === 'blue' ? 'bg-blue-100 text-blue-700' : resp?.color === 'purple' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                          {resp?.name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-bold ${priorityConfig.color}`}>
+                          {priorityConfig.emoji} {priorityConfig.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        <select value={task.status} onChange={(e) => handleStatusChange(task.id, e.target.value, task.dueDate)} className={`text-[10px] font-bold rounded-full px-2 py-1 border ${statusConfig.color}`} disabled={task.status === 'approved'}>
+                          {Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-4 py-2 text-sm">
+                        {task.dueDate ? <span className={isOverdue ? 'text-rose-600 font-bold' : ''}>{task.dueDate}</span> : '-'}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-zinc-500">{task.createdAtFormatted || '-'}</td>
+                      <td className="px-4 py-2 flex gap-1">
+                        <button onClick={() => toggleComments(task.id)} className="text-blue-600 hover:text-blue-800" title="Comentarios">💬 {task.comments?.length || 0}</button>
+                        <button onClick={() => editTask(task)} className="text-indigo-600 hover:text-indigo-800" title="Editar">✏️</button>
+                        <button onClick={() => deleteTask(task.id)} className="text-rose-600 hover:text-rose-800" title="Eliminar">🗑️</button>
                       </td>
                     </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
+                    {isCommentsOpen && (
+                      <tr className="bg-zinc-50/80">
+                        <td colSpan="7" className="px-4 py-3">
+                          <div className="space-y-3 max-h-64 overflow-y-auto">
+                            <p className="text-[9px] font-black text-zinc-400 uppercase">💬 Comentarios</p>
+                            {task.comments && task.comments.length > 0 ? (
+                              task.comments.map(comment => {
+                                const authorResp = RESPONSIBLES.find(r => r.id === comment.authorId);
+                                return (
+                                  <div key={comment.id} className={`${authorResp?.bgLight || 'bg-gray-50'} rounded-xl p-2`}>
+                                    <div className="flex justify-between items-start mb-1">
+                                      <span className={`text-[10px] font-black ${authorResp?.color === 'blue' ? 'text-blue-700' : authorResp?.color === 'purple' ? 'text-purple-700' : 'text-green-700'}`}>👤 {comment.author}</span>
+                                      <span className="text-[9px] text-zinc-400">{comment.createdAt}</span>
+                                    </div>
+                                    <p className="text-xs text-zinc-700">{comment.text}</p>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="text-xs text-zinc-400 text-center py-2">No hay comentarios aún</div>
+                            )}
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <input type="text" value={newComment[task.id] || ''} onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))} placeholder="Escribe un comentario..." className="flex-1 bg-white border rounded-xl px-3 py-2 text-sm" onKeyPress={(e) => e.key === 'Enter' && addComment(task.id)} />
+                            <button onClick={() => addComment(task.id)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Enviar</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
+
       <div className="md:hidden space-y-3 p-2">
-        {filteredTasks.length === 0 ? <div className="text-center py-10 text-zinc-400">No hay tareas</div> : filteredTasks.map(task => {
-          const resp = RESPONSIBLES.find(r => r.id === task.responsible);
-          const priorityConfig = PRIORITIES[task.priority] || PRIORITIES.media;
-          const statusConfig = TASK_STATUS[task.status] || TASK_STATUS.pending;
-          const isOverdue = task.dueDate && task.status !== 'approved' && new Date(task.dueDate) < new Date();
-          const isCommentsOpen = expandedComments[task.id];
-          return (
-            <div key={task.id} className="bg-white border rounded-xl overflow-hidden shadow-sm">
-              <div className="p-4">
-                <button onClick={() => setSelectedTask(task)} className="w-full text-left">
-                  <h3 className="font-black text-base">{task.title}</h3>
-                  {task.description && <p className="text-xs text-zinc-500 mt-1">{task.description}</p>}
-                  {task.status === 'approved' && task.approvalDelayInfo && <p className="text-[10px] text-orange-600 mt-1">{task.approvalDelayInfo.message}</p>}
-                </button>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-black ${resp?.color === 'blue' ? 'bg-blue-100 text-blue-700' : resp?.color === 'purple' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>{resp?.name}</span>
-                  <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-bold ${priorityConfig.color}`}>{priorityConfig.emoji} {priorityConfig.label}</span>
-                  <select value={task.status} onChange={(e) => handleStatusChange(task.id, e.target.value, task.dueDate)} className={`text-[10px] font-bold rounded-full px-2 py-1 border ${statusConfig.color}`} disabled={task.status === 'approved'}>{Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}</select>
+        {filteredTasks.length === 0 ? (
+          <div className="text-center py-10 text-zinc-400">No hay tareas</div>
+        ) : (
+          filteredTasks.map(task => {
+            const resp = RESPONSIBLES.find(r => r.id === task.responsible);
+            const priorityConfig = PRIORITIES[task.priority] || PRIORITIES.media;
+            const statusConfig = TASK_STATUS[task.status] || TASK_STATUS.pending;
+            const isOverdue = task.dueDate && task.status !== 'approved' && new Date(task.dueDate) < new Date();
+            const delayInfo = task.approvalDelayInfo;
+            const isCommentsOpen = expandedComments[task.id];
+            return (
+              <div key={task.id} className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                <div className="p-4">
+                  <button onClick={() => setSelectedTask(task)} className="w-full text-left">
+                    <h3 className="font-black text-base">{task.title}</h3>
+                    {task.description && <p className="text-xs text-zinc-500 mt-1">{task.description}</p>}
+                    {task.status === 'approved' && delayInfo && <p className="text-[10px] text-orange-600 mt-1">{delayInfo.message}</p>}
+                  </button>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-black ${resp?.color === 'blue' ? 'bg-blue-100 text-blue-700' : resp?.color === 'purple' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>{resp?.name}</span>
+                    <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-bold ${priorityConfig.color}`}>{priorityConfig.emoji} {priorityConfig.label}</span>
+                    <select value={task.status} onChange={(e) => handleStatusChange(task.id, e.target.value, task.dueDate)} className={`text-[10px] font-bold rounded-full px-2 py-1 border ${statusConfig.color}`} disabled={task.status === 'approved'}>
+                      {Object.entries(TASK_STATUS).map(([k,v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex justify-between text-xs text-zinc-500 mt-3 pt-2 border-t">
+                    <span>📅 {task.dueDate || '-'}</span>
+                    <span>🕒 {task.createdAtFormatted || '-'}</span>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => toggleComments(task.id)} className="flex-1 bg-blue-50 text-blue-600 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1">💬 {task.comments?.length || 0}</button>
+                    <button onClick={() => editTask(task)} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-xl text-xs font-bold">✏️</button>
+                    <button onClick={() => deleteTask(task.id)} className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl text-xs font-bold">🗑️</button>
+                  </div>
                 </div>
-                <div className="flex justify-between text-xs text-zinc-500 mt-3 pt-2 border-t"><span>📅 {task.dueDate || '-'}</span><span>🕒 {task.createdAtFormatted || '-'}</span></div>
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => toggleComments(task.id)} className="flex-1 bg-blue-50 text-blue-600 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1">💬 {task.comments?.length || 0}</button>
-                  <button onClick={() => editTask(task)} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-xl text-xs font-bold">✏️</button>
-                  <button onClick={() => deleteTask(task.id)} className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl text-xs font-bold">🗑️</button>
-                </div>
+                {isCommentsOpen && (
+                  <div className="bg-zinc-50/80 px-4 py-3 border-t">
+                    <div className="space-y-3 max-h-64 overflow-y-auto">
+                      <p className="text-[9px] font-black text-zinc-400 uppercase">💬 Comentarios</p>
+                      {task.comments && task.comments.length > 0 ? (
+                        task.comments.map(comment => {
+                          const authorResp = RESPONSIBLES.find(r => r.id === comment.authorId);
+                          return (
+                            <div key={comment.id} className={`${authorResp?.bgLight || 'bg-gray-50'} rounded-xl p-2`}>
+                              <div className="flex justify-between items-start mb-1">
+                                <span className={`text-[10px] font-black ${authorResp?.color === 'blue' ? 'text-blue-700' : authorResp?.color === 'purple' ? 'text-purple-700' : 'text-green-700'}`}>👤 {comment.author}</span>
+                                <span className="text-[9px] text-zinc-400">{comment.createdAt}</span>
+                              </div>
+                              <p className="text-xs text-zinc-700">{comment.text}</p>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="text-xs text-zinc-400 text-center py-2">No hay comentarios aún</div>
+                      )}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <input type="text" value={newComment[task.id] || ''} onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))} placeholder="Escribe un comentario..." className="flex-1 bg-white border rounded-xl px-3 py-2 text-sm" onKeyPress={(e) => e.key === 'Enter' && addComment(task.id)} />
+                      <button onClick={() => addComment(task.id)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Enviar</button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {isCommentsOpen && (
-                <div className="bg-zinc-50/80 px-4 py-3 border-t">
-                  <div className="space-y-3 max-h-64 overflow-y-auto">
-                    <p className="text-[9px] font-black text-zinc-400 uppercase">💬 Comentarios</p>
-                    {task.comments && task.comments.length > 0 ? task.comments.map(comment => {
-                      const authorResp = RESPONSIBLES.find(r => r.id === comment.authorId);
-                      return (
-                        <div key={comment.id} className={`${authorResp?.bgLight || 'bg-gray-50'} rounded-xl p-2`}>
-                          <div className="flex justify-between items-start mb-1">
-                            <span className={`text-[10px] font-black ${authorResp?.color === 'blue' ? 'text-blue-700' : authorResp?.color === 'purple' ? 'text-purple-700' : 'text-green-700'}`}>👤 {comment.author}</span>
-                            <span className="text-[9px] text-zinc-400">{comment.createdAt}</span>
-                          </div>
-                          <p className="text-xs text-zinc-700">{comment.text}</p>
-                        </div>
-                      );
-                    }) : <div className="text-xs text-zinc-400 text-center py-2">No hay comentarios aún</div>}
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <input type="text" value={newComment[task.id] || ''} onChange={(e) => setNewComment(prev => ({ ...prev, [task.id]: e.target.value }))} placeholder="Escribe un comentario..." className="flex-1 bg-white border rounded-xl px-3 py-2 text-sm" onKeyPress={(e) => e.key === 'Enter' && addComment(task.id)} />
-                    <button onClick={() => addComment(task.id)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Enviar</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
- 
-// ─── APP PRINCIPAL ───────────────────────────────────────────────────────────
+
+// ─── APP PRINCIPAL (CON LOGIN INTEGRADO Y NUEVA PESTAÑA AGENDA) ──────────────
 export default function App() {
   const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
   const [months, setMonths] = useState([]);
   const [activeTab, setTab] = useState('dashboard');
- 
+
   useEffect(() => {
     if (!user) return;
-    const u1 = onSnapshot(collection(db, 'sales_configs'), snap => setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const u2 = onSnapshot(collection(db, 'sales_months'), snap => setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const u1 = onSnapshot(collection(db, 'sales_configs'), snap =>
+      setConfigs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    const u2 = onSnapshot(collection(db, 'sales_months'), snap =>
+      setMonths(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
     return () => { u1(); u2(); };
   }, [user]);
- 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-100"><p className="text-slate-400">Cargando...</p></div>;
-  if (!user) return <Login />;
- 
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <p className="text-slate-400">Cargando...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
+
   const tabs = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'records', icon: ClipboardList, label: 'Cierres' },
     { id: 'config', icon: Settings, label: 'Estrategias' },
-    { id: 'agenda', icon: CalendarDays, label: 'Agenda' }
+    { id: 'agenda', icon: CalendarDays, label: 'Agenda' }  // ← NUEVA
   ];
- 
+
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: "'DM Sans', sans-serif", color: '#0f172a', paddingBottom: '5rem' }}>
       <header style={{ background: '#09090b', position: 'sticky', top: 0, zIndex: 40 }}>
@@ -2107,23 +2227,33 @@ export default function App() {
             <div className="flex items-center gap-3">
               <nav className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
                 {tabs.map(t => (
-                  <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}>
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}
+                  >
                     <t.icon size={12} />
                     <span className="hidden sm:inline">{t.label}</span>
                   </button>
                 ))}
               </nav>
-              <button onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }} className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase">Salir</button>
+              <button
+                onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase"
+              >
+                Salir
+              </button>
             </div>
           </div>
         </div>
       </header>
       <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
         {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} activeTab={activeTab} />}
-        {activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
+{activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
         {activeTab === 'config' && <VistaConfig configs={configs} />}
         {activeTab === 'agenda' && <AgendaModule />}
       </main>
     </div>
   );
 }
+
