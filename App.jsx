@@ -680,7 +680,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
 
  
- const productsOfVendor = useMemo(() => {
+const productsOfVendor = useMemo(() => {
   if (!selectedVendor) return [];
   const productos = grouped[selectedVendor] || [];
   const selectedDateObj = parseColombiaDate(selectedDate);
@@ -697,23 +697,13 @@ function VistaRegistro({ configs, months, activeTab }) {
     const tienePermisoResidual = p.permiteRegistrosResiduales === true;
     
     if (estabaActivo) {
-      // Producto activo en esa fecha: siempre visible
       activosEnFecha.push(p);
     } else if (tienePermisoResidual) {
-      // Producto inactivo en esa fecha pero con permiso residual: visible SOLO si el checkbox está marcado
       inactivosConPermisoEnFecha.push({ ...p, esResidual: true });
     }
   });
   
   // Si el checkbox está marcado, mostramos activos + inactivos con permiso
-  if (mostrarInactivos) {
-    return [...activosEnFecha, ...inactivosConPermisoEnFecha];
-  }
-  // Si no, solo los que estaban activos en la fecha
-  return activosEnFecha;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
-  
-   // Si el checkbox está marcado, mostramos activos + inactivos con permiso
   if (mostrarInactivos) {
     return [...activosEnFecha, ...inactivosConPermisoEnFecha];
   }
