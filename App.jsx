@@ -711,33 +711,56 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  const activosEnFecha = [];
-  const residuales = [];
-  const webSinAdsList = [];
+  const productosVisibles = [];
   
   productos.forEach(p => {
     // Validar fecha de creación
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
-    const esWebSinAds = p.webSinAds === true;
-    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
-    const tienePermisoResidual = p.permiteRegistrosResiduales === true;
+    // Determinar si el producto debe mostrarse
+    let mostrar = false;
+    let esResidual = false;
     
-    if (esWebSinAds) {
-      webSinAdsList.push({ ...p, esWebSinAds: true });
-    } else if (estabaActivo) {
-      activosEnFecha.push(p);
-    } else if (!estabaActivo && tienePermisoResidual) {
-      residuales.push({ ...p, esResidual: true });
+    // Caso 1: Producto activo (siempre visible)
+    if (p.activo === true) {
+      mostrar = true;
+    }
+    // Caso 2: Producto inactivo con fecha de desactivación
+    else if (p.activo === false && p.fechaDesactivacion) {
+      const fechaDesactivacion = parseColombiaDate(p.fechaDesactivacion);
+      const fechaConsulta = parseColombiaDate(fechaRegistro);
+      
+      // Si la fecha consultada es ANTERIOR a la desactivación, estaba activo
+      if (fechaConsulta < fechaDesactivacion) {
+        mostrar = true; // estaba activo en esa fecha
+      }
+      // Si es POSTERIOR o IGUAL, solo si tiene permiso residual y checkbox marcado
+      else if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
+        mostrar = true;
+        esResidual = true;
+      }
+    }
+    // Caso 3: Producto inactivo sin fecha de desactivación (solo residual)
+    else if (p.activo === false && !p.fechaDesactivacion) {
+      if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
+        mostrar = true;
+        esResidual = true;
+      }
+    }
+    
+    if (mostrar) {
+      if (esResidual) {
+        productosVisibles.push({ ...p, esResidual: true });
+      } else {
+        productosVisibles.push(p);
+      }
     }
   });
   
-  const resultado = [...activosEnFecha];
-  if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
-  return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+  return productosVisibles;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
 
+  
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
 
