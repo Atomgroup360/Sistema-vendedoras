@@ -330,26 +330,65 @@ function VistaConfig({ configs, onSaved }) {
   const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const save = async () => {
-    if (!form.vendedora.trim() || !form.productName.trim()) return;
-    const data = { ...form };
-    if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-    if (data.activo === false && !data.fechaDesactivacion) {
-      data.fechaDesactivacion = todayColombia();
-    }
-    if (data.activo === true) {
-      data.fechaDesactivacion = '';
-    }
-    if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
-    else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
-    setShowForm(false);
-    onSaved?.();
-  };
+ const save = async () => {
+  if (!form.vendedora.trim() || !form.productName.trim()) return;
+  const data = { ...form };
+  if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
+  if (data.activo === false && !data.fechaDesactivacion) {
+    data.fechaDesactivacion = todayColombia();
+  }
+  if (data.activo === true) {
+    data.fechaDesactivacion = '';
+  }
 
-  const remove = async (id) => {
-    if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
-    onSaved?.();
-  };
+  if (editId) {
+    const originalConfig = configs.find(c => c.id === editId);
+    const aplicarRetroactivo = window.confirm(
+      "¿Este cambio debe aplicarse a TODOS los registros históricos?\n" +
+      "Aceptar → Corrige un olvido (afecta todo el historial).\n" +
+      "Cancelar → Cambio normal (nueva versión, solo futuro)."
+    );
+    if (aplicarRetroactivo) {
+      // Modificar el documento original (cambio retroactivo)
+      await updateDoc(doc(db, 'sales_configs', editId), data);
+    } else {
+      // Cambio normal: crear nueva versión y desactivar la anterior
+      if (originalConfig) {
+        // 1. Desactivar la versión anterior (no se mostrará en la UI)
+        await updateDoc(doc(db, 'sales_configs', editId), {
+          activo: false,
+          fechaDesactivacion: todayColombia(),
+          // Importante: no tocar `permiteRegistrosResiduales` para no interferir con residuales
+        });
+        // 2. Crear nueva versión activa
+        const newVersion = {
+          ...data,
+          version: (originalConfig.version || 1) + 1,
+          validFrom: todayColombia(),
+          previousVersionId: editId,
+          activo: true,          // La nueva versión es la activa
+          fechaDesactivacion: '',
+          createdAt: Date.now()
+        };
+        delete newVersion.id; // Evitar conflictos
+        await addDoc(collection(db, 'sales_configs'), newVersion);
+      } else {
+        await updateDoc(doc(db, 'sales_configs', editId), data);
+      }
+    }
+  } else {
+    // Producto nuevo
+    await addDoc(collection(db, 'sales_configs'), {
+      ...data,
+      version: 1,
+      validFrom: todayColombia(),
+      activo: true,
+      createdAt: Date.now()
+    });
+  }
+  setShowForm(false);
+  onSaved?.();
+};
 
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
 
