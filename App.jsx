@@ -711,33 +711,33 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  // === PRODUCTOS NORMALES (ACTIVOS + RESIDUALES) ===
-  const activosEnFecha = [];
+  const activos = [];
   const residuales = [];
+  const webSinAds = [];
   
   productos.forEach(p => {
-    // Excluir productos web sin ads del procesamiento normal
-    if (p.webSinAds === true) return;
+    // Excluir por fecha de creación
+    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
+    // 1. Productos web sin ads: se guardan en una lista separada
+    if (p.webSinAds === true) {
+      webSinAds.push({ ...p, esWebSinAds: true });
+      return; // No seguir procesando como activo/residual
+    }
+    
+    // 2. Productos normales: usar lógica de activo/residual
     const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
     if (estabaActivo) {
-      activosEnFecha.push(p);
+      activos.push(p);  // Activos normales o inactivos con fecha futura
     } else if (p.permiteRegistrosResiduales === true) {
       residuales.push({ ...p, esResidual: true });
     }
   });
   
-  // === PRODUCTOS WEB SIN ADS (SOLO SI EL CHECKBOX ESTÁ MARCADO) ===
-  let webSinAdsParaMostrar = [];
-  if (mostrarWebSinAds) {
-    webSinAdsParaMostrar = productos
-      .filter(p => p.webSinAds === true)
-      .map(p => ({ ...p, esWebSinAds: true }));
-  }
-  
-  const resultado = [...activosEnFecha];
-  if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsParaMostrar);
+  // 3. Construir resultado según checkboxes
+  let resultado = [...activos];
+  if (mostrarInactivos) resultado = resultado.concat(residuales);
+  if (mostrarWebSinAds) resultado = resultado.concat(webSinAds);
   
   return resultado;
 }, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
