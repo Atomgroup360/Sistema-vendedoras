@@ -343,58 +343,58 @@ const save = async () => {
   }
   
   if (editId) {
-    // Obtener la configuración original
     const originalConfig = configs.find(c => c.id === editId);
     
-    // Preguntar al usuario qué tipo de cambio quiere hacer
     const aplicarRetroactivo = window.confirm(
       "⚠️ ¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
-      "✅ SI (Aceptar) → Corrige un OLVIDO (ej: pauta que no se configuró).\n" +
-      "   Los registros pasados se recalcularán con el nuevo valor.\n" +
-      "   Los ajustes mensuales de IER se mantienen.\n\n" +
+      "✅ SI (Aceptar) → Corrige un OLVIDO. El cambio afecta a todo el historial.\n" +
       "❌ NO (Cancelar) → Cambio NORMAL (ej: aumento de precio).\n" +
-      "   Solo afecta registros FUTUROS, el historial no se modifica.\n" +
-      "   La versión anterior quedará inactiva."
+      "   Los valores cambiarán a partir de hoy. El producto se mantiene como único."
     );
     
     if (aplicarRetroactivo) {
-      // CORRECCIÓN DE OLVIDO: modificar el documento original directamente
+      // Corrección de olvido: modificar el documento original
       await updateDoc(doc(db, 'sales_configs', editId), data);
     } else {
-      // CAMBIO NORMAL: crear una nueva versión
+      // Cambio normal: crear nueva versión y archivar la anterior
       if (originalConfig) {
-        // 1. Marcar la versión anterior como inactiva (para que no aparezca en la lista)
+        // 1. Archivar la versión anterior (no se mostrará en ninguna lista)
         await updateDoc(doc(db, 'sales_configs', editId), { 
-          activo: false,
-          fechaDesactivacion: todayColombia()
+          archivado: true,
+          // No tocamos activo para no interferir con residuales
         });
         
-        // 2. Crear la nueva versión con activo: true
+        // 2. Crear nueva versión (sin archivado)
         const newVersion = {
           ...data,
           version: (originalConfig.version || 1) + 1,
           validFrom: todayColombia(),
           previousVersionId: editId,
+          archivado: false,
           activo: true,
           fechaDesactivacion: '',
           createdAt: Date.now()
         };
         await addDoc(collection(db, 'sales_configs'), newVersion);
       } else {
-        // Fallback por si no encuentra el original
         await updateDoc(doc(db, 'sales_configs', editId), data);
       }
     }
   } else {
-    // Producto NUEVO: versión 1
+    // Producto nuevo
     await addDoc(collection(db, 'sales_configs'), { 
       ...data, 
       version: 1,
       validFrom: todayColombia(),
+      archivado: false,
       activo: true,
       createdAt: Date.now() 
     });
   }
+  
+  setShowForm(false);
+  onSaved?.();
+};
   
   setShowForm(false);
   onSaved?.();
@@ -724,10 +724,12 @@ function VistaRegistro({ configs, months, activeTab }) {
  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
-    if (!a[c.vendedora]) a[c.vendedora] = [];
-    a[c.vendedora].push(c);
-    return a;
-  }, {}), [configs]);
+  // No incluir productos archivados en la lista visible
+  if (c.archivado === true) return a;
+  if (!a[c.vendedora]) a[c.vendedora] = [];
+  a[c.vendedora].push(c);
+  return a;
+}, {}), [configs]);
   const vendors = useMemo(() => Object.keys(grouped).sort(), [grouped]);
 
   // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
