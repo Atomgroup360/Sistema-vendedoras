@@ -345,11 +345,7 @@ function VistaConfig({ configs, onSaved }) {
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
 const save = async () => {
-  alert("1. Entrando a save");
-  if (!form.vendedora.trim() || !form.productName.trim()) {
-    alert("Falta vendedora o nombre de producto");
-    return;
-  }
+  if (!form.vendedora.trim() || !form.productName.trim()) return;
   
   const data = { ...form };
   if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
@@ -361,21 +357,21 @@ const save = async () => {
   }
   
   if (editId) {
-    alert("2. Editando producto con ID: " + editId);
     const originalConfig = configs.find(c => c.id === editId);
-    alert("3. originalConfig encontrado? " + (originalConfig ? "Sí" : "No"));
     
-    const aplicarRetroactivo = window.confirm(...); // tu mensaje
-    alert("4. Usuario eligió: " + (aplicarRetroactivo ? "Aceptar" : "Cancelar"));
+    const aplicarRetroactivo = window.confirm(
+      "¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
+      "Aceptar → Corrige un OLVIDO (afecta todo el historial).\n" +
+      "Cancelar → Cambio NORMAL (nueva versión, solo futuro)."
+    );
     
     if (aplicarRetroactivo) {
-      alert("5. Aplicando cambio retroactivo (updateDoc)");
+      // Corrección retroactiva: modifica el documento original
       await updateDoc(doc(db, 'sales_configs', editId), data);
-      alert("6. updateDoc completado");
     } else {
-      alert("5. Creando nueva versión (addDoc)");
+      // Cambio normal: crea una nueva versión interna
       if (originalConfig) {
-        const newVersion = {
+        const nuevaVersion = {
           ...data,
           version: (originalConfig.version || 1) + 1,
           validFrom: todayColombia(),
@@ -383,23 +379,25 @@ const save = async () => {
           activo: true,
           createdAt: Date.now()
         };
-        delete newVersion.id;
-        await addDoc(collection(db, 'sales_configs'), newVersion);
-        alert("6. addDoc completado");
+        delete nuevaVersion.id;
+        await addDoc(collection(db, 'sales_configs'), nuevaVersion);
       } else {
-        alert("Error: originalConfig no encontrado");
+        // Fallback
         await updateDoc(doc(db, 'sales_configs', editId), data);
       }
     }
   } else {
-    alert("2. Creando nuevo producto (addDoc)");
-    await addDoc(collection(db, 'sales_configs'), { ...data, version: 1, createdAt: Date.now() });
-    alert("3. addDoc completado");
+    // Producto nuevo
+    await addDoc(collection(db, 'sales_configs'), { 
+      ...data, 
+      version: 1,
+      validFrom: todayColombia(),
+      createdAt: Date.now() 
+    });
   }
   
   setShowForm(false);
   onSaved?.();
-  alert("7. Guardado completo");
 };
   
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
