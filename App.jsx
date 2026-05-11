@@ -669,7 +669,6 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
  const [mostrarInactivos, setMostrarInactivos] = useState(false);
-  const [mostrarWebSinAds, setMostrarWebSinAds] = useState(false);
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -681,36 +680,39 @@ function VistaRegistro({ configs, months, activeTab }) {
   // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
 
  
-const productsOfVendor = useMemo(() => {
+ const productsOfVendor = useMemo(() => {
   if (!selectedVendor) return [];
   const productos = grouped[selectedVendor] || [];
-  const fechaRegistro = selectedDate;
+  const selectedDateObj = parseColombiaDate(selectedDate);
   
-  const normales = [];
-  const residuales = [];
-  const webSinAdsList = [];
+  const activos = [];
+  const inactivosConPermiso = [];
   
   productos.forEach(p => {
-    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
+    // Validar fecha de creación
+    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > selectedDateObj) return;
     
-    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
-    const esWebSinAds = p.webSinAds === true;
+    const isActive = p.activo !== false;
     const tienePermisoResidual = p.permiteRegistrosResiduales === true;
+    const estaDesactivado = !isActive && p.fechaDesactivacion && parseColombiaDate(p.fechaDesactivacion) <= selectedDateObj;
     
-    if (esWebSinAds) {
-      webSinAdsList.push({ ...p, esWebSinAds: true });
-    } else if (estabaActivo) {
-      normales.push(p);
-    } else if (!estabaActivo && tienePermisoResidual) {
-      residuales.push({ ...p, esResidual: true });
+    if (!estaDesactivado) {
+      // Producto activo en esta fecha
+      activos.push(p);
+    } else if (estaDesactivado && tienePermisoResidual) {
+      // Producto inactivo pero con permiso residual
+      inactivosConPermiso.push({ ...p, esResidual: true });
     }
   });
   
-  const resultado = [...normales];
-  if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsList);  // ← usar mostrarWebSinAds
-  return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+  // Si el checkbox está marcado, mostrar activos + inactivos con permiso
+  if (mostrarInactivos) {
+    return [...activos, ...inactivosConPermiso];
+  }
+  // Si no, solo activos
+  return activos;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -843,7 +845,7 @@ const productsOfVendor = useMemo(() => {
       }
     }
     const rec = {
-      configId: selectedProductId, orders, units, revenue, adSpend: mostrarWebSinAds ? "0" : adSpend,
+      configId: selectedProductId, orders, units, revenue, adSpend,
       date: selectedDate, id: editingRec?.id || Date.now().toString(),
       savedAt: Date.now(), restDay: form.restDay
     };
@@ -962,20 +964,7 @@ const productsOfVendor = useMemo(() => {
         </div>
 
         <div className="space-y-1.5"><Label>Vendedora</Label><select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar vendedora...</option>{vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
-        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => (
-  <option 
-    key={p.id} 
-    value={p.id} 
-    className={
-      p.esResidual ? 'text-red-500 line-through' :
-      p.esWebSinAds ? 'text-emerald-600 italic' : ''
-    }
-  >
-    {p.productName}
-    {p.esResidual && ' (INACTIVO - residual)'}
-    {p.esWebSinAds && ' (WEB SIN ADS)'}
-  </option>
-))}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
+        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
 
 <div className="flex items-center gap-2 mt-2 mb-2">
   <input
@@ -987,18 +976,6 @@ const productsOfVendor = useMemo(() => {
   />
   <label htmlFor="mostrarInactivos" className="text-[10px] font-black uppercase text-slate-500">
     📦 Mostrar productos inactivos (ventas residuales)
-  </label>
-</div>
-        <div className="flex items-center gap-2 mt-2 mb-2">
-  <input
-    type="checkbox"
-    id="ventaWhatsappWeb"
-    checked={ventaWhatsappWeb}
-    onChange={(e) => setVentaWhatsappWeb(e.target.checked)}
-    className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500"
-  />
-  <label htmlFor="ventaWhatsappWeb" className="text-[10px] font-black uppercase text-slate-500">
-    📞 venta whatsapp (desde web) sin ads
   </label>
 </div>
 
@@ -2284,5 +2261,3 @@ export default function App() {
     </div>
   );
 }
-
-
