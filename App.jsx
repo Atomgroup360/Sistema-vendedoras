@@ -685,32 +685,40 @@ function VistaRegistro({ configs, months, activeTab }) {
   const productos = grouped[selectedVendor] || [];
   const selectedDateObj = parseColombiaDate(selectedDate);
   
-  const activos = [];
-  const inactivosConPermiso = [];
+  const activosEnFecha = [];
+  const inactivosConPermisoEnFecha = [];
   
   productos.forEach(p => {
     // Validar fecha de creación
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > selectedDateObj) return;
     
-    const isActive = p.activo !== false;
+    // Usar la función global para saber si estaba activo en la fecha seleccionada
+    const estabaActivo = isProductActiveOnDate(p, selectedDate);
     const tienePermisoResidual = p.permiteRegistrosResiduales === true;
-    const estaDesactivado = !isActive && p.fechaDesactivacion && parseColombiaDate(p.fechaDesactivacion) <= selectedDateObj;
     
-    if (!estaDesactivado) {
-      // Producto activo en esta fecha
-      activos.push(p);
-    } else if (estaDesactivado && tienePermisoResidual) {
-      // Producto inactivo pero con permiso residual
-      inactivosConPermiso.push({ ...p, esResidual: true });
+    if (estabaActivo) {
+      // Producto activo en esa fecha: siempre visible
+      activosEnFecha.push(p);
+    } else if (tienePermisoResidual) {
+      // Producto inactivo en esa fecha pero con permiso residual: visible SOLO si el checkbox está marcado
+      inactivosConPermisoEnFecha.push({ ...p, esResidual: true });
     }
   });
   
-  // Si el checkbox está marcado, mostrar activos + inactivos con permiso
+  // Si el checkbox está marcado, mostramos activos + inactivos con permiso
   if (mostrarInactivos) {
-    return [...activos, ...inactivosConPermiso];
+    return [...activosEnFecha, ...inactivosConPermisoEnFecha];
   }
-  // Si no, solo activos
-  return activos;
+  // Si no, solo los que estaban activos en la fecha
+  return activosEnFecha;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+  
+   // Si el checkbox está marcado, mostramos activos + inactivos con permiso
+  if (mostrarInactivos) {
+    return [...activosEnFecha, ...inactivosConPermisoEnFecha];
+  }
+  // Si no, solo los que estaban activos en la fecha
+  return activosEnFecha;
 }, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
 
 
