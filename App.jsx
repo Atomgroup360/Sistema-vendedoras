@@ -10,7 +10,7 @@ import {
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
-  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff, Globe
+  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff, Globe
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
