@@ -343,46 +343,55 @@ const save = async () => {
   }
   
   if (editId) {
+    // Obtener la configuración original
     const originalConfig = configs.find(c => c.id === editId);
     
-    // Mensaje mejorado y más claro
+    // Preguntar al usuario qué tipo de cambio quiere hacer
     const aplicarRetroactivo = window.confirm(
-      "📌 ¿Este cambio debe afectar a TODOS los registros (pasados y futuros) o solo a los FUTUROS?\n\n" +
-      "✅ ACEPTAR → CORRECCIÓN DE OLVIDO (cambio retroactivo)\n" +
-      "   • El cambio se aplica a TODOS los registros (pasados y futuros).\n" +
-      "   • Úsalo cuando olvidaste configurar un valor (ej: pauta, costo, flete).\n" +
-      "   • ⚠️ Los datos históricos se recalcularán con el nuevo valor.\n\n" +
-      "❌ CANCELAR → CAMBIO REAL DE NEGOCIO (solo futuro)\n" +
-      "   • El cambio solo afecta a REGISTROS FUTUROS.\n" +
-      "   • Úsalo para aumentos de precio, nuevas comisiones, etc.\n" +
-      "   • ✅ El historial anterior NO se modifica (se crea una nueva versión).\n\n" +
-      "💡 Los ajustes mensuales de IER (efectividad/devolución) NO se ven afectados."
+      "⚠️ ¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
+      "✅ SI (Aceptar) → Corrige un OLVIDO (ej: pauta que no se configuró).\n" +
+      "   Los registros pasados se recalcularán con el nuevo valor.\n" +
+      "   Los ajustes mensuales de IER se mantienen.\n\n" +
+      "❌ NO (Cancelar) → Cambio NORMAL (ej: aumento de precio).\n" +
+      "   Solo afecta registros FUTUROS, el historial no se modifica.\n" +
+      "   La versión anterior quedará inactiva."
     );
     
     if (aplicarRetroactivo) {
-      // CORRECCIÓN DE OLVIDO: modificar directamente
+      // CORRECCIÓN DE OLVIDO: modificar el documento original directamente
       await updateDoc(doc(db, 'sales_configs', editId), data);
     } else {
-      // CAMBIO NORMAL: crear nueva versión
+      // CAMBIO NORMAL: crear una nueva versión
       if (originalConfig) {
+        // 1. Marcar la versión anterior como inactiva (para que no aparezca en la lista)
+        await updateDoc(doc(db, 'sales_configs', editId), { 
+          activo: false,
+          fechaDesactivacion: todayColombia()
+        });
+        
+        // 2. Crear la nueva versión con activo: true
         const newVersion = {
           ...data,
           version: (originalConfig.version || 1) + 1,
           validFrom: todayColombia(),
           previousVersionId: editId,
+          activo: true,
+          fechaDesactivacion: '',
           createdAt: Date.now()
         };
         await addDoc(collection(db, 'sales_configs'), newVersion);
       } else {
+        // Fallback por si no encuentra el original
         await updateDoc(doc(db, 'sales_configs', editId), data);
       }
     }
   } else {
-    // Producto nuevo
+    // Producto NUEVO: versión 1
     await addDoc(collection(db, 'sales_configs'), { 
       ...data, 
       version: 1,
       validFrom: todayColombia(),
+      activo: true,
       createdAt: Date.now() 
     });
   }
@@ -390,7 +399,6 @@ const save = async () => {
   setShowForm(false);
   onSaved?.();
 };
-
   const remove = async (id) => {
     if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
     onSaved?.();
