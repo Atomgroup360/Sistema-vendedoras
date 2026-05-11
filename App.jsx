@@ -699,7 +699,6 @@ const productsOfVendor = useMemo(() => {
     const tienePermisoResidual = p.permiteRegistrosResiduales === true;
     
     if (esWebSinAds) {
-      // Producto marcado como "web sin ads"
       webSinAdsList.push({ ...p, esWebSinAds: true });
     } else if (estabaActivo) {
       normales.push(p);
@@ -710,9 +709,9 @@ const productsOfVendor = useMemo(() => {
   
   const resultado = [...normales];
   if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
+  if (ventaWhatsappWeb) resultado.push(...webSinAdsList);
   return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, ventaWhatsappWeb]);
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
