@@ -75,6 +75,24 @@ function getConfigAtDate(configs, productId, dateStr) {
   
   return activeConfig || configs.find(c => c.id === productId);
 }
+
+// Función para saber si un producto estaba ACTIVO en una fecha específica
+function isProductActiveOnDate(product, dateStr) {
+  if (!product) return false;
+  const active = product.activo !== false;
+  const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
+  const checkDate = parseColombiaDate(dateStr);
+  
+  if (!active && deactivationDate && deactivationDate <= checkDate) {
+    return false;
+  }
+  return true;
+}
+
+function calcularStats(records, configs) {
+  // ... el resto del código original ...
+}
+
 function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
@@ -121,9 +139,17 @@ const ret = Math.min(Math.max(returnRate, 0), 100) / 100;
     const orders = parseFloat(r.orders) || 0;
     const units = parseFloat(r.units) || 0;
     const revenue = parseFloat(r.revenue) || 0;
-    const ads = parseFloat(r.adSpend) > 0
-      ? parseFloat(r.adSpend)
-      : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
+    // Determinar si el producto estaba activo en la fecha del registro
+const wasActive = isProductActiveOnDate(c, r.date);
+
+let ads = 0;
+if (wasActive) {
+  // Producto activo: usar publicidad normal
+  ads = parseFloat(r.adSpend) > 0
+    ? parseFloat(r.adSpend)
+    : (c.fixedAdSpend ? parseFloat(c.dailyAdSpend) || 0 : 0);
+}
+// Si estaba inactivo, ads ya es 0 (no gastó publicidad)
 
     const avgUnits = orders > 0 ? units / orders : 1;
     const shipped = orders * eff;
