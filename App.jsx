@@ -711,16 +711,15 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  // === PRODUCTOS NORMALES (activos + residuales) - LÓGICA ORIGINAL ===
+  // === PRODUCTOS NORMALES (ACTIVOS + RESIDUALES) ===
   const activosEnFecha = [];
   const residuales = [];
   
   productos.forEach(p => {
-    // Saltar productos web sin ads (se gestionan aparte)
+    // Excluir productos web sin ads del procesamiento normal
     if (p.webSinAds === true) return;
     
     const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
-    
     if (estabaActivo) {
       activosEnFecha.push(p);
     } else if (p.permiteRegistrosResiduales === true) {
@@ -728,20 +727,18 @@ const productsOfVendor = useMemo(() => {
     }
   });
   
-  // === PRODUCTOS WEB SIN ADS (solo si checkbox marcado) ===
-  const webSinAdsList = [];
+  // === PRODUCTOS WEB SIN ADS (SOLO SI EL CHECKBOX ESTÁ MARCADO) ===
+  let webSinAdsParaMostrar = [];
   if (mostrarWebSinAds) {
-    productos.forEach(p => {
-      if (p.webSinAds === true) {
-        webSinAdsList.push({ ...p, esWebSinAds: true });
-      }
-    });
+    webSinAdsParaMostrar = productos
+      .filter(p => p.webSinAds === true)
+      .map(p => ({ ...p, esWebSinAds: true }));
   }
   
-  // === RESULTADO FINAL ===
   const resultado = [...activosEnFecha];
   if (mostrarInactivos) resultado.push(...residuales);
-  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsParaMostrar);
+  
   return resultado;
 }, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
