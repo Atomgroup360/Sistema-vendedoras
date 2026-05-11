@@ -330,21 +330,66 @@ function VistaConfig({ configs, onSaved }) {
   const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const save = async () => {
-    if (!form.vendedora.trim() || !form.productName.trim()) return;
-    const data = { ...form };
-    if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
-    if (data.activo === false && !data.fechaDesactivacion) {
-      data.fechaDesactivacion = todayColombia();
+const save = async () => {
+  if (!form.vendedora.trim() || !form.productName.trim()) return;
+  
+  const data = { ...form };
+  if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
+  if (data.activo === false && !data.fechaDesactivacion) {
+    data.fechaDesactivacion = todayColombia();
+  }
+  if (data.activo === true) {
+    data.fechaDesactivacion = '';
+  }
+  
+  if (editId) {
+    const originalConfig = configs.find(c => c.id === editId);
+    
+    // Mensaje mejorado y más claro
+    const aplicarRetroactivo = window.confirm(
+      "📌 ¿Este cambio debe afectar a TODOS los registros (pasados y futuros) o solo a los FUTUROS?\n\n" +
+      "✅ ACEPTAR → CORRECCIÓN DE OLVIDO (cambio retroactivo)\n" +
+      "   • El cambio se aplica a TODOS los registros (pasados y futuros).\n" +
+      "   • Úsalo cuando olvidaste configurar un valor (ej: pauta, costo, flete).\n" +
+      "   • ⚠️ Los datos históricos se recalcularán con el nuevo valor.\n\n" +
+      "❌ CANCELAR → CAMBIO REAL DE NEGOCIO (solo futuro)\n" +
+      "   • El cambio solo afecta a REGISTROS FUTUROS.\n" +
+      "   • Úsalo para aumentos de precio, nuevas comisiones, etc.\n" +
+      "   • ✅ El historial anterior NO se modifica (se crea una nueva versión).\n\n" +
+      "💡 Los ajustes mensuales de IER (efectividad/devolución) NO se ven afectados."
+    );
+    
+    if (aplicarRetroactivo) {
+      // CORRECCIÓN DE OLVIDO: modificar directamente
+      await updateDoc(doc(db, 'sales_configs', editId), data);
+    } else {
+      // CAMBIO NORMAL: crear nueva versión
+      if (originalConfig) {
+        const newVersion = {
+          ...data,
+          version: (originalConfig.version || 1) + 1,
+          validFrom: todayColombia(),
+          previousVersionId: editId,
+          createdAt: Date.now()
+        };
+        await addDoc(collection(db, 'sales_configs'), newVersion);
+      } else {
+        await updateDoc(doc(db, 'sales_configs', editId), data);
+      }
     }
-    if (data.activo === true) {
-      data.fechaDesactivacion = '';
-    }
-    if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
-    else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
-    setShowForm(false);
-    onSaved?.();
-  };
+  } else {
+    // Producto nuevo
+    await addDoc(collection(db, 'sales_configs'), { 
+      ...data, 
+      version: 1,
+      validFrom: todayColombia(),
+      createdAt: Date.now() 
+    });
+  }
+  
+  setShowForm(false);
+  onSaved?.();
+};
 
   const remove = async (id) => {
     if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
