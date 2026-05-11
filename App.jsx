@@ -282,7 +282,8 @@ const EMPTY_CONFIG = {
   activo: true,
   fechaCreacion: todayColombia(),
   fechaDesactivacion: '',
-  monthlyIER: []
+  monthlyIER: [],
+permiteRegistrosResiduales: false
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -468,9 +469,36 @@ function VistaConfig({ configs, onSaved }) {
                   </button>
                 </div>
                 {!form.activo && (
-                  <InputField label="Fecha de Desactivación" type="date" value={form.fechaDesactivacion} onChange={e => setField('fechaDesactivacion', e.target.value)} />
-                )}
-              </div>
+  <>
+    <InputField 
+      label="Fecha de Desactivación" 
+      type="date" 
+      value={form.fechaDesactivacion} 
+      onChange={e => setField('fechaDesactivacion', e.target.value)} 
+    />
+    
+    <div className="flex items-center justify-between bg-white/10 rounded-xl p-3">
+      <div className="flex items-center gap-2">
+        <Package size={14} className="text-yellow-400" />
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest">Permitir registros residuales</p>
+          <p className="text-[7px] text-zinc-400">Ventas que llegan después de la desactivación</p>
+        </div>
+      </div>
+      <button 
+        onClick={() => setField('permiteRegistrosResiduales', !form.permiteRegistrosResiduales)} 
+        className="flex items-center gap-1 text-[8px] font-black uppercase"
+      >
+        {form.permiteRegistrosResiduales ? (
+          <><ToggleRight size={22} className="text-emerald-400" /><span className="text-emerald-400">SÍ</span></>
+        ) : (
+          <><ToggleLeft size={22} className="text-zinc-500" /><span className="text-zinc-500">NO</span></>
+        )}
+      </button>
+    </div>
+  </>
+)}
+</div>
 
               <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl space-y-1">
                 <Label className="text-emerald-700 text-[9px]">% Efectividad</Label>
