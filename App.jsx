@@ -314,11 +314,25 @@ function VistaConfig({ configs, onSaved }) {
   const [form, setForm] = useState(EMPTY_CONFIG);
   const [expandedV, setExpandedV] = useState({});
 
-  const grouped = useMemo(() => configs.reduce((a, c) => {
-    if (!a[c.vendedora]) a[c.vendedora] = [];
-    a[c.vendedora].push(c);
-    return a;
-  }, {}), [configs]);
+  const grouped = useMemo(() => {
+  // Primero, agrupar por nombre de producto (o por un ID de producto raíz)
+  const productosPorNombre = new Map();
+  
+  configs.forEach(c => {
+    const key = c.productName; // Asumimos que el nombre es único por producto
+    if (!productosPorNombre.has(key) || (c.version || 1) > (productosPorNombre.get(key)?.version || 0)) {
+      productosPorNombre.set(key, c);
+    }
+  });
+  
+  // Luego agrupar por vendedora
+  const result = {};
+  for (const producto of productosPorNombre.values()) {
+    if (!result[producto.vendedora]) result[producto.vendedora] = [];
+    result[producto.vendedora].push(producto);
+  }
+  return result;
+}, [configs]);
 
   const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia(), monthlyIER: [] }); setShowForm(true); };
   const openNewForVendor = (vendedora) => {
@@ -348,33 +362,28 @@ const save = async () => {
     const aplicarRetroactivo = window.confirm(
       "⚠️ ¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
       "✅ SI (Aceptar) → Corrige un OLVIDO. El cambio afecta a todo el historial.\n" +
-      "❌ NO (Cancelar) → Cambio NORMAL (ej: aumento de precio).\n" +
-      "   Los valores cambiarán a partir de hoy. El producto se mantiene como único."
+      "❌ NO (Cancelar) → Cambio NORMAL (ej: aumento de costo).\n" +
+      "   Se creará una nueva versión interna.\n" +
+      "   Los registros futuros usarán el nuevo valor.\n" +
+      "   Los registros pasados mantendrán el valor anterior."
     );
     
     if (aplicarRetroactivo) {
       // Corrección de olvido: modificar el documento original
       await updateDoc(doc(db, 'sales_configs', editId), data);
     } else {
-      // Cambio normal: crear nueva versión y archivar la anterior
+      // Cambio normal: crear una nueva versión interna
       if (originalConfig) {
-        // 1. Archivar la versión anterior (no se mostrará en ninguna lista)
-        await updateDoc(doc(db, 'sales_configs', editId), { 
-          archivado: true,
-          // No tocamos activo para no interferir con residuales
-        });
-        
-        // 2. Crear nueva versión (sin archivado)
         const newVersion = {
           ...data,
           version: (originalConfig.version || 1) + 1,
           validFrom: todayColombia(),
           previousVersionId: editId,
-          archivado: false,
-          activo: true,
-          fechaDesactivacion: '',
+          activo: true,  // La nueva versión es la activa
           createdAt: Date.now()
         };
+        // No marcamos la anterior como inactiva, solo creamos la nueva
+        delete newVersion.id;
         await addDoc(collection(db, 'sales_configs'), newVersion);
       } else {
         await updateDoc(doc(db, 'sales_configs', editId), data);
@@ -386,8 +395,6 @@ const save = async () => {
       ...data, 
       version: 1,
       validFrom: todayColombia(),
-      archivado: false,
-      activo: true,
       createdAt: Date.now() 
     });
   }
@@ -395,11 +402,7 @@ const save = async () => {
   setShowForm(false);
   onSaved?.();
 };
-  const remove = async (id) => {
-    if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
-    onSaved?.();
-  };
-
+  
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
 
   const previewProfit = useMemo(() => {
