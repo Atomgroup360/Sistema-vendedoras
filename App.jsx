@@ -719,16 +719,31 @@ const productsOfVendor = useMemo(() => {
     // Validar fecha de creación
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
-    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    // Determinar si el producto estaba activo en la fecha seleccionada
+    let estabaActivo = true;
+    
+    // Si el producto está inactivo Y tiene fecha de desactivación
+    if (p.activo === false && p.fechaDesactivacion) {
+      const fechaDesactivacion = parseColombiaDate(p.fechaDesactivacion);
+      const fechaConsulta = parseColombiaDate(fechaRegistro);
+      // Estaba activo si la fecha consultada es ANTERIOR a la desactivación
+      estabaActivo = fechaConsulta < fechaDesactivacion;
+    } else if (p.activo === false && !p.fechaDesactivacion) {
+      // Inactivo sin fecha de desactivación: nunca estuvo activo
+      estabaActivo = false;
+    }
+    // Si activo === true, estabaActivo se mantiene true
+    
     const esWebSinAds = p.webSinAds === true;
     const tienePermisoResidual = p.permiteRegistrosResiduales === true;
     
     if (esWebSinAds) {
-      // Producto marcado como "web sin ads"
       webSinAdsList.push({ ...p, esWebSinAds: true });
     } else if (estabaActivo) {
+      // Producto activo en esa fecha (incluye inactivos con fecha posterior)
       normales.push(p);
     } else if (!estabaActivo && tienePermisoResidual) {
+      // Producto inactivo en esa fecha pero con permiso residual
       residuales.push({ ...p, esResidual: true });
     }
   });
@@ -738,6 +753,7 @@ const productsOfVendor = useMemo(() => {
   if (mostrarWebSinAds) resultado.push(...webSinAdsList);
   return resultado;
 }, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+  
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
