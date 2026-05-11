@@ -710,55 +710,51 @@ const productsOfVendor = useMemo(() => {
   if (!selectedVendor) return [];
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
-  
-  const productosVisibles = [];
-  
+
+  const activos = [];
+  const residuales = [];
+  const webSinAdsList = [];
+
   productos.forEach(p => {
-    // Validar fecha de creación
+    // 1. Excluir productos creados DESPUÉS de la fecha de registro
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
-    
-    // Determinar si el producto debe mostrarse
-    let mostrar = false;
-    let esResidual = false;
-    
-    // Caso 1: Producto activo (siempre visible)
+
+    // 2. Detectar producto "web sin ads" (tiene prioridad sobre cualquier otra clasificación)
+    if (p.webSinAds === true) {
+      webSinAdsList.push({ ...p, esWebSinAds: true });
+      return;
+    }
+
+    // 3. Producto activo → siempre incluir
     if (p.activo === true) {
-      mostrar = true;
+      activos.push(p);
+      return;
     }
-    // Caso 2: Producto inactivo con fecha de desactivación
-    else if (p.activo === false && p.fechaDesactivacion) {
-      const fechaDesactivacion = parseColombiaDate(p.fechaDesactivacion);
-      const fechaConsulta = parseColombiaDate(fechaRegistro);
-      
-      // Si la fecha consultada es ANTERIOR a la desactivación, estaba activo
-      if (fechaConsulta < fechaDesactivacion) {
-        mostrar = true; // estaba activo en esa fecha
-      }
-      // Si es POSTERIOR o IGUAL, solo si tiene permiso residual y checkbox marcado
-      else if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
-        mostrar = true;
-        esResidual = true;
-      }
+
+    // 4. Producto inactivo → evaluar según fechaDesactivacion
+    const fechaDesactivacionStr = p.fechaDesactivacion ?? null;
+
+    // Comparación segura como strings ISO
+    const estabaActivoEnFecha = fechaDesactivacionStr !== null && fechaRegistro < fechaDesactivacionStr;
+
+    if (estabaActivoEnFecha) {
+      // En la fecha consultada el producto AÚN estaba activo → mostrar sin checkbox
+      activos.push(p);
+      return;
     }
-    // Caso 3: Producto inactivo sin fecha de desactivación (solo residual)
-    else if (p.activo === false && !p.fechaDesactivacion) {
-      if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
-        mostrar = true;
-        esResidual = true;
-      }
-    }
-    
-    if (mostrar) {
-      if (esResidual) {
-        productosVisibles.push({ ...p, esResidual: true });
-      } else {
-        productosVisibles.push(p);
-      }
+
+    // 5. Ya estaba inactivo en esa fecha → solo mostrar si checkbox activado y permite residuales
+    if (mostrarInactivos && p.permiteRegistrosResiduales === true) {
+      residuales.push({ ...p, esResidual: true });
     }
   });
-  
-  return productosVisibles;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+
+  // Construir resultado final
+  const resultado = [...activos];
+  if (mostrarInactivos) resultado.push(...residuales);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
+  return resultado;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
   
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
