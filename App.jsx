@@ -90,10 +90,6 @@ function isProductActiveOnDate(product, dateStr) {
 }
 
 function calcularStats(records, configs) {
-  // ... el resto del código original ...
-}
-
-function calcularStats(records, configs) {
   const activeRecords = records.filter(r => !r.restDay);
   let s = {
     grossOrd: 0, grossUnits: 0, grossRev: 0,
