@@ -523,23 +523,7 @@ function VistaConfig({ configs, onSaved }) {
 )}
 </div>
 
-              {/* NUEVO: Venta desde web sin ads */}
-<div className="flex items-center justify-between bg-white/10 rounded-xl p-3">
-  <div className="flex items-center gap-2">
-    <Globe size={14} className="text-emerald-400" />
-    <div>
-      <p className="text-[9px] font-black uppercase tracking-widest">Venta desde web sin ads</p>
-      <p className="text-[7px] text-zinc-400">El producto no aparece en selector normal, solo con checkbox especial</p>
-    </div>
-  </div>
-  <button onClick={() => setField('webSinAds', !form.webSinAds)} className="flex items-center gap-1 text-[8px] font-black uppercase">
-    {form.webSinAds ? (
-      <><ToggleRight size={22} className="text-emerald-400" /><span className="text-emerald-400">SÍ</span></>
-    ) : (
-      <><ToggleLeft size={22} className="text-zinc-500" /><span className="text-zinc-500">NO</span></>
-    )}
-  </button>
-</div>
+              
               
               <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl space-y-1">
                 <Label className="text-emerald-700 text-[9px]">% Efectividad</Label>
