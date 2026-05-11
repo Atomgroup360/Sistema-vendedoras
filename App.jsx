@@ -305,7 +305,6 @@ const EMPTY_CONFIG = {
   fechaCreacion: todayColombia(),
   fechaDesactivacion: '',
   monthlyIER: [],
-  webSinAds: false,
 permiteRegistrosResiduales: false
 };
 
@@ -523,8 +522,6 @@ function VistaConfig({ configs, onSaved }) {
 )}
 </div>
 
-              
-              
               <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl space-y-1">
                 <Label className="text-emerald-700 text-[9px]">% Efectividad</Label>
                 <input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-2xl text-emerald-800 outline-none" />
@@ -683,39 +680,30 @@ function VistaRegistro({ configs, months, activeTab }) {
   // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
 
  
- const productsOfVendor = useMemo(() => {
+const productsOfVendor = useMemo(() => {
   if (!selectedVendor) return [];
   const productos = grouped[selectedVendor] || [];
-  const selectedDateObj = parseColombiaDate(selectedDate);
+  const fechaRegistro = selectedDate;
   
-  const activos = [];
-  const inactivosConPermiso = [];
+  const activosEnFecha = [];
+  const residuales = [];
   
   productos.forEach(p => {
-    // Validar fecha de creación
-    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > selectedDateObj) return;
+    // Usar la función global (ya definida arriba)
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
     
-    const isActive = p.activo !== false;
-    const tienePermisoResidual = p.permiteRegistrosResiduales === true;
-    const estaDesactivado = !isActive && p.fechaDesactivacion && parseColombiaDate(p.fechaDesactivacion) <= selectedDateObj;
-    
-    if (!estaDesactivado) {
-      // Producto activo en esta fecha
-      activos.push(p);
-    } else if (estaDesactivado && tienePermisoResidual) {
-      // Producto inactivo pero con permiso residual
-      inactivosConPermiso.push({ ...p, esResidual: true });
+    if (estabaActivo) {
+      activosEnFecha.push(p);
+    } else if (p.permiteRegistrosResiduales === true) {
+      residuales.push({ ...p, esResidual: true });
     }
   });
   
-  // Si el checkbox está marcado, mostrar activos + inactivos con permiso
   if (mostrarInactivos) {
-    return [...activos, ...inactivosConPermiso];
+    return [...activosEnFecha, ...residuales];
   }
-  // Si no, solo activos
-  return activos;
+  return activosEnFecha;
 }, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
-
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -967,7 +955,11 @@ function VistaRegistro({ configs, months, activeTab }) {
         </div>
 
         <div className="space-y-1.5"><Label>Vendedora</Label><select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar vendedora...</option>{vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
-        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
+        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => (
+  <option key={p.id} value={p.id} className={p.esResidual ? 'text-red-500 line-through' : ''}>
+    {p.productName} {p.esResidual && '(INACTIVO - residual)'}
+  </option>
+))}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
 
 <div className="flex items-center gap-2 mt-2 mb-2">
   <input
