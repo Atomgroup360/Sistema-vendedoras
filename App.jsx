@@ -314,25 +314,11 @@ function VistaConfig({ configs, onSaved }) {
   const [form, setForm] = useState(EMPTY_CONFIG);
   const [expandedV, setExpandedV] = useState({});
 
-  const grouped = useMemo(() => {
-  // Primero, agrupar por nombre de producto (o por un ID de producto raíz)
-  const productosPorNombre = new Map();
-  
-  configs.forEach(c => {
-    const key = c.productName; // Asumimos que el nombre es único por producto
-    if (!productosPorNombre.has(key) || (c.version || 1) > (productosPorNombre.get(key)?.version || 0)) {
-      productosPorNombre.set(key, c);
-    }
-  });
-  
-  // Luego agrupar por vendedora
-  const result = {};
-  for (const producto of productosPorNombre.values()) {
-    if (!result[producto.vendedora]) result[producto.vendedora] = [];
-    result[producto.vendedora].push(producto);
-  }
-  return result;
-}, [configs]);
+  const grouped = useMemo(() => configs.reduce((a, c) => {
+    if (!a[c.vendedora]) a[c.vendedora] = [];
+    a[c.vendedora].push(c);
+    return a;
+  }, {}), [configs]);
 
   const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia(), monthlyIER: [] }); setShowForm(true); };
   const openNewForVendor = (vendedora) => {
@@ -344,14 +330,8 @@ function VistaConfig({ configs, onSaved }) {
   const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-const save = async () => {
-  try {
-    alert("Paso 1: Iniciando guardado");
-    if (!form.vendedora.trim() || !form.productName.trim()) {
-      alert("Falta vendedora o nombre de producto");
-      return;
-    }
-    
+  const save = async () => {
+    if (!form.vendedora.trim() || !form.productName.trim()) return;
     const data = { ...form };
     if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
     if (data.activo === false && !data.fechaDesactivacion) {
@@ -360,57 +340,17 @@ const save = async () => {
     if (data.activo === true) {
       data.fechaDesactivacion = '';
     }
-    
-    if (editId) {
-      alert("Paso 2: Editando producto, ID: " + editId);
-      const originalConfig = configs.find(c => c.id === editId);
-      alert("Paso 3: ¿originalConfig existe? " + (originalConfig ? "SI" : "NO"));
-      
-      const aplicarRetroactivo = window.confirm(
-        "⚠️ ¿Este cambio debe aplicarse a TODOS los registros históricos?\n\n" +
-        "Aceptar → Corrige un OLVIDO (afecta todo el historial).\n" +
-        "Cancelar → Cambio NORMAL (nueva versión, solo futuro)."
-      );
-      alert("Paso 4: Usuario eligió " + (aplicarRetroactivo ? "ACEPTAR" : "CANCELAR"));
-      
-      if (aplicarRetroactivo) {
-        alert("Paso 5: Actualizando documento original (updateDoc)");
-        await updateDoc(doc(db, 'sales_configs', editId), data);
-        alert("Paso 6: updateDoc completado");
-      } else {
-        alert("Paso 5: Creando nueva versión (addDoc)");
-        if (originalConfig) {
-          const nuevaVersion = {
-            ...data,
-            version: (originalConfig.version || 1) + 1,
-            validFrom: todayColombia(),
-            previousVersionId: editId,
-            activo: true,
-            createdAt: Date.now()
-          };
-          delete nuevaVersion.id;
-          await addDoc(collection(db, 'sales_configs'), nuevaVersion);
-          alert("Paso 6: addDoc completado");
-        } else {
-          alert("Error: originalConfig no encontrado, usando updateDoc");
-          await updateDoc(doc(db, 'sales_configs', editId), data);
-          alert("Paso 6: updateDoc alternativo completado");
-        }
-      }
-    } else {
-      alert("Paso 2: Creando nuevo producto");
-      await addDoc(collection(db, 'sales_configs'), { ...data, version: 1, createdAt: Date.now() });
-      alert("Paso 3: addDoc completado");
-    }
-    
+    if (editId) await updateDoc(doc(db, 'sales_configs', editId), data);
+    else await addDoc(collection(db, 'sales_configs'), { ...data, createdAt: Date.now() });
     setShowForm(false);
-    if (onSaved) onSaved();
-    alert("Paso final: Guardado completado correctamente");
-  } catch (error) {
-    alert("ERROR: " + error.message);
-  }
-};
-  
+    onSaved?.();
+  };
+
+  const remove = async (id) => {
+    if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
+    onSaved?.();
+  };
+
   const toggleV = (v) => setExpandedV(x => ({ ...x, [v]: !x[v] }));
 
   const previewProfit = useMemo(() => {
@@ -731,12 +671,10 @@ function VistaRegistro({ configs, months, activeTab }) {
  const [mostrarInactivos, setMostrarInactivos] = useState(false);
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
-  // No incluir productos archivados en la lista visible
-  if (c.archivado === true) return a;
-  if (!a[c.vendedora]) a[c.vendedora] = [];
-  a[c.vendedora].push(c);
-  return a;
-}, {}), [configs]);
+    if (!a[c.vendedora]) a[c.vendedora] = [];
+    a[c.vendedora].push(c);
+    return a;
+  }, {}), [configs]);
   const vendors = useMemo(() => Object.keys(grouped).sort(), [grouped]);
 
   // PRODUCTOS DISPONIBLES para la vendedora seleccionada, considerando fecha de creación y desactivación
@@ -2318,4 +2256,3 @@ export default function App() {
     </div>
   );
 }
-
