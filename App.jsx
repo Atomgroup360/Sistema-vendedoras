@@ -395,10 +395,6 @@ const save = async () => {
   setShowForm(false);
   onSaved?.();
 };
-  
-  setShowForm(false);
-  onSaved?.();
-};
   const remove = async (id) => {
     if (window.confirm('¿Eliminar esta estrategia?')) await deleteDoc(doc(db, 'sales_configs', id));
     onSaved?.();
