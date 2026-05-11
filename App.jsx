@@ -79,14 +79,19 @@ function getConfigAtDate(configs, productId, dateStr) {
 // Función para saber si un producto estaba ACTIVO en una fecha específica
 function isProductActiveOnDate(product, dateStr) {
   if (!product) return false;
-  const active = product.activo !== false;
+  
+  // Si el producto está activo (activo === true), siempre está activo
+  if (product.activo === true) return true;
+  
+  // Si está inactivo, verificar la fecha de desactivación
   const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
   const checkDate = parseColombiaDate(dateStr);
   
-  if (!active && deactivationDate && deactivationDate <= checkDate) {
-    return false;
-  }
-  return true;
+  // Si no tiene fecha de desactivación, nunca estuvo activo
+  if (!deactivationDate) return false;
+  
+  // El producto estaba activo si la fecha consultada es ESTRICTAMENTE ANTERIOR a la desactivación
+  return checkDate < deactivationDate;
 }
 
 function calcularStats(records, configs) {
