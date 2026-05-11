@@ -669,6 +669,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
  const [mostrarInactivos, setMostrarInactivos] = useState(false);
+  const [ventaWhatsappWeb, setVentaWhatsappWeb] = useState(false);
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -836,7 +837,7 @@ const productsOfVendor = useMemo(() => {
       }
     }
     const rec = {
-      configId: selectedProductId, orders, units, revenue, adSpend,
+      configId: selectedProductId, orders, units, revenue, adSpend: ventaWhatsappWeb ? "0" : adSpend,
       date: selectedDate, id: editingRec?.id || Date.now().toString(),
       savedAt: Date.now(), restDay: form.restDay
     };
@@ -971,6 +972,18 @@ const productsOfVendor = useMemo(() => {
   />
   <label htmlFor="mostrarInactivos" className="text-[10px] font-black uppercase text-slate-500">
     📦 Mostrar productos inactivos (ventas residuales)
+  </label>
+</div>
+        <div className="flex items-center gap-2 mt-2 mb-2">
+  <input
+    type="checkbox"
+    id="ventaWhatsappWeb"
+    checked={ventaWhatsappWeb}
+    onChange={(e) => setVentaWhatsappWeb(e.target.checked)}
+    className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500"
+  />
+  <label htmlFor="ventaWhatsappWeb" className="text-[10px] font-black uppercase text-slate-500">
+    📞 venta whatsapp (desde web) sin ads
   </label>
 </div>
 
