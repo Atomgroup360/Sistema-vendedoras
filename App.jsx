@@ -711,36 +711,25 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  const activos = [];
+  const activosEnFecha = [];
   const residuales = [];
-  const webSinAds = [];
   
   productos.forEach(p => {
-    // Excluir por fecha de creación
-    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
-    
-    // 1. Productos web sin ads: se guardan en una lista separada
-    if (p.webSinAds === true) {
-      webSinAds.push({ ...p, esWebSinAds: true });
-      return; // No seguir procesando como activo/residual
-    }
-    
-    // 2. Productos normales: usar lógica de activo/residual
+    // Usar la función global (ya definida arriba)
     const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    
     if (estabaActivo) {
-      activos.push(p);  // Activos normales o inactivos con fecha futura
+      activosEnFecha.push(p);
     } else if (p.permiteRegistrosResiduales === true) {
       residuales.push({ ...p, esResidual: true });
     }
   });
   
-  // 3. Construir resultado según checkboxes
-  let resultado = [...activos];
-  if (mostrarInactivos) resultado = resultado.concat(residuales);
-  if (mostrarWebSinAds) resultado = resultado.concat(webSinAds);
-  
-  return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
+  if (mostrarInactivos) {
+    return [...activosEnFecha, ...residuales];
+  }
+  return activosEnFecha;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
 
   
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
@@ -1029,6 +1018,28 @@ const rec = {
     📦 Mostrar productos inactivos (ventas residuales)
   </label>
 </div>
+
+        {/* Segundo selector para productos web sin ads */}
+{mostrarWebSinAds && (
+  <div className="space-y-1.5 mt-3 border-t pt-3">
+    <Label className="text-emerald-600">📞 Productos web sin ads</Label>
+    <select
+      value={selectedProductId}
+      onChange={(e) => handleProductChange(e.target.value)}
+      disabled={!selectedVendor || !!editingRec}
+      className="w-full px-3 py-2.5 rounded-xl bg-emerald-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"
+    >
+      <option value="">Seleccionar producto web sin ads...</option>
+      {grouped[selectedVendor]?.filter(p => p.webSinAds === true).map(p => (
+        <option key={p.id} value={p.id} className="text-emerald-600 italic">
+          {p.productName} (WEB SIN ADS)
+        </option>
+      ))}
+    </select>
+    <p className="text-[8px] text-slate-500">Estos productos no tienen costo de publicidad.</p>
+  </div>
+)}
+        
 
         <div className="flex items-center gap-2 mt-2 mb-2">
   <input
