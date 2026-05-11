@@ -711,12 +711,12 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
+  // === LÓGICA ORIGINAL (que funcionaba) ===
   const activosEnFecha = [];
   const residuales = [];
   
   productos.forEach(p => {
-    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
-    
+    // Usar la función global (ya definida arriba)
     const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
     
     if (estabaActivo) {
@@ -726,11 +726,26 @@ const productsOfVendor = useMemo(() => {
     }
   });
   
-  if (mostrarInactivos) {
-    return [...activosEnFecha, ...residuales];
+  // === AGREGAR PRODUCTOS WEB SIN ADS (independiente) ===
+  const webSinAdsProductos = [];
+  if (mostrarWebSinAds) {
+    productos.forEach(p => {
+      if (p.webSinAds === true) {
+        // Solo agregar si no está ya en activos o residuales
+        const yaIncluido = [...activosEnFecha, ...residuales].some(existente => existente.id === p.id);
+        if (!yaIncluido) {
+          webSinAdsProductos.push({ ...p, esWebSinAds: true });
+        }
+      }
+    });
   }
-  return activosEnFecha;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+  
+  // === RESULTADO FINAL ===
+  const resultado = [...activosEnFecha];
+  if (mostrarInactivos) resultado.push(...residuales);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsProductos);
+  return resultado;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
   
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
