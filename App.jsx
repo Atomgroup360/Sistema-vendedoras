@@ -691,7 +691,6 @@ const productsOfVendor = useMemo(() => {
   const webSinAdsList = [];
   
   productos.forEach(p => {
-    // Validar fecha de creación
     if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
     const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
@@ -709,9 +708,9 @@ const productsOfVendor = useMemo(() => {
   
   const resultado = [...normales];
   if (mostrarInactivos) resultado.push(...residuales);
-  if (ventaWhatsappWeb) resultado.push(...webSinAdsList);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsList);  // ← usar mostrarWebSinAds
   return resultado;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos, ventaWhatsappWeb]);
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -844,7 +843,7 @@ const productsOfVendor = useMemo(() => {
       }
     }
     const rec = {
-      configId: selectedProductId, orders, units, revenue, adSpend: ventaWhatsappWeb ? "0" : adSpend,
+      configId: selectedProductId, orders, units, revenue, adSpend: mostrarWebSinAds ? "0" : adSpend,
       date: selectedDate, id: editingRec?.id || Date.now().toString(),
       savedAt: Date.now(), restDay: form.restDay
     };
