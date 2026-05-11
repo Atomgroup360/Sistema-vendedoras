@@ -80,18 +80,18 @@ function getConfigAtDate(configs, productId, dateStr) {
 function isProductActiveOnDate(product, dateStr) {
   if (!product) return false;
   
-  // Si el producto está activo (activo === true), siempre está activo
+  // Si el producto está activo, siempre estuvo activo
   if (product.activo === true) return true;
   
-  // Si está inactivo, verificar la fecha de desactivación
-  const deactivationDate = product.fechaDesactivacion ? parseColombiaDate(product.fechaDesactivacion) : null;
-  const checkDate = parseColombiaDate(dateStr);
+  // Si está inactivo, necesita fecha de desactivación
+  if (!product.fechaDesactivacion) return false;
   
-  // Si no tiene fecha de desactivación, nunca estuvo activo
-  if (!deactivationDate) return false;
+  // Convertir fechas
+  const fechaDesactivacion = new Date(product.fechaDesactivacion + 'T12:00:00');
+  const fechaConsulta = new Date(dateStr + 'T12:00:00');
   
-  // El producto estaba activo si la fecha consultada es ESTRICTAMENTE ANTERIOR a la desactivación
-  return checkDate < deactivationDate;
+  // Estaba activo si la fecha consultada es menor a la fecha de desactivación
+  return fechaConsulta < fechaDesactivacion;
 }
 
 function calcularStats(records, configs) {
