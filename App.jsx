@@ -10,7 +10,7 @@ import {
   Calculator, Eye, Activity, Pencil, Boxes, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, X, AlertTriangle, Save, BarChart3, Percent,
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
-  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff
+  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,  Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff, Globe
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
@@ -305,7 +305,8 @@ const EMPTY_CONFIG = {
   fechaCreacion: todayColombia(),
   fechaDesactivacion: '',
   monthlyIER: [],
-permiteRegistrosResiduales: false
+permiteRegistrosResiduales: false,
+webSinAds: false,
 };
 
 function VistaConfig({ configs, onSaved }) {
@@ -522,6 +523,25 @@ function VistaConfig({ configs, onSaved }) {
 )}
 </div>
 
+              {/* NUEVO: Venta desde web sin ads */}
+<div className="flex items-center justify-between bg-white/10 rounded-xl p-3">
+  <div className="flex items-center gap-2">
+    <Globe size={14} className="text-emerald-400" />
+    <div>
+      <p className="text-[9px] font-black uppercase tracking-widest">Venta desde web sin ads</p>
+      <p className="text-[7px] text-zinc-400">El producto no aparece en selector normal, solo con checkbox especial</p>
+    </div>
+  </div>
+  <button onClick={() => setField('webSinAds', !form.webSinAds)} className="flex items-center gap-1 text-[8px] font-black uppercase">
+    {form.webSinAds ? (
+      <><ToggleRight size={22} className="text-emerald-400" /><span className="text-emerald-400">SÍ</span></>
+    ) : (
+      <><ToggleLeft size={22} className="text-zinc-500" /><span className="text-zinc-500">NO</span></>
+    )}
+  </button>
+</div>
+              
+
               <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl space-y-1">
                 <Label className="text-emerald-700 text-[9px]">% Efectividad</Label>
                 <input type="number" value={form.effectiveness} onChange={e => setField('effectiveness', e.target.value)} className="w-full bg-transparent font-black text-2xl text-emerald-800 outline-none" />
@@ -669,6 +689,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
  const [mostrarInactivos, setMostrarInactivos] = useState(false);
+const [mostrarWebSinAds, setMostrarWebSinAds] = useState(false);
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -685,25 +706,33 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  const activosEnFecha = [];
+  const normales = [];
   const residuales = [];
+  const webSinAdsList = [];
   
   productos.forEach(p => {
-    // Usar la función global (ya definida arriba)
-    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    // Validar fecha de creación
+    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
-    if (estabaActivo) {
-      activosEnFecha.push(p);
-    } else if (p.permiteRegistrosResiduales === true) {
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    const esWebSinAds = p.webSinAds === true;
+    const tienePermisoResidual = p.permiteRegistrosResiduales === true;
+    
+    if (esWebSinAds) {
+      // Producto marcado como "web sin ads"
+      webSinAdsList.push({ ...p, esWebSinAds: true });
+    } else if (estabaActivo) {
+      normales.push(p);
+    } else if (!estabaActivo && tienePermisoResidual) {
       residuales.push({ ...p, esResidual: true });
     }
   });
   
-  if (mostrarInactivos) {
-    return [...activosEnFecha, ...residuales];
-  }
-  return activosEnFecha;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+  const resultado = [...normales];
+  if (mostrarInactivos) resultado.push(...residuales);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
+  return resultado;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -824,22 +853,31 @@ const productsOfVendor = useMemo(() => {
         return;
       }
     }
-    let orders = form.orders, units = form.units, revenue = form.revenue, adSpend = form.adSpend;
-    if (form.restDay) {
-      orders = '0'; units = '0'; revenue = '0'; adSpend = '0';
-      setFormField('orders', '0'); setFormField('units', '0'); setFormField('revenue', '0');
-      if (!selectedConfig?.fixedAdSpend) setFormField('adSpend', '0');
-    } else {
-      if (!orders || !units || !revenue) {
-        alert("Completa todos los campos obligatorios (guías, unidades y recaudo) o activa 'Día de descanso'.");
-        return;
-      }
-    }
-    const rec = {
-      configId: selectedProductId, orders, units, revenue, adSpend,
-      date: selectedDate, id: editingRec?.id || Date.now().toString(),
-      savedAt: Date.now(), restDay: form.restDay
-    };
+   let orders = form.orders, units = form.units, revenue = form.revenue, adSpend = form.adSpend;
+if (form.restDay) {
+  orders = '0'; units = '0'; revenue = '0'; adSpend = '0';
+  setFormField('orders', '0'); setFormField('units', '0'); setFormField('revenue', '0');
+  if (!selectedConfig?.fixedAdSpend) setFormField('adSpend', '0');
+} else {
+  if (!orders || !units || !revenue) {
+    alert("Completa todos los campos obligatorios (guías, unidades y recaudo) o activa 'Día de descanso'.");
+    return;
+  }
+}
+
+// ========== NUEVO: Forzar adSpend = 0 si el producto es webSinAds ==========
+const productoSeleccionado = configs.find(c => c.id === selectedProductId);
+const esWebSinAds = productoSeleccionado?.webSinAds === true;
+if (esWebSinAds) {
+  adSpend = "0";
+}
+// ==========================================================================
+
+const rec = {
+  configId: selectedProductId, orders, units, revenue, adSpend,
+  date: selectedDate, id: editingRec?.id || Date.now().toString(),
+  savedAt: Date.now(), restDay: form.restDay
+};
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
@@ -956,8 +994,17 @@ const productsOfVendor = useMemo(() => {
 
         <div className="space-y-1.5"><Label>Vendedora</Label><select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar vendedora...</option>{vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
         <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => (
-  <option key={p.id} value={p.id} className={p.esResidual ? 'text-red-500 line-through' : ''}>
-    {p.productName} {p.esResidual && '(INACTIVO - residual)'}
+  <option 
+    key={p.id} 
+    value={p.id} 
+    className={
+      p.esResidual ? 'text-red-500 line-through' :
+      p.esWebSinAds ? 'text-emerald-600 italic' : ''
+    }
+  >
+    {p.productName}
+    {p.esResidual && ' (INACTIVO - residual)'}
+    {p.esWebSinAds && ' (WEB SIN ADS)'}
   </option>
 ))}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
 
@@ -973,6 +1020,20 @@ const productsOfVendor = useMemo(() => {
     📦 Mostrar productos inactivos (ventas residuales)
   </label>
 </div>
+
+        <div className="flex items-center gap-2 mt-2 mb-2">
+  <input
+    type="checkbox"
+    id="mostrarWebSinAds"
+    checked={mostrarWebSinAds}
+    onChange={(e) => setMostrarWebSinAds(e.target.checked)}
+    className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500"
+  />
+  <label htmlFor="mostrarWebSinAds" className="text-[10px] font-black uppercase text-slate-500">
+    📞 Mostrar productos web sin ads
+  </label>
+</div>
+        
 
         {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-4 py-3 rounded-xl space-y-1"><Label className="text-zinc-500 text-[9px]">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full bg-transparent font-black text-xl outline-none ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`} />{form.restDay && <p className="text-[8px] text-amber-400">Se guardará como 0.</p>}</div>)}
         {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[8px] font-black bg-emerald-50 px-3 py-2 rounded-xl uppercase"><ToggleRight size={14} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
