@@ -683,34 +683,27 @@ function VistaRegistro({ configs, months, activeTab }) {
 const productsOfVendor = useMemo(() => {
   if (!selectedVendor) return [];
   const productos = grouped[selectedVendor] || [];
-  const selectedDateObj = parseColombiaDate(selectedDate);
+  const fechaRegistro = selectedDate;
   
   const activosEnFecha = [];
-  const inactivosConPermisoEnFecha = [];
+  const residuales = [];
   
   productos.forEach(p => {
-    // Validar fecha de creación
-    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > selectedDateObj) return;
-    
-    // Usar la función global para saber si estaba activo en la fecha seleccionada
-    const estabaActivo = isProductActiveOnDate(p, selectedDate);
-    const tienePermisoResidual = p.permiteRegistrosResiduales === true;
+    // Usar la función global (ya definida arriba)
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
     
     if (estabaActivo) {
       activosEnFecha.push(p);
-    } else if (tienePermisoResidual) {
-      inactivosConPermisoEnFecha.push({ ...p, esResidual: true });
+    } else if (p.permiteRegistrosResiduales === true) {
+      residuales.push({ ...p, esResidual: true });
     }
   });
   
-  // Si el checkbox está marcado, mostramos activos + inactivos con permiso
   if (mostrarInactivos) {
-    return [...activosEnFecha, ...inactivosConPermisoEnFecha];
+    return [...activosEnFecha, ...residuales];
   }
-  // Si no, solo los que estaban activos en la fecha
   return activosEnFecha;
 }, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
-
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -962,7 +955,11 @@ const productsOfVendor = useMemo(() => {
         </div>
 
         <div className="space-y-1.5"><Label>Vendedora</Label><select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar vendedora...</option>{vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
-        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => <option key={p.id} value={p.id}>{p.productName}</option>)}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
+        <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => (
+  <option key={p.id} value={p.id} className={p.esResidual ? 'text-red-500 line-through' : ''}>
+    {p.productName} {p.esResidual && '(INACTIVO - residual)'}
+  </option>
+))}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
 
 <div className="flex items-center gap-2 mt-2 mb-2">
   <input
