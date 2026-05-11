@@ -669,7 +669,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
  const [mostrarInactivos, setMostrarInactivos] = useState(false);
-  const [ventaWhatsappWeb, setVentaWhatsappWeb] = useState(false);
+  const [mostrarWebSinAds, setMostrarWebSinAds] = useState(false);
   
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -686,25 +686,33 @@ const productsOfVendor = useMemo(() => {
   const productos = grouped[selectedVendor] || [];
   const fechaRegistro = selectedDate;
   
-  const activosEnFecha = [];
+  const normales = [];
   const residuales = [];
+  const webSinAdsList = [];
   
   productos.forEach(p => {
-    // Usar la función global (ya definida arriba)
-    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    // Validar fecha de creación
+    if (p.fechaCreacion && parseColombiaDate(p.fechaCreacion) > parseColombiaDate(fechaRegistro)) return;
     
-    if (estabaActivo) {
-      activosEnFecha.push(p);
-    } else if (p.permiteRegistrosResiduales === true) {
+    const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
+    const esWebSinAds = p.webSinAds === true;
+    const tienePermisoResidual = p.permiteRegistrosResiduales === true;
+    
+    if (esWebSinAds) {
+      // Producto marcado como "web sin ads"
+      webSinAdsList.push({ ...p, esWebSinAds: true });
+    } else if (estabaActivo) {
+      normales.push(p);
+    } else if (!estabaActivo && tienePermisoResidual) {
       residuales.push({ ...p, esResidual: true });
     }
   });
   
-  if (mostrarInactivos) {
-    return [...activosEnFecha, ...residuales];
-  }
-  return activosEnFecha;
-}, [selectedVendor, grouped, selectedDate, mostrarInactivos]);
+  const resultado = [...normales];
+  if (mostrarInactivos) resultado.push(...residuales);
+  if (mostrarWebSinAds) resultado.push(...webSinAdsList);
+  return resultado;
+}, [selectedVendor, grouped, selectedDate, mostrarInactivos, mostrarWebSinAds]);
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
@@ -957,8 +965,17 @@ const productsOfVendor = useMemo(() => {
 
         <div className="space-y-1.5"><Label>Vendedora</Label><select value={selectedVendor} onChange={(e) => handleVendorChange(e.target.value)} disabled={!!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar vendedora...</option>{vendors.map(v => <option key={v} value={v}>{v.toUpperCase()}</option>)}</select></div>
         <div className="space-y-1.5"><Label>Producto</Label><select value={selectedProductId} onChange={(e) => handleProductChange(e.target.value)} disabled={!selectedVendor || !!editingRec} className="w-full px-3 py-2.5 rounded-xl bg-slate-50 font-semibold text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"><option value="">Seleccionar producto...</option>{productsOfVendor.map(p => (
-  <option key={p.id} value={p.id} className={p.esResidual ? 'text-red-500 line-through' : ''}>
-    {p.productName} {p.esResidual && '(INACTIVO - residual)'}
+  <option 
+    key={p.id} 
+    value={p.id} 
+    className={
+      p.esResidual ? 'text-red-500 line-through' :
+      p.esWebSinAds ? 'text-emerald-600 italic' : ''
+    }
+  >
+    {p.productName}
+    {p.esResidual && ' (INACTIVO - residual)'}
+    {p.esWebSinAds && ' (WEB SIN ADS)'}
   </option>
 ))}</select>{editingRec && <p className="text-[8px] text-amber-600 mt-1">⚠ No puedes cambiar vendedora ni producto mientras editas.</p>}</div>
 
