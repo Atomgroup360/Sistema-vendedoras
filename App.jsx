@@ -1151,6 +1151,19 @@ useEffect(() => {
       return true;
     });
   }, [months, configs, filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
+  
+  const targetProfit = useMemo(() => {
+  const productIds = new Set();
+  filteredRecords.forEach(r => productIds.add(r.configId));
+  let total = 0;
+  for (const pid of productIds) {
+    const producto = configs.find(c => c.id === pid);
+    if (producto) {
+      total += parseFloat(producto.targetProfit) || 0;
+    }
+  }
+  return total;
+}, [filteredRecords, configs]);
 
   // Resetear selección cuando cambian fechas
   useEffect(() => {
@@ -1234,10 +1247,8 @@ const activeDays = useMemo(() => {
   return { targetProfit: totalMetas, cantidadProductos: totalProductos };
 }, [selectedVendors, selectedProductsByVendor, configs]);
 
- let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
-const umbralExcelente = cantidadProductos * 1_000_000;
-
-if (proyeccion30 >= umbralExcelente) {
+let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
+if (proyeccion30 >= 1_000_000) {
   semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
 } else if (proyeccion30 >= targetProfit && targetProfit > 0) {
   semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
