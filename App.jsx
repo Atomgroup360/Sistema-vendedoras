@@ -1152,19 +1152,20 @@ useEffect(() => {
     });
   }, [months, configs, filter.startDate, filter.endDate, selectedVendors, selectedProductsByVendor]);
   
-  const targetProfit = useMemo(() => {
+ // Calcular targetProfit y cantidadProductos basado en los productos con registros en el rango
+const { targetProfit, cantidadProductos } = useMemo(() => {
   const productIds = new Set();
   filteredRecords.forEach(r => productIds.add(r.configId));
-  let total = 0;
+  let totalMetas = 0;
   for (const pid of productIds) {
     const producto = configs.find(c => c.id === pid);
     if (producto) {
-      total += parseFloat(producto.targetProfit) || 0;
+      totalMetas += parseFloat(producto.targetProfit) || 0;
     }
   }
-  return total;
+  return { targetProfit: totalMetas, cantidadProductos: productIds.size };
 }, [filteredRecords, configs]);
-
+  
   // Resetear selección cuando cambian fechas
   useEffect(() => {
     const newSelected = {};
@@ -1205,50 +1206,12 @@ const activeDays = useMemo(() => {
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
   
-// const { targetProfit, cantidadProductos } = useMemo(() => {         // Esta la suspendo para ver si funciona la anterior
- // let totalMetas = 0;
- // let totalProductos = 0;
 
-  // Caso 1: Hay productos específicos seleccionados
-  if (Object.keys(selectedProductsByVendor).length > 0) {
-    for (const [vendor, productIds] of Object.entries(selectedProductsByVendor)) {
-      if (productIds.length > 0) {
-        // Productos específicos
-        productIds.forEach(pid => {
-          const c = configs.find(c => c.id === pid);
-          if (c) {
-            totalMetas += parseFloat(c.targetProfit) || 0;
-            totalProductos++;
-          }
-        });
-      } else {
-        // "Todos" los productos de esa vendedora
-        const prods = configs.filter(c => c.vendedora === vendor);
-        totalProductos += prods.length;
-        totalMetas += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
-      }
-    }
-    return { targetProfit: totalMetas, cantidadProductos: totalProductos };
-  }
-
-  // Caso 2: Vendedoras seleccionadas (sin productos específicos)
-  if (selectedVendors.length > 0) {
-    for (const vendor of selectedVendors) {
-      const prods = configs.filter(c => c.vendedora === vendor);
-      totalProductos += prods.length;
-      totalMetas += prods.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
-    }
-    return { targetProfit: totalMetas, cantidadProductos: totalProductos };
-  }
-
-  // Caso 3: Sin filtros (todas las vendedoras y productos)
-  totalProductos = configs.length;
-  totalMetas = configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
-  return { targetProfit: totalMetas, cantidadProductos: totalProductos };
-} [selectedVendors, selectedProductsByVendor, configs]);
 
 let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
-if (proyeccion30 >= 1_000_000) {
+const umbralExcelente = cantidadProductos * 1_000_000;
+
+if (proyeccion30 >= umbralExcelente) {
   semaforo = { color: 'bg-emerald-500', texto: 'EXCELENTE', emoji: '🟢', textColor: 'text-emerald-500' };
 } else if (proyeccion30 >= targetProfit && targetProfit > 0) {
   semaforo = { color: 'bg-blue-500', texto: 'BIEN', emoji: '🔵', textColor: 'text-blue-500' };
