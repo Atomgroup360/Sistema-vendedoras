@@ -1382,6 +1382,21 @@ useEffect(() => {
           </div>
         )}
         <div className="col-span-2 flex flex-wrap items-center gap-1 bg-slate-50 px-3 py-2 rounded-xl"><Info size={12} className="text-slate-400 shrink-0" /><p className="text-[8px] md:text-[9px] font-black text-slate-400">Analizando <span className="text-emerald-600">{activeDays} día{activeDays !== 1 ? 's' : ''} activo{activeDays !== 1 ? 's' : ''}</span> (excluye descansos) · Proyección a 30 días = promedio diario × 30</p></div>
+    {/* Botón resetear filtros - Responsive */}
+<div className="col-span-2 flex justify-end mt-2">
+  <button
+    onClick={() => {
+      localStorage.removeItem('dashboard_filters_startDate');
+      localStorage.removeItem('dashboard_filters_endDate');
+      localStorage.removeItem('dashboard_selectedVendors');
+      localStorage.removeItem('dashboard_selectedProductsByVendor');
+      window.location.reload();
+    }}
+    className="w-full sm:w-auto text-[10px] sm:text-[9px] font-black bg-red-100 text-red-600 px-3 py-2 sm:py-1.5 rounded-full hover:bg-red-200 transition-colors flex items-center justify-center gap-1"
+  >
+    <span>🗑️</span> Resetear filtros guardados
+  </button>
+</div>
       </Card>
 
       {filteredRecords.length === 0 || activeDays === 0 ? (
