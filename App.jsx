@@ -234,7 +234,14 @@ if (wasActive) {
 
   s.ierGlobal = s.grossOrd > 0 ? (s.finalDeliveries / s.grossOrd) * 100 : 0;
   s.freteRealXEntrega = s.finalDeliveries > 0 ? s.totalFreightCost / s.finalDeliveries : 0;
-  s.cpaReal = s.finalDeliveries > 0 ? s.totalAds / s.finalDeliveries : 0;
+if (s.finalDeliveries > 0) {
+  s.cpaReal = s.totalAds / s.finalDeliveries;
+} else if (s.totalAds > 0 && s.finalDeliveries === 0) {
+  s.cpaReal = s.totalAds;
+} else {
+  s.cpaReal = 0;
+}
+
   s.roas = s.totalAds > 0 ? s.realRev / s.totalAds : 0;
   s.avgUnitsPerOrder = s.grossOrd > 0 ? s.grossUnits / s.grossOrd : 0;
   s.avgUnitsPerDelivery = s.finalDeliveries > 0 ? s.unitsDeliveredReal / s.finalDeliveries : 0;
@@ -252,6 +259,8 @@ if (wasActive) {
   s.rankingVendedoras = rankingData;
 
   s.detalleProductos = Object.values(productosFechas).sort((a, b) => a.vendedora.localeCompare(b.vendedora) || a.productName.localeCompare(b.productName));
+s.totalOrders = s.grossOrd;
+s.totalAdsValue = s.totalAds;
 
   return s;
 }
@@ -1165,11 +1174,18 @@ useEffect(() => {
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
-  const activeDays = useMemo(() => {
-    const activeRecords = filteredRecords.filter(r => !r.restDay);
-    const uniqueDates = new Set(activeRecords.map(r => r.date));
-    return uniqueDates.size;
-  }, [filteredRecords]);
+ const activeDays = useMemo(() => {
+  // Días con actividad: no son restDay Y (tienen pedidos O tienen gasto de ads > 0)
+  const activeRecords = filteredRecords.filter(r => {
+    if (r.restDay) return false;
+    const orders = parseFloat(r.orders) || 0;
+    const ads = parseFloat(r.adSpend) || 0;
+    return orders > 0 || ads > 0;
+  });
+  const uniqueDates = new Set(activeRecords.map(r => r.date));
+  return uniqueDates.size;
+}, [filteredRecords]);
+
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
   
@@ -1372,7 +1388,21 @@ useEffect(() => {
           <div className={`rounded-xl p-3 md:p-5 border-2 ${cpaColor} shadow-md`}>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Costo por adquisición real</p></div>
-              <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p><p className="text-[8px] md:text-[9px] font-semibold">Basado en cada producto</p></div>
+              <div className="text-center">
+  <Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label>
+  {stats.totalOrders === 0 && stats.totalAdsValue > 0 ? (
+    <div className="flex flex-col items-center">
+      <p className="text-lg md:text-2xl font-black font-mono text-amber-600">N/A</p>
+      <p className="text-[8px] md:text-[9px] font-semibold text-amber-600">⚠️ Sin pedidos en el período</p>
+    </div>
+  ) : (
+    <>
+      <p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p>
+      <p className="text-[8px] md:text-[9px] font-semibold">Basado en cada producto</p>
+    </>
+  )}
+</div>
+
               <div className="text-right"><div className="inline-block px-2 py-1 rounded-lg bg-white/50 backdrop-blur-sm"><p className="text-[8px] md:text-[10px] font-black">{cpaMensaje}</p></div></div>
             </div>
           </div>
@@ -2256,4 +2286,5 @@ export default function App() {
     </div>
   );
 }
+
 
