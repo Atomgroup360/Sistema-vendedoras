@@ -1186,11 +1186,9 @@ const activeDays = useMemo(() => {
     return orders > 0 || ads > 0;
   });
   const uniqueDates = new Set(activeRecords.map(r => r.date));
-  // ALERTA TEMPORAL PARA DEPURAR
-  alert(`Total registros en filtro: ${filteredRecords.length}\nRegistros activos: ${activeRecords.length}\nFechas únicas: ${uniqueDates.size}\nDetalles: ${JSON.stringify(activeRecords.map(r => ({ date: r.date, orders: r.orders, ads: r.adSpend })))}`);
   return uniqueDates.size;
 }, [filteredRecords]);
-
+  
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
   
