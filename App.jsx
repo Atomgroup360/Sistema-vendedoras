@@ -834,6 +834,10 @@ const productsOfVendor = useMemo(() => {
       }
     }
     let orders = form.orders, units = form.units, revenue = form.revenue, adSpend = form.adSpend;
+    // Si el producto tiene publicidad fija, forzar adSpend al valor fijo
+if (selectedConfig?.fixedAdSpend) {
+  adSpend = selectedConfig.dailyAdSpend || "0";
+}
     if (form.restDay) {
       orders = '0'; units = '0'; revenue = '0'; adSpend = '0';
       setFormField('orders', '0'); setFormField('units', '0'); setFormField('revenue', '0');
