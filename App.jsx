@@ -1205,9 +1205,9 @@ const activeDays = useMemo(() => {
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
   
- const { targetProfit, cantidadProductos } = useMemo(() => {
-  let totalMetas = 0;
-  let totalProductos = 0;
+// const { targetProfit, cantidadProductos } = useMemo(() => {         // Esta la suspendo para ver si funciona la anterior
+ // let totalMetas = 0;
+ // let totalProductos = 0;
 
   // Caso 1: Hay productos específicos seleccionados
   if (Object.keys(selectedProductsByVendor).length > 0) {
