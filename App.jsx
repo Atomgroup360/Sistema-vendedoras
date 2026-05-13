@@ -1245,7 +1245,7 @@ const activeDays = useMemo(() => {
   totalProductos = configs.length;
   totalMetas = configs.reduce((s, p) => s + (parseFloat(p.targetProfit) || 0), 0);
   return { targetProfit: totalMetas, cantidadProductos: totalProductos };
-}, [selectedVendors, selectedProductsByVendor, configs]);
+} [selectedVendors, selectedProductsByVendor, configs]);
 
 let semaforo = { color: 'bg-rose-500', texto: 'REVISIÓN', emoji: '🔴', textColor: 'text-rose-500' };
 if (proyeccion30 >= 1_000_000) {
