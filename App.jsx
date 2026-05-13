@@ -1179,17 +1179,15 @@ useEffect(() => {
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
 const activeDays = useMemo(() => {
-  // Filtrar registros que no son día de descanso
   const activeRecords = filteredRecords.filter(r => {
     if (r.restDay) return false;
     const orders = parseFloat(r.orders) || 0;
     const ads = parseFloat(r.adSpend) || 0;
-    // Considerar activo si tiene pedidos O si tiene publicidad
     return orders > 0 || ads > 0;
   });
-  // Mostrar un alert temporal para depuración (opcional, puedes comentar luego)
-  // alert(`Registros activos: ${activeRecords.length}`);
   const uniqueDates = new Set(activeRecords.map(r => r.date));
+  // ALERTA TEMPORAL PARA DEPURAR
+  alert(`Total registros en filtro: ${filteredRecords.length}\nRegistros activos: ${activeRecords.length}\nFechas únicas: ${uniqueDates.size}\nDetalles: ${JSON.stringify(activeRecords.map(r => ({ date: r.date, orders: r.orders, ads: r.adSpend })))}`);
   return uniqueDates.size;
 }, [filteredRecords]);
 
