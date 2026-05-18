@@ -698,6 +698,7 @@ const productsOfVendor = useMemo(() => {
   const residuales = [];
   
   productos.forEach(p => {
+    if (p.fechaCreacion && p.fechaCreacion > fechaRegistro) return;
     // Usar la función global (ya definida arriba)
     const estabaActivo = isProductActiveOnDate(p, fechaRegistro);
     
