@@ -1265,9 +1265,14 @@ if (proyeccion30 >= umbralExcelente) {
     for (const [configId, producto] of productosMap) {
       const { records, vendedora, productName, targetProfit, isActive } = producto;
       const statsProd = calcularStats(records, configs);
-      const activeRecords = records.filter(r => !r.restDay);
-      const uniqueDates = new Set(activeRecords.map(r => r.date));
-      const activeDaysProd = uniqueDates.size;
+      const activeRecords = records.filter(r => {
+  if (r.restDay) return false;
+  const orders = parseFloat(r.orders) || 0;
+  const ads = parseFloat(r.adSpend) || 0;
+  return orders > 0 || ads > 0;
+});
+const uniqueDates = new Set(activeRecords.map(r => r.date));
+const activeDaysProd = uniqueDates.size;
       const avgDiarioProd = activeDaysProd > 0 ? statsProd.net / activeDaysProd : 0;
       const proyeccion30Prod = avgDiarioProd * 30;
       
