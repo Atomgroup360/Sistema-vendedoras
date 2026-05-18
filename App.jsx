@@ -1196,13 +1196,27 @@ const { targetProfit, cantidadProductos } = useMemo(() => {
 const activeDays = useMemo(() => {
   const activeRecords = filteredRecords.filter(r => {
     if (r.restDay) return false;
+    
+    const orders = parseFloat(r.orders) || 0;
+    if (orders > 0) return true;
+    
+    // Si el producto tiene publicidad fija, consideramos el día activo
+    const activeDays = useMemo(() => {
+  const activeRecords = filteredRecords.filter(r => {
+    if (r.restDay) return false;
+    
+    // Si el producto tiene publicidad fija, basta con que exista el registro
+    const producto = configs.find(c => c.id === r.configId);
+    if (producto?.fixedAdSpend === true) return true;
+    
+    // Para productos sin publicidad fija, se requiere ventas o publicidad real
     const orders = parseFloat(r.orders) || 0;
     const ads = parseFloat(r.adSpend) || 0;
     return orders > 0 || ads > 0;
   });
   const uniqueDates = new Set(activeRecords.map(r => r.date));
   return uniqueDates.size;
-}, [filteredRecords]);
+}, [filteredRecords, configs]);
   
   const avgDiario = activeDays > 0 ? stats.net / activeDays : 0;
   const proyeccion30 = avgDiario * 30;
@@ -1265,8 +1279,11 @@ if (proyeccion30 >= umbralExcelente) {
     for (const [configId, producto] of productosMap) {
       const { records, vendedora, productName, targetProfit, isActive } = producto;
       const statsProd = calcularStats(records, configs);
-      const activeRecords = records.filter(r => {
+      // Días activos del producto (misma lógica que global)
+const activeRecords = records.filter(r => {
   if (r.restDay) return false;
+  // Si el producto tiene publicidad fija, el simple registro cuenta
+  if (producto.fixedAdSpend === true) return true; // asumiendo que tienes 'producto' con el flag
   const orders = parseFloat(r.orders) || 0;
   const ads = parseFloat(r.adSpend) || 0;
   return orders > 0 || ads > 0;
