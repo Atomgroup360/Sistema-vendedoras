@@ -2344,50 +2344,145 @@ function GuardrailPill({ ok, label }) {
   return <span className={`inline-flex px-2 py-1 rounded-full text-[8px] font-black uppercase ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{ok ? '✓' : '✕'} {label}</span>;
 }
 
-function buildProductBenchmark(productId, dailyAds, maxCpa, allAds = [], allCampaigns = []) {
+function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allAds = [], allCampaigns = []) {
   const max = Math.max(1, toNumber(maxCpa));
-  const selected = [];
+  const today = todayColombiaCC();
 
-  const productAds = allAds.filter(a => a.productId === productId);
-  for (const ad of productAds) {
-    const campaign = allCampaigns.find(c => c.id === ad.campaignId);
-    if (!campaign) continue;
+  // Fuente de verdad: Producto -> Campañas -> Anuncios.
+  // No dependemos de que los registros históricos tengan productId correctamente grabado.
+  const productCampaigns = (allCampaigns || []).filter(c => c.productId === productId);
+  const campaignIds = new Set(productCampaigns.map(c => c.id));
+  const productAds = (allAds || []).filter(a => campaignIds.has(a.campaignId) || a.productId === productId);
+  const adById = new Map(productAds.map(a => [a.id, a]));
+  const campaignById = new Map(productCampaigns.map(c => [c.id, c]));
 
-    const today = todayColombiaCC();
-    const history = eligibleAdRecords(
-      (dailyAds || []).filter(r => r.adId === ad.id && r.productId === productId),
-      ad,
-      campaign
-    ).filter(r => String(r.date) < today)
-     .sort((a,b) => String(a.date).localeCompare(String(b.date)));
+  // Reunimos registros por día completo, respetando ON/OFF.
+  const byDate = new Map();
 
-    history.forEach((record, idx) => {
-      if (toNumber(record.purchases) <= 0) return;
-      const dayCpa = calcCpa(record.spend, record.purchases);
-      if (dayCpa <= 0 || dayCpa > max) return;
+  for (const record of (dailyAds || [])) {
+    if (!record?.date || String(record.date) >= today) continue;
 
-      const previous = history.slice(Math.max(0, idx - 3), idx);
-      if (previous.length < 3) return;
-      const prevStats = aggregateRecords(previous);
-      const dayStats = aggregateRecords([record]);
+    const ad = adById.get(record.adId);
+    if (!ad) continue;
 
-      const cpaDelta = pctChange(dayStats.cpa, prevStats.cpa);
-      const ctrDelta = pctChange(dayStats.ctr, prevStats.ctr);
-      const cpcDelta = pctChange(dayStats.cpc, prevStats.cpc);
-      const cvrDelta = pctChange(dayStats.visitToPurchase, prevStats.visitToPurchase);
+    const campaign = campaignById.get(ad.campaignId) || (allCampaigns || []).find(c => c.id === ad.campaignId);
+    if (!campaign || campaign.productId !== productId) continue;
 
-      const stable =
-        (cpaDelta === null || Math.abs(cpaDelta) <= 15) &&
-        (ctrDelta === null || Math.abs(ctrDelta) <= 15) &&
-        (cpcDelta === null || Math.abs(cpcDelta) <= 15) &&
-        (cvrDelta === null || Math.abs(cvrDelta) <= 15);
+    if (!entityActiveOnDate(ad, record.date) || !entityActiveOnDate(campaign, record.date)) continue;
 
-      if (stable) selected.push(record);
-    });
+    if (!byDate.has(record.date)) byDate.set(record.date, []);
+    byDate.get(record.date).push(record);
   }
 
-  const stats = aggregateRecords(selected);
-  return { ...stats, sampleDays: selected.length, criteria: 'Días activos + rentables + estables' };
+  // Si un día tiene registro de campaña pero no registros por anuncio, lo usamos como fallback.
+  // Esto permite alimentar históricos creados antes de que el detalle por anuncio estuviera completo.
+  for (const record of (dailyCampaigns || [])) {
+    if (!record?.date || String(record.date) >= today) continue;
+    const campaign = campaignById.get(record.campaignId);
+    if (!campaign || !entityActiveOnDate(campaign, record.date)) continue;
+    if (!byDate.has(record.date) || byDate.get(record.date).length === 0) {
+      byDate.set(record.date, [record]);
+    }
+  }
+
+  const dailyProduct = [...byDate.entries()]
+    .map(([date, records]) => ({ date, ...aggregateRecords(records) }))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  const profitableDays = dailyProduct.filter(day =>
+    toNumber(day.purchases) > 0 &&
+    toNumber(day.cpa) > 0 &&
+    toNumber(day.cpa) <= max
+  );
+
+  const stableProfitableDays = [];
+
+  dailyProduct.forEach((day, idx) => {
+    if (toNumber(day.purchases) <= 0 || toNumber(day.cpa) <= 0 || toNumber(day.cpa) > max) return;
+
+    const previous = dailyProduct.slice(Math.max(0, idx - 3), idx);
+    if (previous.length < 3) return;
+
+    const prevSpend = previous.reduce((sum, x) => sum + toNumber(x.spend), 0);
+    const weightedPrev = key => {
+      if (!previous.length) return 0;
+      if (prevSpend > 0) return previous.reduce((sum, x) => sum + toNumber(x[key]) * toNumber(x.spend), 0) / prevSpend;
+      return previous.reduce((sum, x) => sum + toNumber(x[key]), 0) / previous.length;
+    };
+
+    const previousStats = {
+      cpa: calcCpa(
+        previous.reduce((sum, x) => sum + toNumber(x.spend), 0),
+        previous.reduce((sum, x) => sum + toNumber(x.purchases), 0)
+      ),
+      ctr: weightedPrev('ctr'),
+      cpc: weightedPrev('cpc'),
+      visitToPurchase: safeRate(
+        previous.reduce((sum, x) => sum + toNumber(x.purchases), 0),
+        previous.reduce((sum, x) => sum + toNumber(x.landingViews), 0)
+      )
+    };
+
+    const cpaDelta = pctChange(day.cpa, previousStats.cpa);
+    const ctrDelta = pctChange(day.ctr, previousStats.ctr);
+    const cpcDelta = pctChange(day.cpc, previousStats.cpc);
+    const cvrDelta = pctChange(day.visitToPurchase, previousStats.visitToPurchase);
+
+    // Solo evaluamos una métrica de estabilidad cuando existe base comparable.
+    const stableMetric = delta => delta === null || Math.abs(delta) <= 15;
+    const stable =
+      stableMetric(cpaDelta) &&
+      stableMetric(ctrDelta) &&
+      stableMetric(cpcDelta) &&
+      stableMetric(cvrDelta);
+
+    if (stable) stableProfitableDays.push(day);
+  });
+
+  // El benchmark no debe quedarse vacío durante la etapa inicial.
+  // Si aún no hay suficientes días para certificar estabilidad, usa los días rentables como benchmark provisional.
+  const selectedDays = stableProfitableDays.length > 0 ? stableProfitableDays : profitableDays;
+  const benchmarkStatus = stableProfitableDays.length > 0 ? 'Estable' : profitableDays.length > 0 ? 'Provisional' : 'Sin muestra';
+
+  const totalSpend = selectedDays.reduce((sum, x) => sum + toNumber(x.spend), 0);
+  const totalPurchases = selectedDays.reduce((sum, x) => sum + toNumber(x.purchases), 0);
+  const totalLanding = selectedDays.reduce((sum, x) => sum + toNumber(x.landingViews), 0);
+  const totalAtc = selectedDays.reduce((sum, x) => sum + toNumber(x.atc), 0);
+
+  const weighted = key => {
+    if (!selectedDays.length) return 0;
+    if (totalSpend > 0) {
+      return selectedDays.reduce((sum, x) => sum + toNumber(x[key]) * toNumber(x.spend), 0) / totalSpend;
+    }
+    return selectedDays.reduce((sum, x) => sum + toNumber(x[key]), 0) / selectedDays.length;
+  };
+
+  return {
+    days: selectedDays.length,
+    sampleDays: selectedDays.length,
+    profitableDays: profitableDays.length,
+    stableDays: stableProfitableDays.length,
+    availableDays: dailyProduct.length,
+    status: benchmarkStatus,
+    spend: totalSpend,
+    purchases: totalPurchases,
+    cpa: calcCpa(totalSpend, totalPurchases),
+    ctr: weighted('ctr'),
+    cpc: weighted('cpc'),
+    cpm: weighted('cpm'),
+    frequency: weighted('frequency'),
+    roas: weighted('roas'),
+    landingViews: totalLanding,
+    atc: totalAtc,
+    visitToAtc: safeRate(totalAtc, totalLanding),
+    visitToPurchase: safeRate(totalPurchases, totalLanding),
+    atcToPurchase: safeRate(totalPurchases, totalAtc),
+    criteria: stableProfitableDays.length > 0
+      ? 'Días completos + activos + rentables + estables'
+      : profitableDays.length > 0
+        ? 'Benchmark provisional con días completos + activos + rentables'
+        : 'Todavía no existen días rentables válidos'
+  };
 }
 
 function buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows) {
@@ -2441,8 +2536,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   const budgetRows = budgetChanges.filter(b => b.campaignId === campaign.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const decisionRows = decisions.filter(d => d.campaignId === campaign.id).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   const benchmark = useMemo(
-    () => buildProductBenchmark(product?.id, dailyAds, product?.maxCpa, allAds || ads, allCampaigns || [campaign]),
-    [product?.id, product?.maxCpa, dailyAds, allAds, allCampaigns, ads, campaign]
+    () => buildProductBenchmark(product?.id, dailyAds, dailyCampaigns, product?.maxCpa, allAds || ads, allCampaigns || [campaign]),
+    [product?.id, product?.maxCpa, dailyAds, dailyCampaigns, allAds, allCampaigns, ads, campaign]
   );
   const campaignDecision = useMemo(() => buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows), [campaign, product, campaignHistory, adRows, scaleRows]);
 
@@ -2559,8 +2654,26 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl p-3 md:p-4 bg-pink-50/40 shadow-sm" style={{border:'2px solid #db2777'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-pink-800">Benchmark propio del producto</h4>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2"><MiniCard label="Días rentables" value={benchmark.days}/><MiniCard label="CPA ponderado" value={fmtMoney(benchmark.cpa)}/><MiniCard label="CTR" value={`${fmtNum(benchmark.ctr,2)}%`}/><MiniCard label="CPC" value={fmtMoney(benchmark.cpc)}/><MiniCard label="Frecuencia" value={fmtNum(benchmark.frequency,2)}/><MiniCard label="Visita→Compra" value={`${fmtNum(benchmark.visitToPurchase, 2)}%`}/></div>
-        <p className="text-[8px] text-slate-400 mt-2">Benchmark calculado únicamente con días del producto cuyo CPA estuvo dentro del máximo configurado.</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          <MiniCard label="Días disponibles" value={benchmark.availableDays}/>
+          <MiniCard label="Días rentables" value={benchmark.profitableDays}/>
+          <MiniCard label="Días estables" value={benchmark.stableDays}/>
+          <MiniCard label="Muestra usada" value={benchmark.sampleDays}/>
+          <MiniCard label="CPA ponderado" value={benchmark.sampleDays ? fmtMoney(benchmark.cpa) : '—'}/>
+          <MiniCard label="CTR" value={benchmark.sampleDays ? `${fmtNum(benchmark.ctr,2)}%` : '—'}/>
+          <MiniCard label="CPC" value={benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}/>
+          <MiniCard label="Visita→Compra" value={benchmark.sampleDays ? `${fmtNum(benchmark.visitToPurchase, 2)}%` : '—'}/>
+        </div>
+        <div className={`mt-3 rounded-xl p-2.5 text-[9px] font-black ${
+          benchmark.status === 'Estable' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+          benchmark.status === 'Provisional' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+          'bg-slate-50 text-slate-500 border border-slate-200'
+        }`}>
+          Estado: {benchmark.status} · {benchmark.criteria}
+        </div>
+        <p className="text-[8px] text-slate-400 mt-2">
+          Se alimenta con todos los días completos anteriores a hoy de las campañas y anuncios de este producto. Los días OFF se excluyen. Si todavía no existen 3 días anteriores para validar estabilidad, utiliza temporalmente los días rentables como benchmark provisional.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
