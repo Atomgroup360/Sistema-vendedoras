@@ -1656,6 +1656,99 @@ function funnelVariationDiagnosisFromDelta(delta) {
   return { diagnosis: 'Post-clic en observación', action: 'Monitorear', tone: 'attention' };
 }
 
+
+function buildCpaObservation3D(stats3d, previous3d, maxCpa) {
+  const max = Math.max(1, toNumber(maxCpa));
+  const scaleLimit = max * 0.8;
+  const cpa = toNumber(stats3d?.cpa);
+  const spend = toNumber(stats3d?.spend);
+  const purchases = toNumber(stats3d?.purchases);
+  const previousCpa = toNumber(previous3d?.cpa);
+  const delta = pctChange(cpa, previousCpa);
+
+  if (!stats3d?.days) {
+    return {
+      level: 'neutral',
+      title: 'SIN LECTURA 3D',
+      text: 'Todavía no existen días completos suficientes para evaluar el CPA operativo.',
+      delta,
+      aboveMaxPct: null
+    };
+  }
+
+  if (spend > 0 && purchases <= 0) {
+    return {
+      level: 'critical',
+      title: 'GASTO 3D SIN COMPRAS',
+      text: `Se gastaron ${fmtMoney(spend)} en la ventana 3D sin compras. No escalar.`,
+      delta,
+      aboveMaxPct: null
+    };
+  }
+
+  if (cpa <= 0) {
+    return {
+      level: 'neutral',
+      title: 'CPA 3D SIN DATO VÁLIDO',
+      text: 'No hay un CPA 3D válido para tomar una decisión.',
+      delta,
+      aboveMaxPct: null
+    };
+  }
+
+  if (cpa <= scaleLimit) {
+    const margin = ((max - cpa) / max) * 100;
+    return {
+      level: 'good',
+      title: 'CPA 3D EN ZONA DE ESCALA',
+      text: `CPA ${fmtMoney(cpa)} · ${fmtNum(margin, 2)}% por debajo del máximo ${fmtMoney(max)}. Puede escalar si pasan los demás guardrails 3D.`,
+      delta,
+      aboveMaxPct: null
+    };
+  }
+
+  if (cpa <= max) {
+    const margin = ((max - cpa) / max) * 100;
+    return {
+      level: 'attention',
+      title: 'CPA 3D DENTRO DEL OBJETIVO',
+      text: `CPA ${fmtMoney(cpa)} · ${fmtNum(margin, 2)}% por debajo del máximo, pero todavía no alcanza el margen de 20% para escala fuerte.`,
+      delta,
+      aboveMaxPct: null
+    };
+  }
+
+  const aboveMaxPct = ((cpa - max) / max) * 100;
+
+  if (delta !== null && delta <= 0) {
+    return {
+      level: 'alert',
+      title: 'CPA FUERA DEL OBJETIVO, PERO RECUPERÁNDOSE',
+      text: `CPA 3D ${fmtMoney(cpa)} · ${fmtNum(aboveMaxPct, 2)}% por encima del máximo ${fmtMoney(max)}, pero viene mejorando ${fmtNum(Math.abs(delta), 2)}% vs los 3 días anteriores. No escalar todavía.`,
+      delta,
+      aboveMaxPct
+    };
+  }
+
+  if (delta !== null && delta > 15) {
+    return {
+      level: 'critical',
+      title: 'CPA FUERA DEL OBJETIVO Y DETERIORÁNDOSE',
+      text: `CPA 3D ${fmtMoney(cpa)} · ${fmtNum(aboveMaxPct, 2)}% por encima del máximo ${fmtMoney(max)} y empeora ${fmtNum(delta, 2)}% vs los 3 días anteriores. No escalar y priorizar optimización.`,
+      delta,
+      aboveMaxPct
+    };
+  }
+
+  return {
+    level: 'alert',
+    title: 'CPA 3D FUERA DEL OBJETIVO',
+    text: `CPA 3D ${fmtMoney(cpa)} · ${fmtNum(aboveMaxPct, 2)}% por encima del máximo ${fmtMoney(max)}. No escalar hasta volver dentro del objetivo.`,
+    delta,
+    aboveMaxPct
+  };
+}
+
 function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   const eligible = eligibleAdRecords(records, ad, campaign);
   const { currentStats: c, previousStats: p } = splitPeriodRecords(eligible, periodId);
@@ -1702,7 +1795,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
 
   const guardrails = {
     cpaMargin: scale3d.cpa > 0 && scale3d.cpa <= scaleCpa,
-    stability: scaleDelta3d.cpa === null || Math.abs(scaleDelta3d.cpa) <= 15,
+    stability: scaleDelta3d.cpa === null || scaleDelta3d.cpa <= 15,
     creative: !['Fatiga probable', 'Fatiga confirmada'].includes(scaleDynamic3d.diagnosis),
     postClick: !['Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo', 'Fuga al cierre'].includes(scalePost3d.diagnosis)
   };
@@ -1714,6 +1807,79 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   };
 
   const canScale = Object.values(guardrails).every(Boolean);
+
+  // DECISIÓN OPERATIVA: SIEMPRE 3D.
+  // Nunca depende del selector visual Último día / 7D / 14D / 30D.
+  const cpaObservation3d = buildCpaObservation3D(scale3d, scalePrev3d, maxCpa);
+  let operational3dDiagnosis = 'Sin suficiente información 3D';
+  let operational3dAction = 'Monitorear';
+  let operational3dPriority = 'monitor';
+  let operational3dReason = 'Todavía no existe suficiente historial 3D comparable.';
+
+  if (scale3d.days > 0) {
+    if (scale3d.spend > 0 && scale3d.purchases <= 0) {
+      operational3dDiagnosis = 'Gasto sin compras 3D';
+      operational3dAction = 'No escalar · optimizar';
+      operational3dPriority = 'critical';
+      operational3dReason = cpaObservation3d.text;
+    } else if (scale3d.cpa > maxCpa && scaleDelta3d.cpa !== null && scaleDelta3d.cpa <= 0) {
+      operational3dDiagnosis = 'Fuera del objetivo · recuperándose';
+      operational3dAction = 'No escalar · mantener en observación';
+      operational3dPriority = 'alert';
+      operational3dReason = cpaObservation3d.text;
+    } else if (scale3d.cpa > maxCpa && scaleDelta3d.cpa !== null && scaleDelta3d.cpa > 15) {
+      operational3dDiagnosis = 'Fuera del objetivo · deteriorándose';
+      operational3dAction = 'No escalar · optimizar';
+      operational3dPriority = 'critical';
+      operational3dReason = cpaObservation3d.text;
+    } else if (scale3d.cpa > maxCpa && scaleDynamic3d.diagnosis === 'Fatiga confirmada') {
+      operational3dDiagnosis = 'Anuncio deteriorado y no rentable';
+      operational3dAction = 'Apagar / reemplazar';
+      operational3dPriority = 'critical';
+      operational3dReason = 'CPA 3D fuera de objetivo + fatiga confirmada en la ventana 3D.';
+    } else if (scale3d.cpa > maxCpa && ['Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo'].includes(scalePost3d.diagnosis)) {
+      operational3dDiagnosis = 'Tráfico de baja calidad 3D';
+      operational3dAction = 'No escalar · reemplazar / optimizar';
+      operational3dPriority = 'critical';
+      operational3dReason = 'CPA 3D fuera de objetivo y el embudo post-clic 3D también se deteriora.';
+    } else if (scale3d.cpa > maxCpa) {
+      operational3dDiagnosis = 'CPA 3D fuera del objetivo';
+      operational3dAction = 'No escalar · optimizar';
+      operational3dPriority = 'alert';
+      operational3dReason = cpaObservation3d.text;
+    } else if (scale3d.cpa <= maxCpa && scaleDynamic3d.diagnosis === 'Fatiga temprana') {
+      operational3dDiagnosis = 'Rentable con fatiga temprana 3D';
+      operational3dAction = 'Mantener y preparar creativos';
+      operational3dPriority = 'alert';
+      operational3dReason = 'El CPA 3D sigue dentro del objetivo, pero aparecen señales tempranas de fatiga.';
+    } else if (scale3d.cpa <= maxCpa && scaleDynamic3d.diagnosis === 'Fatiga probable') {
+      operational3dDiagnosis = 'Rentable pero deteriorándose 3D';
+      operational3dAction = 'Detener escala y lanzar test creativo';
+      operational3dPriority = 'alert';
+      operational3dReason = 'El CPA 3D aún es rentable, pero el patrón de fatiga 3D ya es consistente.';
+    } else if (scalePost3d.diagnosis === 'Fuga al cierre') {
+      operational3dDiagnosis = 'Problema post-clic 3D';
+      operational3dAction = 'Mantener anuncio y revisar cierre';
+      operational3dPriority = 'alert';
+      operational3dReason = 'La ventana 3D muestra intención, pero se pierde conversión después del ATC.';
+    } else if (scalePost3d.diagnosis === 'Calidad de tráfico cayendo') {
+      operational3dDiagnosis = 'Calidad de tráfico deteriorándose 3D';
+      operational3dAction = scale3d.cpa <= maxCpa ? 'Preparar reemplazo' : 'No escalar · reemplazar';
+      operational3dPriority = 'alert';
+      operational3dReason = 'Las tasas post-clic 3D muestran deterioro en la calidad del tráfico.';
+    } else if (canScale && scale3d.cpa > 0 && scale3d.cpa <= scaleCpa) {
+      operational3dDiagnosis = 'Ganador 3D · escala permitida';
+      operational3dAction = 'Escalar +20%';
+      operational3dPriority = 'monitor';
+      operational3dReason = `CPA 3D ${fmtMoney(scale3d.cpa)} con margen ≥20%, estabilidad válida, creativo sano y post-clic sano. Volumen ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}) solo como referencia.`;
+    } else if (scale3d.cpa > 0 && scale3d.cpa <= maxCpa) {
+      operational3dDiagnosis = 'Rentable 3D · mantener';
+      operational3dAction = 'Mantener';
+      operational3dPriority = 'monitor';
+      operational3dReason = cpaObservation3d.text;
+    }
+  }
+
   let finalDiagnosis = 'Sin suficiente información';
   let action = 'Monitorear';
   let priority = 'monitor';
@@ -1732,7 +1898,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     } else if (post.diagnosis === 'Calidad de tráfico cayendo') {
       finalDiagnosis = 'Calidad de tráfico deteriorándose'; action = c.cpa <= maxCpa ? 'Preparar reemplazo' : 'Apagar / reemplazar'; priority = 'alert'; reason = 'Las tasas visita→ATC y visita→compra empeoran frente a su ventana anterior.';
     } else if (c.cpa <= scaleCpa && dynamic.diagnosis === 'Estable' && post.diagnosis === 'Post-clic estable' && canScale) {
-      finalDiagnosis = 'Ganador estable'; action = 'Escalar +20%'; priority = 'monitor'; reason = `CPA 3D con margen ≥20%, estabilidad 3D, creativo sano y post-clic sano. Volumen: ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}), usado solo como referencia de confianza.`;
+      finalDiagnosis = 'Ganador estable'; action = 'Escalar +20%'; priority = 'monitor'; reason = `CPA 3D con margen ≥20%, estable o mejorando, creativo sano y post-clic sano. Volumen: ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}), usado solo como referencia de confianza.`;
     } else if (c.cpa <= maxCpa) {
       finalDiagnosis = 'Rentable / mantener'; action = 'Mantener'; priority = 'monitor'; reason = 'CPA dentro del máximo y sin señales críticas combinadas.';
     } else {
@@ -1742,7 +1908,16 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   return {
     diagnosis: finalDiagnosis, finalDiagnosis, action, priority, reason, confidence, delta, stats: c, previous: p,
     guardrails, canScale, volumeReference,
+    cpaObservation3d,
+    operational3dDiagnosis, operational3dAction, operational3dPriority, operational3dReason,
     scale3d, scalePrev3d, scaleDelta3d,
+    scaleMomentum:
+      scaleDelta3d.cpa === null ? 'Sin comparación' :
+      scaleDelta3d.cpa < -15 ? 'Mejora fuerte · puede seguir escalando si los demás guardrails pasan' :
+      scaleDelta3d.cpa <= 0 ? 'Mejorando' :
+      scaleDelta3d.cpa <= 10 ? 'Estable' :
+      scaleDelta3d.cpa <= 15 ? 'Atención · aún dentro del guardrail' :
+      'Deterioro · bloquear escala',
     scaleDynamic3d: scaleDynamic3d.diagnosis,
     scalePost3d: scalePost3d.diagnosis,
     dynamicDiagnosis: dynamic.diagnosis, dynamicAction: dynamic.action,
@@ -2265,41 +2440,62 @@ function CampaignDashboard({
     const campaignAds = ads.filter(a => a.campaignId === c.id && a.active !== false);
     const adDiags = campaignAds.map(ad => diagnoseAd(
       dailyAds.filter(r=>r.adId===ad.id), product, ad, 'last', c
-    )).filter(d => d.stats.days > 0);
+    )).filter(d => d.scale3d?.days > 0);
 
-    const hasCritical = adDiags.some(d=>d.priority==='critical');
-    const hasAlert = adDiags.some(d=>d.priority==='alert');
+    // Dashboard operativo: SIEMPRE 3D. El 'last' de arriba solo alimenta
+    // la lectura analítica del último día, no estas decisiones.
+    const hasCritical = adDiags.some(d=>d.operational3dPriority==='critical');
+    const hasAlert = adDiags.some(d=>d.operational3dPriority==='alert');
     const hasScalable = adDiags.some(d=>d.canScale);
-    const cpa = lastStats.cpa;
+    const cpa = stats3.cpa;
+    const cpaObservation3d = buildCpaObservation3D(stats3, split3.previousStats, maxCpa);
 
-    let state='Sin cierre previo', tone='attention', diagnosis='Pendiente', action='Registrar histórico';
-    if (lastComplete) {
-      if (hasCritical || cpa > maxCpa) {
+    let state='Sin 3D suficiente', tone='attention', diagnosis='Pendiente 3D', action='Registrar histórico';
+    if (stats3.days > 0) {
+      if (stats3.spend > 0 && stats3.purchases <= 0) {
         state='Crítico'; tone='critical';
-        diagnosis=cpa>maxCpa?'CPA fuera de objetivo':'Anuncio crítico';
+        diagnosis='Gasto 3D sin compras';
+        action='No escalar · optimizar';
+      } else if (cpa > maxCpa) {
+        if (delta3 !== null && delta3 <= 0) {
+          state='Alerta'; tone='alert';
+          diagnosis='CPA fuera del objetivo · recuperándose';
+          action='No escalar · observar';
+        } else if (delta3 !== null && delta3 > 15) {
+          state='Crítico'; tone='critical';
+          diagnosis='CPA fuera del objetivo · deteriorándose';
+          action='No escalar · optimizar';
+        } else {
+          state='Alerta'; tone='alert';
+          diagnosis='CPA fuera del objetivo';
+          action='No escalar · optimizar';
+        }
+      } else if (hasCritical) {
+        state='Crítico'; tone='critical';
+        diagnosis='Anuncio crítico en 3D';
         action='Optimizar / no escalar';
       } else if (hasAlert) {
         state='Alerta'; tone='alert';
-        diagnosis='Variación fuera de rango';
-        action='Revisar diagnóstico';
+        diagnosis='Señal operativa 3D';
+        action='Revisar diagnóstico 3D';
       } else if (hasScalable && cpa <= maxCpa*0.8) {
         state='Escalable'; tone='normal';
-        diagnosis='Estable + margen';
-        action='Escalar controladamente';
+        diagnosis='3D estable/mejorando + margen';
+        action='Escalar +20%';
       } else {
         state='Mantener'; tone='attention';
-        diagnosis='Rentable / observar';
+        diagnosis='Rentable 3D / observar';
         action='Mantener';
       }
     }
 
     const creativeHealth = hasCritical ? 'Reemplazar creativo'
-      : hasAlert ? 'Vigilar fatiga'
-      : 'Creativo sano';
+      : hasAlert ? 'Vigilar señales 3D'
+      : 'Creativo sano 3D';
 
     return {
       campaign:c, product, todayRecord, lastComplete, lastStats, stats3, stats7, delta3, delta7,
-      maxCpa, state, tone, diagnosis, action, creativeHealth,
+      maxCpa, state, tone, diagnosis, action, creativeHealth, cpaObservation3d,
       purchases:lastStats.purchases, frequency:lastStats.frequency
     };
   }), [activeCampaignList, products, dailyCampaigns, ads, dailyAds]);
@@ -2369,7 +2565,7 @@ function CampaignDashboard({
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="font-black uppercase text-sm text-amber-800">Qué requiere mi atención hoy</h3>
-            <p className="text-[9px] text-slate-400 mt-1">Acciones para hoy basadas en el último día completo registrado. Cada anuncio muestra la campaña que lo contiene.</p>
+            <p className="text-[9px] text-slate-400 mt-1">El último día completo funciona como alerta temprana. La acción operativa mostrada siempre se determina con 3D.</p>
           </div>
           <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
         </div>
@@ -2381,10 +2577,11 @@ function CampaignDashboard({
                   <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
                   <p className="font-black text-xs mt-1">{diag.finalDiagnosis || diag.diagnosis}</p>
                   <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
+                  <p className="text-[8px] font-black text-indigo-700 mt-2">DECISIÓN 3D: {diag.operational3dDiagnosis}</p>
                 </div>
                 <div className="md:text-right">
-                  <p className="text-[8px] uppercase font-black text-slate-400">Acción</p>
-                  <p className="text-[10px] font-black">{diag.action}</p>
+                  <p className="text-[8px] uppercase font-black text-slate-400">Acción operativa · 3D</p>
+                  <p className="text-[10px] font-black">{diag.operational3dAction}</p>
                 </div>
               </div>
             </button>
@@ -2438,7 +2635,7 @@ function CampaignDashboard({
               <tr className="text-left uppercase text-[8px] text-slate-400">
                 <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA último día</th>
                 <th>CPA 3D</th><th>Δ vs 3D</th><th>CPA 7D</th><th>Δ 7D</th>
-                <th>Compras</th><th>Frecuencia</th><th>Salud tráfico/creativo</th><th>Diagnóstico</th><th>Acción hoy</th>
+                <th>Compras</th><th>Frecuencia</th><th>Salud tráfico/creativo</th><th>Diagnóstico · 3D</th><th>Acción · 3D</th>
               </tr>
             </thead>
             <tbody>
@@ -2716,44 +2913,102 @@ function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allA
 
 function buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows) {
   const latest = [...campaignHistory].sort((a,b) => String(b.date).localeCompare(String(a.date)))[0];
-  if (!latest) return { status: 'Sin datos', action: 'Registrar datos', reason: 'Aún no existe un registro diario completo para esta campaña.', recommendedBudget: null };
+  if (!latest) {
+    return {
+      status: 'Sin datos',
+      action: 'Registrar datos',
+      reason: 'Aún no existe un registro diario completo para esta campaña.',
+      recommendedBudget: null,
+      cpaObservation3d: { level: 'neutral', title: 'SIN LECTURA 3D', text: 'Sin datos completos para decisión operativa.' }
+    };
+  }
 
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
-  const campaign3d = splitPeriodRecords(campaignHistory, '3d').currentStats;
+  const split3d = splitPeriodRecords(campaignHistory, '3d');
+  const campaign3d = split3d.currentStats;
+  const previous3d = split3d.previousStats;
   const cpa3d = campaign3d.cpa;
+  const cpaObservation3d = buildCpaObservation3D(campaign3d, previous3d, maxCpa);
 
-  const critical = adRows.filter(x => x.diag.priority === 'critical').length;
+  // IMPORTANTE: estos contadores usan la decisión operativa 3D de cada anuncio,
+  // nunca el diagnóstico del selector visual.
+  const critical = adRows.filter(x => x.diag.operational3dPriority === 'critical').length;
+  const alert = adRows.filter(x => x.diag.operational3dPriority === 'alert').length;
   const scalable = adRows.filter(x => x.diag.canScale).length;
 
+  if (campaign3d.spend > 0 && campaign3d.purchases <= 0) {
+    return {
+      status: 'Crítico',
+      action: 'No escalar · optimizar',
+      reason: cpaObservation3d.text,
+      recommendedBudget: null,
+      cpaObservation3d
+    };
+  }
+
+  if (cpa3d > maxCpa) {
+    const delta = cpaObservation3d.delta;
+
+    if (delta !== null && delta <= 0) {
+      return {
+        status: 'Fuera del objetivo · recuperándose',
+        action: 'No escalar · mantener en observación',
+        reason: cpaObservation3d.text,
+        recommendedBudget: null,
+        cpaObservation3d
+      };
+    }
+
+    const candidates = scaleRows.filter(r => r.budget < toNumber(latest.budget) && r.cpa > 0 && r.cpa <= maxCpa);
+    const best = candidates.sort((a,b) => b.budget - a.budget)[0];
+
+    return {
+      status: delta !== null && delta > 15 ? 'Fuera del objetivo · deteriorándose' : 'Fuera del objetivo',
+      action: delta !== null && delta > 15
+        ? (best ? 'Reducir al último nivel rentable' : 'No escalar · optimizar')
+        : 'No escalar · optimizar',
+      reason: cpaObservation3d.text,
+      recommendedBudget: delta !== null && delta > 15 ? (best?.budget || null) : null,
+      cpaObservation3d
+    };
+  }
+
   if (critical > 0) {
-    return { status: 'Atención', action: 'Optimizar antes de escalar', reason: `${critical} anuncio(s) presentan señal crítica.`, recommendedBudget: null };
+    return {
+      status: 'Atención',
+      action: 'Optimizar antes de escalar',
+      reason: `${critical} anuncio(s) presentan una señal crítica en la ventana operativa 3D.`,
+      recommendedBudget: null,
+      cpaObservation3d
+    };
   }
 
   if (cpa3d > 0 && cpa3d <= maxCpa * 0.8 && scalable > 0 && toNumber(latest.budget) > 0) {
     return {
       status: 'Escalable',
       action: 'Escalar +20%',
-      reason: `Decisión 3D: CPA de campaña ${fmtMoney(cpa3d)} con margen y al menos un anuncio supera los 4 guardrails obligatorios. El volumen solo indica confianza.`,
-      recommendedBudget: Math.round((toNumber(latest.budget) * 1.2) / 1000) * 1000
+      reason: `Decisión 3D: CPA de campaña ${fmtMoney(cpa3d)} con margen ≥20% y al menos un anuncio supera los 4 guardrails obligatorios. El volumen solo indica confianza.`,
+      recommendedBudget: Math.round((toNumber(latest.budget) * 1.2) / 1000) * 1000,
+      cpaObservation3d
     };
   }
 
-  if (cpa3d > maxCpa) {
-    const candidates = scaleRows.filter(r => r.budget < toNumber(latest.budget) && r.cpa > 0 && r.cpa <= maxCpa);
-    const best = candidates.sort((a,b) => b.budget - a.budget)[0];
+  if (alert > 0) {
     return {
-      status: 'Sobreescalado / no rentable',
-      action: best ? 'Reducir al último nivel rentable' : 'No escalar · optimizar',
-      reason: `CPA 3D ${fmtMoney(cpa3d)} supera el máximo ${fmtMoney(maxCpa)}.`,
-      recommendedBudget: best?.budget || null
+      status: 'Mantener · revisar',
+      action: 'Mantener y revisar señales 3D',
+      reason: `${alert} anuncio(s) requieren observación en 3D. No existe condición suficiente para una escala fuerte.`,
+      recommendedBudget: null,
+      cpaObservation3d
     };
   }
 
   return {
     status: 'Mantener',
     action: 'Mantener presupuesto',
-    reason: 'La decisión de escala se mide en 3D. Todavía falta algún guardrail obligatorio o margen suficiente.',
-    recommendedBudget: null
+    reason: 'La decisión operativa se mide exclusivamente en 3D. El CPA está dentro del objetivo, pero todavía falta margen o algún guardrail para escalar.',
+    recommendedBudget: null,
+    cpaObservation3d
   };
 }
 
@@ -2828,11 +3083,31 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className={`rounded-2xl p-3 ${toneBg(campaignDecision.status === 'Sobreescalado / no rentable' ? 'critical' : campaignDecision.status === 'Atención' ? 'alert' : 'normal')}`} style={{border:'2px solid #0f766e'}}>
-          <p className="text-[8px] font-black uppercase text-slate-400">Motor de decisión de campaña</p>
-          <p className="font-black text-sm mt-1">{campaignDecision.status}</p><p className="text-[9px] text-slate-500 mt-1">{campaignDecision.reason}</p>
-          <p className="text-[10px] font-black mt-2">Acción: {campaignDecision.action}</p>
+        <div className={`rounded-2xl p-3 ${toneBg(
+          campaignDecision.cpaObservation3d?.level === 'critical' ? 'critical' :
+          campaignDecision.cpaObservation3d?.level === 'alert' ? 'alert' :
+          'normal'
+        )}`} style={{border:'2px solid #0f766e'}}>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[8px] font-black uppercase text-slate-400">Motor de decisión de campaña</p>
+            <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">3D determina</span>
+          </div>
+          <p className="font-black text-sm mt-1">{campaignDecision.status}</p>
+          <p className="text-[9px] text-slate-500 mt-1">{campaignDecision.reason}</p>
+          <p className="text-[10px] font-black mt-2">Acción 3D: {campaignDecision.action}</p>
           {campaignDecision.recommendedBudget ? <p className="text-[10px] font-black text-emerald-700 mt-1">Presupuesto recomendado: {fmtMoney(campaignDecision.recommendedBudget)}</p> : null}
+          {campaignDecision.cpaObservation3d && (
+            <div className={`mt-3 rounded-xl border p-2.5 ${
+              campaignDecision.cpaObservation3d.level === 'critical' ? 'bg-rose-50 border-rose-200 text-rose-700' :
+              campaignDecision.cpaObservation3d.level === 'alert' ? 'bg-orange-50 border-orange-200 text-orange-700' :
+              campaignDecision.cpaObservation3d.level === 'good' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+              campaignDecision.cpaObservation3d.level === 'attention' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+              'bg-slate-50 border-slate-200 text-slate-600'
+            }`}>
+              <p className="text-[8px] font-black uppercase">{campaignDecision.cpaObservation3d.title}</p>
+              <p className="text-[8px] mt-1 leading-relaxed">{campaignDecision.cpaObservation3d.text}</p>
+            </div>
+          )}
         </div>
         <div className="rounded-2xl p-3 bg-blue-50" style={{border:'2px solid #2563eb'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
         <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Motor de fatiga y saturación</p><p className="text-[9px] text-slate-600 mt-1">CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ = fatiga. CPM ↑ con CTR/CVR estables = subasta cara, no necesariamente fatiga.</p></div>
@@ -2842,7 +3117,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <p className="text-[9px] font-black uppercase text-cyan-800">Período de monitoreo por anuncio</p>
-            <p className="text-[8px] text-slate-500 mt-1">Controla Variaciones dinámicas, Embudo post-clic, diagnóstico consolidado y guardrails.</p>
+            <p className="text-[8px] text-slate-500 mt-1">Controla la lectura analítica de Variaciones dinámicas y Embudo post-clic. NO modifica decisiones, Guardrails, Contribución ni observaciones operativas: todo eso se determina en 3D.</p>
           </div>
           <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
             {MONITOR_PERIODS.map(p => (
@@ -2866,7 +3141,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="rounded-2xl p-3 bg-cyan-50" style={{border:'2px solid #0891b2'}}>
           <p className="text-[8px] font-black uppercase text-cyan-700">Regla de inclusión de datos</p>
-          <p className="text-[9px] text-slate-600 mt-1">Los días en que la campaña o el anuncio estuvo OFF se excluyen totalmente de Hoy/3D/7D/14D/30D, benchmark y escala rentable. No se convierten en ceros.</p>
+          <p className="text-[9px] text-slate-600 mt-1">Los días en que la campaña o el anuncio estuvo OFF se excluyen totalmente de Último día/3D/7D/14D/30D, benchmark y escala rentable. HOY queda solo como monitor intradía y no participa en decisiones. Los días OFF no se convierten en ceros.</p>
         </div>
         <div className="rounded-2xl p-3 bg-indigo-50" style={{border:'2px solid #6366f1'}}>
           <p className="text-[8px] font-black uppercase text-indigo-700">Jerarquía ON/OFF</p>
@@ -2901,7 +3176,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           <div>
             <h4 className="text-xs font-black uppercase text-emerald-800">Optimización por anuncio — diagnóstico consolidado</h4>
             <p className="text-[8px] text-slate-500 mt-1">
-              El diagnóstico dinámico respeta la ventana seleccionada. <strong>Contribución a campaña siempre se calcula en 3D fijo</strong>.
+              Las columnas Dinámico y Post-clic respetan la ventana seleccionada. <strong>La decisión operativa, la acción y la contribución a campaña siempre se calculan en 3D fijo</strong>.
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -2929,7 +3204,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             ))}
           </div>
         )}
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1750px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Contribución campaña · 3D</th><th>Diagnóstico final</th><th>Confianza</th><th>Por qué</th><th>Acción recomendada</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1750px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
           const contributionClass =
             contribution?.tone === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
             contribution?.tone === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -2991,10 +3266,10 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                 <span className="text-slate-400">Sin datos 3D</span>
               )}
             </td>
-            <td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td>
-            <td className="font-black">{diag.confidence}</td>
-            <td className="max-w-[330px] text-slate-500">{diag.reason}</td>
-            <td className="font-black">{diag.action}</td>
+            <td className={`font-black ${diag.operational3dPriority === 'critical' ? 'text-rose-600' : diag.operational3dPriority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.operational3dDiagnosis}</td>
+            <td className="font-black">{diag.volumeReference?.confidence || diag.confidence}</td>
+            <td className="max-w-[330px] text-slate-500">{diag.operational3dReason}</td>
+            <td className="font-black">{diag.operational3dAction}</td>
           </tr>;
         })}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
@@ -3098,7 +3373,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           <div>
             <h4 className="text-xs font-black uppercase text-orange-800">Guardrails de escalado</h4>
             <p className="text-[8px] text-slate-500 mt-1">
-              Ventana fija de decisión: <strong>3D</strong>. Cambiar el selector superior NO modifica estos guardrails.
+              Ventana fija de decisión: <strong>3D</strong>. Cambiar el selector superior NO modifica estos guardrails. Una mejora del CPA siempre pasa estabilidad; solo bloquea si el CPA 3D empeora más de +15%.
             </p>
           </div>
           <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">3D determina</span>
@@ -3121,7 +3396,16 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
               <div className="flex flex-wrap gap-1.5">
                 <GuardrailPill ok={diag.guardrails.cpaMargin} label={`CPA 3D ≤ ${fmtMoney(maxCpa*0.8)}`}/>
-                <GuardrailPill ok={diag.guardrails.stability} label="CPA 3D estable"/>
+                <GuardrailPill
+                  ok={diag.guardrails.stability}
+                  label={
+                    diag.scaleDelta3d?.cpa === null
+                      ? 'CPA 3D sin comparación'
+                      : diag.scaleDelta3d.cpa <= 0
+                        ? `CPA 3D mejora ${fmtNum(Math.abs(diag.scaleDelta3d.cpa), 2)}%`
+                        : `CPA 3D empeora ${fmtNum(diag.scaleDelta3d.cpa, 2)}%`
+                  }
+                />
                 <GuardrailPill ok={diag.guardrails.creative} label="Creativo 3D sano"/>
                 <GuardrailPill ok={diag.guardrails.postClick} label="Post-clic 3D sano"/>
               </div>
@@ -3135,9 +3419,29 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
               <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${volumeTone}`}>
                 Volumen referencia 3D: {fmtNum(diag.volumeReference.purchases, 2)} compras · Confianza {diag.volumeReference.confidence}
               </span>
+              <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${
+                diag.scaleDelta3d?.cpa !== null && diag.scaleDelta3d.cpa < -15
+                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                  : diag.scaleDelta3d?.cpa !== null && diag.scaleDelta3d.cpa > 15
+                    ? 'bg-rose-100 text-rose-700 border-rose-200'
+                    : 'bg-blue-100 text-blue-700 border-blue-200'
+              }`}>
+                Momentum CPA: {diag.scaleMomentum}
+              </span>
+              <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${
+                diag.cpaObservation3d?.level === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                diag.cpaObservation3d?.level === 'alert' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                diag.cpaObservation3d?.level === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                'bg-amber-100 text-amber-700 border-amber-200'
+              }`}>
+                {diag.cpaObservation3d?.title || 'CPA 3D SIN LECTURA'}
+              </span>
               <span className="text-[8px] text-slate-500">
                 El volumen aumenta o reduce la confianza de la decisión, pero nunca cambia por sí solo ESCALA PERMITIDA a NO ESCALAR.
               </span>
+              {diag.cpaObservation3d?.text ? (
+                <p className="w-full text-[8px] text-slate-600 mt-1">{diag.cpaObservation3d.text}</p>
+              ) : null}
             </div>
           </div>
         })}</div> : <EmptyState>Sin anuncios activos.</EmptyState>}
@@ -3182,6 +3486,30 @@ function buildScaleHistory(records, maxCpa) {
   });
 }
 
+
+function rebaseInitialStateHistory(history, oldStart, newStart) {
+  const rows = Array.isArray(history) ? history.map(x => ({ ...x })) : [];
+  if (!rows.length) return [{ date: newStart, active: true }];
+
+  const sortedIndexes = rows
+    .map((row, index) => ({ index, date: String(row?.date || '') }))
+    .filter(x => x.date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!sortedIndexes.length) return [{ date: newStart, active: true }, ...rows];
+
+  const firstIndex = sortedIndexes[0].index;
+  const firstDate = String(rows[firstIndex]?.date || '');
+
+  // Solo movemos el evento inicial si realmente corresponde a la fecha
+  // de alta anterior. Los encendidos/apagados posteriores se conservan.
+  if (firstDate === String(oldStart || '')) {
+    rows[firstIndex] = { ...rows[firstIndex], date: newStart };
+  }
+
+  return rows;
+}
+
 function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, recommendations, decisions }) {
   const [productForm, setProductForm] = useState({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
   const [campaignNameByProduct, setCampaignNameByProduct] = useState({});
@@ -3214,6 +3542,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       maxCpa: toNumber(productForm.maxCpa),
       active: true,
       createdDate: startDate,
+      effectiveStartDate: startDate,
       stateChangedDate: startDate,
       stateHistory: [{ date: startDate, active: true }],
       createdAt: serverTimestamp()
@@ -3224,6 +3553,75 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     const name = window.prompt('Nombre del producto:', product.name); if (!name) return;
     const maxCpa = window.prompt('CPA máximo Meta:', String(product.maxCpa || 20000)); if (!maxCpa || toNumber(maxCpa) <= 0) return;
     await updateDoc(doc(db, COLLECTIONS.products, product.id), { name: name.trim(), maxCpa: toNumber(maxCpa), updatedAt: serverTimestamp() });
+  };
+
+  const editProductStartDate = async product => {
+    const oldStart = dateToIso(product.effectiveStartDate || product.createdDate) || today;
+    const value = window.prompt(
+      `Fecha de creación / inicio de "${product.name}" (AAAA-MM-DD):`,
+      oldStart
+    );
+    if (value === null) return;
+
+    const newStart = dateToIso(value);
+    if (!newStart) {
+      showManagerMessage('error', 'La fecha del producto no es válida. Usa formato AAAA-MM-DD.');
+      return;
+    }
+    if (newStart > today) {
+      showManagerMessage('error', 'La fecha del producto no puede ser posterior a hoy.');
+      return;
+    }
+
+    const childCampaigns = campaigns.filter(c => c.productId === product.id);
+    const earliestCampaignStart = childCampaigns
+      .map(c => dateToIso(c.effectiveStartDate || c.createdDate))
+      .filter(Boolean)
+      .sort()[0];
+
+    if (earliestCampaignStart && newStart > earliestCampaignStart) {
+      showManagerMessage(
+        'error',
+        `El producto no puede iniciar después de su primera campaña (${earliestCampaignStart}). Ajusta primero la fecha de esa campaña.`
+      );
+      return;
+    }
+
+    if (newStart === oldStart) {
+      showManagerMessage('success', 'La fecha del producto no cambió.');
+      return;
+    }
+
+    if (!window.confirm(
+      `Cambiar inicio de "${product.name}" de ${oldStart} a ${newStart}.
+
+` +
+      `No se borrarán registros. Los datos anteriores a la nueva fecha dejarán de participar en los análisis de este producto.`
+    )) return;
+
+    try {
+      const nextStateHistory = rebaseInitialStateHistory(product.stateHistory, oldStart, newStart);
+      const patch = {
+        createdDate: newStart,
+        effectiveStartDate: newStart,
+        stateHistory: nextStateHistory,
+        startDateHistory: [
+          ...(Array.isArray(product.startDateHistory) ? product.startDateHistory : []),
+          { from: oldStart, to: newStart, changedDate: today }
+        ],
+        updatedAt: serverTimestamp()
+      };
+
+      if (String(product.stateChangedDate || '') === oldStart) {
+        patch.stateChangedDate = newStart;
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.products, product.id), patch);
+      showManagerMessage('success', `Fecha de "${product.name}" actualizada a ${newStart}.`);
+    } catch (error) {
+      console.error('Campaign Control · editar fecha producto', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo cambiar la fecha del producto'));
+    }
   };
   const toggleProduct = async product => {
     const next = product.active === false;
@@ -3254,7 +3652,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       return;
     }
 
-    const effectiveStartDate = dateToIso(parentProduct.createdDate) || today;
+    const effectiveStartDate = dateToIso(parentProduct.effectiveStartDate || parentProduct.createdDate) || today;
     const ref = doc(collection(db, COLLECTIONS.campaigns));
     setBusyKey(`campaign:${productId}`);
     try {
@@ -3282,6 +3680,71 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       setBusyKey('');
     }
   };
+  const editCampaignStartDate = async campaign => {
+    const parentProduct = products.find(p => p.id === campaign.productId);
+    const productStart = dateToIso(parentProduct?.effectiveStartDate || parentProduct?.createdDate);
+    const oldStart = dateToIso(campaign.effectiveStartDate || campaign.createdDate) || productStart || today;
+
+    const value = window.prompt(
+      `Fecha de creación / inicio de "${campaign.name}" (AAAA-MM-DD):`,
+      oldStart
+    );
+    if (value === null) return;
+
+    const newStart = dateToIso(value);
+    if (!newStart) {
+      showManagerMessage('error', 'La fecha de la campaña no es válida. Usa formato AAAA-MM-DD.');
+      return;
+    }
+    if (newStart > today) {
+      showManagerMessage('error', 'La fecha de la campaña no puede ser posterior a hoy.');
+      return;
+    }
+    if (productStart && newStart < productStart) {
+      showManagerMessage(
+        'error',
+        `La campaña no puede iniciar antes que su producto (${productStart}).`
+      );
+      return;
+    }
+
+    if (newStart === oldStart) {
+      showManagerMessage('success', 'La fecha de la campaña no cambió.');
+      return;
+    }
+
+    if (!window.confirm(
+      `Cambiar inicio de "${campaign.name}" de ${oldStart} a ${newStart}.\n\n` +
+      `No se borrarán registros. Los registros anteriores a la nueva fecha quedarán fuera del análisis de esta campaña.`
+    )) return;
+
+    try {
+      const nextStateHistory = rebaseInitialStateHistory(campaign.stateHistory, oldStart, newStart);
+      const patch = {
+        // createdAt conserva la fecha técnica real de Firestore.
+        // createdDate/effectiveStartDate representan el inicio operativo editable.
+        createdDate: newStart,
+        effectiveStartDate: newStart,
+        stateHistory: nextStateHistory,
+        startDateHistory: [
+          ...(Array.isArray(campaign.startDateHistory) ? campaign.startDateHistory : []),
+          { from: oldStart, to: newStart, changedDate: today }
+        ],
+        updatedAt: serverTimestamp()
+      };
+
+      if (String(campaign.stateChangedDate || '') === oldStart) {
+        patch.stateChangedDate = newStart;
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), patch);
+      showManagerMessage('success', `Fecha de "${campaign.name}" actualizada a ${newStart}.`);
+    } catch (error) {
+      console.error('Campaign Control · editar fecha campaña', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo cambiar la fecha de la campaña'));
+    }
+  };
+
   const toggleCampaign = async campaign => {
     const campaignAds = ads.filter(a => a.campaignId === campaign.id);
     const batch = writeBatch(db);
@@ -3391,9 +3854,9 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   return <div className="space-y-5">
     {managerMessage && <div className={`rounded-2xl border p-3 text-[10px] font-black ${managerMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{managerMessage.type === 'success' ? '✓ ' : '⚠ '}{managerMessage.text}</div>}
     <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto Campaign Control</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
-    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:productAccent.border}}></span><h3 className="font-black uppercase text-base" style={{color:productAccent.text}}>{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {product.createdDate ? parseDateSafe(product.createdDate)?.toLocaleDateString('es-CO') : '—'}</p></div><div className="flex gap-1"><button onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
+    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:productAccent.border}}></span><h3 className="font-black uppercase text-base" style={{color:productAccent.text}}>{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {(product.effectiveStartDate || product.createdDate) ? parseDateSafe(product.effectiveStartDate || product.createdDate)?.toLocaleDateString('es-CO') : '—'}</p></div><div className="flex gap-1"><button title="Editar nombre y CPA" onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button title="Editar fecha de creación / inicio" onClick={()=>editProductStartDate(product)} className="p-2 rounded-xl bg-blue-50 text-blue-600"><CalendarDays size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
       <div className="flex gap-2 mt-4"><input value={campaignNameByProduct[product.id]||''} onChange={e=>setCampaignNameByProduct(x=>({...x,[product.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCampaign(product.id);}}} placeholder="Nombre nueva campaña" className="flex-1 bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `campaign:${product.id}`} onClick={()=>addCampaign(product.id)} className="bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline mr-1"/> {busyKey === `campaign:${product.id}` ? 'Creando...' : 'Campaña'}</button></div>
-      <div className="space-y-3 mt-4">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]!==false;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}><div className="p-3 flex flex-col md:flex-row md:items-center gap-3 justify-between"><button onClick={()=>setExpanded(x=>({...x,[campaign.id]:!isOpen}))} className="text-left flex-1"><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:campaignAccent.border}}></span><span className="font-black text-xs uppercase" style={{color:campaignAccent.text}}>{campaign.name}</span><StateBadge active={campaign.active!==false} archived={campaign.archived}/>{isOpen?<ChevronUp size={13}/>:<ChevronDown size={13}/>}</div><p className="text-[8px] text-slate-400 mt-1">{campaignAds.length} anuncios · alta {campaign.createdDate||'—'} · datos desde {campaign.effectiveStartDate||campaign.createdDate||'—'} · último cambio {campaign.stateChangedDate||'—'}</p></button><div className="flex gap-1 flex-wrap">{!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}{!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}<button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>
+      <div className="space-y-3 mt-4">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]!==false;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}><div className="p-3 flex flex-col md:flex-row md:items-center gap-3 justify-between"><button onClick={()=>setExpanded(x=>({...x,[campaign.id]:!isOpen}))} className="text-left flex-1"><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:campaignAccent.border}}></span><span className="font-black text-xs uppercase" style={{color:campaignAccent.text}}>{campaign.name}</span><StateBadge active={campaign.active!==false} archived={campaign.archived}/>{isOpen?<ChevronUp size={13}/>:<ChevronDown size={13}/>}</div><p className="text-[8px] text-slate-400 mt-1">{campaignAds.length} anuncios · inicio editable {campaign.effectiveStartDate||campaign.createdDate||'—'} · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}</p></button><div className="flex gap-1 flex-wrap"><button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>{!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}{!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}<button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>
         {isOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffffcc'}}>{!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar anuncio definitivamente" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
       </div>})}</div></SectionCard>})}
     <label className="flex items-center gap-2 text-[9px] font-black uppercase text-slate-500"><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Mostrar campañas archivadas</label>
