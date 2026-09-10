@@ -2452,7 +2452,7 @@ function buildScaleHistory(records, maxCpa) {
 }
 
 function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, recommendations, decisions }) {
-  const [productForm, setProductForm] = useState({ name: '', maxCpa: '20000' });
+  const [productForm, setProductForm] = useState({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
   const [campaignNameByProduct, setCampaignNameByProduct] = useState({});
   const [adNameByCampaign, setAdNameByCampaign] = useState({});
   const [expanded, setExpanded] = useState({});
@@ -2461,8 +2461,19 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
 
   const addProduct = async () => {
     if (!productForm.name.trim() || toNumber(productForm.maxCpa) <= 0) return;
-    await addDoc(collection(db, COLLECTIONS.products), { ownerUid, name: productForm.name.trim(), maxCpa: toNumber(productForm.maxCpa), active: true, createdDate: today, stateHistory: [{ date: today, active: true }], createdAt: serverTimestamp() });
-    setProductForm({ name: '', maxCpa: '20000' });
+    const startDate = productForm.createdDate || today;
+    if (startDate > today) return alert('La fecha de inicio del producto no puede ser posterior a hoy.');
+    await addDoc(collection(db, COLLECTIONS.products), {
+      ownerUid,
+      name: productForm.name.trim(),
+      maxCpa: toNumber(productForm.maxCpa),
+      active: true,
+      createdDate: startDate,
+      stateChangedDate: startDate,
+      stateHistory: [{ date: startDate, active: true }],
+      createdAt: serverTimestamp()
+    });
+    setProductForm({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
   };
   const editProduct = async product => {
     const name = window.prompt('Nombre del producto:', product.name); if (!name) return;
@@ -2480,7 +2491,20 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   };
   const addCampaign = async productId => {
     const name = (campaignNameByProduct[productId] || '').trim(); if (!name) return;
-    await addDoc(collection(db, COLLECTIONS.campaigns), { ownerUid, productId, name, active: true, archived: false, createdDate: today, stateChangedDate: today, stateHistory: [{ date: today, active: true }], createdAt: serverTimestamp(), previousAdStates: {} });
+    const parentProduct = products.find(p => p.id === productId);
+    const startDate = parentProduct?.createdDate || today;
+    await addDoc(collection(db, COLLECTIONS.campaigns), {
+      ownerUid,
+      productId,
+      name,
+      active: true,
+      archived: false,
+      createdDate: startDate,
+      stateChangedDate: startDate,
+      stateHistory: [{ date: startDate, active: true }],
+      createdAt: serverTimestamp(),
+      previousAdStates: {}
+    });
     setCampaignNameByProduct(x => ({ ...x, [productId]: '' }));
   };
   const toggleCampaign = async campaign => {
@@ -2518,7 +2542,20 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const addAd = async campaign => {
     const name=(adNameByCampaign[campaign.id]||'').trim(); if(!name) return; const normalizedName=normalizeAdName(name);
     if(ads.some(a=>a.campaignId===campaign.id&&a.normalizedName===normalizedName)) return alert('Ya existe un anuncio con ese nombre dentro de esta campaña.');
-    await addDoc(collection(db,COLLECTIONS.ads),{ ownerUid,productId:campaign.productId,campaignId:campaign.id,name,normalizedName,active:campaign.active!==false,createdDate:today,stateChangedDate:today,stateHistory:[{date:today,active:campaign.active!==false}],createdAt:serverTimestamp(),stateChangedAt:serverTimestamp() });
+    const startDate = campaign.createdDate || today;
+    await addDoc(collection(db,COLLECTIONS.ads),{
+      ownerUid,
+      productId:campaign.productId,
+      campaignId:campaign.id,
+      name,
+      normalizedName,
+      active:campaign.active!==false,
+      createdDate:startDate,
+      stateChangedDate:startDate,
+      stateHistory:[{date:startDate,active:campaign.active!==false}],
+      createdAt:serverTimestamp(),
+      stateChangedAt:serverTimestamp()
+    });
     setAdNameByCampaign(x=>({...x,[campaign.id]:''}));
   };
   const toggleAd = async (ad,campaign) => {
@@ -2536,8 +2573,8 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   };
 
   return <div className="space-y-5">
-    <SectionCard><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Nuevo producto Campaign Control</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
-    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));return <SectionCard key={product.id} className={product.active===false?'opacity-70':''}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><h3 className="font-black uppercase text-base">{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s)</p></div><div className="flex gap-1"><button onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
+    <SectionCard><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Nuevo producto Campaign Control</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
+    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));return <SectionCard key={product.id} className={product.active===false?'opacity-70':''}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><h3 className="font-black uppercase text-base">{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {product.createdDate ? parseDateSafe(product.createdDate)?.toLocaleDateString('es-CO') : '—'}</p></div><div className="flex gap-1"><button onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
       <div className="flex gap-2 mt-4"><input value={campaignNameByProduct[product.id]||''} onChange={e=>setCampaignNameByProduct(x=>({...x,[product.id]:e.target.value}))} placeholder="Nombre nueva campaña" className="flex-1 bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"/><button onClick={()=>addCampaign(product.id)} className="bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase"><Plus size={12} className="inline mr-1"/> Campaña</button></div>
       <div className="space-y-3 mt-4">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]!==false;return <div key={campaign.id} className={`border rounded-2xl overflow-hidden ${campaign.archived?'bg-slate-50':'bg-white'}`}><div className="p-3 flex flex-col md:flex-row md:items-center gap-3 justify-between"><button onClick={()=>setExpanded(x=>({...x,[campaign.id]:!isOpen}))} className="text-left flex-1"><div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{campaign.name}</span><StateBadge active={campaign.active!==false} archived={campaign.archived}/>{isOpen?<ChevronUp size={13}/>:<ChevronDown size={13}/>}</div><p className="text-[8px] text-slate-400 mt-1">{campaignAds.length} anuncios · creada {campaign.createdDate||'—'} · último cambio {campaign.stateChangedDate||'—'}</p></button><div className="flex gap-1 flex-wrap">{!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}{!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}<button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>
         {isOpen&&<div className="border-t p-3 bg-slate-50/50">{!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase"><Plus size={12} className="inline"/> Anuncio</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=><div key={ad.id} className="bg-white border rounded-xl p-2.5 flex items-center justify-between gap-2"><div><p className="text-[10px] font-black">{ad.name}</p><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar anuncio definitivamente" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>)}</div>}</div>}
