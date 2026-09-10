@@ -1727,8 +1727,20 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
   );
 }
 
-function SectionCard({ children, className = '' }) {
-  return <div className={`bg-white border border-slate-100 shadow-sm rounded-3xl p-4 md:p-5 ${className}`}>{children}</div>;
+function SectionCard({ children, className = '', accent = null, soft = null }) {
+  return (
+    <div
+      className={`bg-white border shadow-sm rounded-3xl p-4 md:p-5 ${className}`}
+      style={accent ? {
+        borderColor: accent,
+        borderWidth: '2px',
+        backgroundColor: soft || '#ffffff',
+        boxShadow: `0 8px 24px ${accent}12`
+      } : undefined}
+    >
+      {children}
+    </div>
+  );
 }
 
 const CC_VISUAL_ACCENTS = [
@@ -2133,10 +2145,10 @@ function CampaignDashboard({
       </div>
 
       {/* QUE REQUIERE ATENCION: UNA SOLA VEZ */}
-      <SectionCard>
+      <SectionCard accent="#f59e0b" soft="#fffbeb">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
-            <h3 className="font-black uppercase text-sm">Qué requiere mi atención hoy</h3>
+            <h3 className="font-black uppercase text-sm text-amber-800">Qué requiere mi atención hoy</h3>
             <p className="text-[9px] text-slate-400 mt-1">Acciones para hoy basadas en el último día completo registrado. Cada anuncio muestra la campaña que lo contiene.</p>
           </div>
           <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
@@ -2170,7 +2182,7 @@ function CampaignDashboard({
         <MiniCard label="Gasto último cierre" value={fmtMoney(totalSpend)} />
       </div>
 
-      <SectionCard className="border-dashed border-2 border-blue-200 bg-blue-50/40">
+      <SectionCard className="border-dashed" accent="#2563eb" soft="#eff6ff">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p>
@@ -2199,7 +2211,7 @@ function CampaignDashboard({
       </div>
 
       {/* TABLA PRINCIPAL DE CAMPAÑAS - CLIC ABRE DRAWER */}
-      <SectionCard className="p-0 overflow-hidden">
+      <SectionCard className="p-0 overflow-hidden" accent="#6366f1" soft="#eef2ff">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1350px] text-[10px]">
             <thead className="bg-slate-50">
@@ -2235,9 +2247,9 @@ function CampaignDashboard({
       </SectionCard>
 
       {/* PRIORIDADES DE ACCION HOY */}
-      <SectionCard>
+      <SectionCard accent="#ea580c" soft="#fff7ed">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-black uppercase text-sm">Prioridades de acción hoy</h3>
+          <h3 className="font-black uppercase text-sm text-orange-800">Prioridades de acción hoy</h3>
           <span className="text-[8px] text-slate-400 font-black uppercase">Lo más importante primero</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -2453,20 +2465,20 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className={`border rounded-2xl p-3 ${toneBg(campaignDecision.status === 'Sobreescalado / no rentable' ? 'critical' : campaignDecision.status === 'Atención' ? 'alert' : 'normal')}`}>
+        <div className={`rounded-2xl p-3 ${toneBg(campaignDecision.status === 'Sobreescalado / no rentable' ? 'critical' : campaignDecision.status === 'Atención' ? 'alert' : 'normal')}`} style={{border:'2px solid #0f766e'}}>
           <p className="text-[8px] font-black uppercase text-slate-400">Motor de decisión de campaña</p>
           <p className="font-black text-sm mt-1">{campaignDecision.status}</p><p className="text-[9px] text-slate-500 mt-1">{campaignDecision.reason}</p>
           <p className="text-[10px] font-black mt-2">Acción: {campaignDecision.action}</p>
           {campaignDecision.recommendedBudget ? <p className="text-[10px] font-black text-emerald-700 mt-1">Presupuesto recomendado: {fmtMoney(campaignDecision.recommendedBudget)}</p> : null}
         </div>
-        <div className="border rounded-2xl p-3 bg-slate-50"><p className="text-[8px] font-black uppercase text-slate-400">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
-        <div className="border rounded-2xl p-3 bg-slate-50"><p className="text-[8px] font-black uppercase text-slate-400">Motor de fatiga y saturación</p><p className="text-[9px] text-slate-600 mt-1">CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ = fatiga. CPM ↑ con CTR/CVR estables = subasta cara, no necesariamente fatiga.</p></div>
+        <div className="rounded-2xl p-3 bg-blue-50" style={{border:'2px solid #2563eb'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
+        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Motor de fatiga y saturación</p><p className="text-[9px] text-slate-600 mt-1">CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ = fatiga. CPM ↑ con CTR/CVR estables = subasta cara, no necesariamente fatiga.</p></div>
       </div>
 
-      <div className="border-2 border-zinc-900 rounded-2xl p-3 md:p-4 bg-white">
+      <div className="rounded-2xl p-3 md:p-4 bg-cyan-50" style={{border:'2px solid #0891b2'}}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <p className="text-[9px] font-black uppercase text-zinc-900">Período de monitoreo por anuncio</p>
+            <p className="text-[9px] font-black uppercase text-cyan-800">Período de monitoreo por anuncio</p>
             <p className="text-[8px] text-slate-500 mt-1">Controla Variaciones dinámicas, Embudo post-clic, diagnóstico consolidado y guardrails.</p>
           </div>
           <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
@@ -2486,19 +2498,19 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         </p>
       </div>
 
-      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3"><p className="text-[9px] font-black uppercase text-blue-700">Cómo funcionan las variaciones por anuncio</p><p className="text-[9px] text-blue-600 mt-1">{variationExplanation(monitorPeriod)} Bandas: 0–10% normal · &gt;10–15% atención · &gt;15–20% alerta · &gt;20% crítica. La dirección se interpreta según la métrica.</p></div>
+      <div className="bg-blue-50 rounded-2xl p-3" style={{border:'2px solid #3b82f6'}}><p className="text-[9px] font-black uppercase text-blue-700">Cómo funcionan las variaciones por anuncio</p><p className="text-[9px] text-blue-600 mt-1">{variationExplanation(monitorPeriod)} Bandas: 0–10% normal · &gt;10–15% atención · &gt;15–20% alerta · &gt;20% crítica. La dirección se interpreta según la métrica.</p></div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="border rounded-2xl p-3 bg-slate-50">
-          <p className="text-[8px] font-black uppercase text-slate-400">Regla de inclusión de datos</p>
+        <div className="rounded-2xl p-3 bg-cyan-50" style={{border:'2px solid #0891b2'}}>
+          <p className="text-[8px] font-black uppercase text-cyan-700">Regla de inclusión de datos</p>
           <p className="text-[9px] text-slate-600 mt-1">Los días en que la campaña o el anuncio estuvo OFF se excluyen totalmente de Hoy/3D/7D/14D/30D, benchmark y escala rentable. No se convierten en ceros.</p>
         </div>
-        <div className="border rounded-2xl p-3 bg-slate-50">
-          <p className="text-[8px] font-black uppercase text-slate-400">Jerarquía ON/OFF</p>
+        <div className="rounded-2xl p-3 bg-indigo-50" style={{border:'2px solid #6366f1'}}>
+          <p className="text-[8px] font-black uppercase text-indigo-700">Jerarquía ON/OFF</p>
           <p className="text-[9px] text-slate-600 mt-1">Apagar campaña apaga sus anuncios. Al encenderla se restaura el estado individual previo. Apagar un anuncio no afecta a los demás.</p>
         </div>
-        <div className="border rounded-2xl p-3 bg-slate-50">
-          <p className="text-[8px] font-black uppercase text-slate-400">Confianza del diagnóstico</p>
+        <div className="rounded-2xl p-3 bg-amber-50" style={{border:'2px solid #d97706'}}>
+          <p className="text-[8px] font-black uppercase text-amber-700">Confianza del diagnóstico</p>
           <p className="text-[9px] text-slate-600 mt-1">&lt;5 compras baja · 5–14 media · 15–29 alta · 30+ muy alta. La antigüedad se calcula con días realmente activos: &lt;3 limita a baja y 3–6 limita a media.</p>
         </div>
       </div>
@@ -2530,40 +2542,40 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         ><td className="py-3 pl-3"><p className="font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 2).text }}>{ad.name}</p><p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p></td><td className="font-black">{fmtMoney(diag.stats.cpa)}</td><td>{diag.dynamicDiagnosis}</td><td>{diag.postDiagnosis}</td><td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td><td className="font-black">{diag.confidence}</td><td className="max-w-[330px] text-slate-500">{diag.reason}</td><td className="font-black">{diag.action}</td></tr>)}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
-      <div>
-        <h4 className="text-xs font-black uppercase mb-2">Historial de cambios de presupuesto</h4>
-        {budgetRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map(r => <tr key={r.id} className="border-t"><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
+      <div className="rounded-2xl p-3 md:p-4 bg-cyan-50/40 shadow-sm" style={{border:'2px solid #0891b2'}}>
+        <h4 className="text-xs font-black uppercase mb-3 text-cyan-800">Historial de cambios de presupuesto</h4>
+        {budgetRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
       </div>
 
-      <div>
-        <h4 className="text-xs font-black uppercase mb-2">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map(r => <tr key={r.budget} className="border-t"><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtMoney(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+      <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'2px solid #059669'}}>
+        <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
+        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtMoney(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
-      <div>
-        <h4 className="text-xs font-black uppercase mb-2">Línea de tiempo de decisiones</h4>
-        {decisionRows.length ? <div className="space-y-2">{decisionRows.slice(0,30).map(r => <div key={r.id} className="flex gap-3 border-l-2 border-emerald-300 pl-3 py-1"><div className="text-[9px] text-slate-400 w-20 shrink-0">{r.date}</div><div><p className="text-[10px] font-black">{r.action}</p>{r.detail && <p className="text-[9px] text-slate-500">{r.detail}</p>}</div></div>)}</div> : <EmptyState>Sin decisiones registradas todavía.</EmptyState>}
+      <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'2px solid #6366f1'}}>
+        <h4 className="text-xs font-black uppercase mb-3 text-indigo-800">Línea de tiempo de decisiones</h4>
+        {decisionRows.length ? <div className="space-y-2">{decisionRows.slice(0,30).map((r,i) => <div key={r.id} className="flex gap-3 rounded-xl pl-3 py-2" style={{border:`2px solid ${ccVisualAccent(r.id||r.action,i).border}`,backgroundColor:ccVisualAccent(r.id||r.action,i).soft}}><div className="text-[9px] text-slate-400 w-20 shrink-0">{r.date}</div><div><p className="text-[10px] font-black">{r.action}</p>{r.detail && <p className="text-[9px] text-slate-500">{r.detail}</p>}</div></div>)}</div> : <EmptyState>Sin decisiones registradas todavía.</EmptyState>}
       </div>
 
-      <div>
-        <h4 className="text-xs font-black uppercase mb-2">Benchmark propio del producto</h4>
+      <div className="rounded-2xl p-3 md:p-4 bg-pink-50/40 shadow-sm" style={{border:'2px solid #db2777'}}>
+        <h4 className="text-xs font-black uppercase mb-3 text-pink-800">Benchmark propio del producto</h4>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-2"><MiniCard label="Días rentables" value={benchmark.days}/><MiniCard label="CPA ponderado" value={fmtMoney(benchmark.cpa)}/><MiniCard label="CTR" value={`${fmtNum(benchmark.ctr,2)}%`}/><MiniCard label="CPC" value={fmtMoney(benchmark.cpc)}/><MiniCard label="Frecuencia" value={fmtNum(benchmark.frequency,2)}/><MiniCard label="Visita→Compra" value={`${fmtNum(benchmark.visitToPurchase, 2)}%`}/></div>
         <p className="text-[8px] text-slate-400 mt-2">Benchmark calculado únicamente con días del producto cuyo CPA estuvo dentro del máximo configurado.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="border rounded-2xl p-3"><h4 className="text-xs font-black uppercase mb-2">Cómo se dispara cada diagnóstico</h4><div className="space-y-2 text-[9px] text-slate-600"><p><strong>Fatiga:</strong> CPA ↑ + CTR ↓ + CPC ↑ + frecuencia ↑.</p><p><strong>Subasta cara:</strong> CPM ↑ mientras CTR/CVR permanecen estables.</p><p><strong>Problema post-clic:</strong> CPA ↑ con CTR/CPC estables y conversión post-clic ↓.</p><p><strong>Fuga al cierre:</strong> intención inicial sana pero ATC→Compra y Visita→Compra caen.</p></div></div>
-        <div className="border rounded-2xl p-3"><h4 className="text-xs font-black uppercase mb-2">Matriz de diagnóstico por combinación de métricas</h4><div className="space-y-2 text-[9px] text-slate-600"><p>CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ → <strong>Fatiga / saturación</strong></p><p>CPM ↑ + CTR estable + CVR estable → <strong>Subasta más cara</strong></p><p>CTR estable + CPC estable + CVR ↓ → <strong>Landing/oferta/cierre</strong></p><p>V→ATC ↓ + V→Compra ↓ → <strong>Calidad de tráfico deteriorada</strong></p></div></div>
+        <div className="rounded-2xl p-3 bg-slate-50" style={{border:'2px solid #475569'}}><h4 className="text-xs font-black uppercase mb-2 text-slate-700">Cómo se dispara cada diagnóstico</h4><div className="space-y-2 text-[9px] text-slate-600"><p><strong>Fatiga:</strong> CPA ↑ + CTR ↓ + CPC ↑ + frecuencia ↑.</p><p><strong>Subasta cara:</strong> CPM ↑ mientras CTR/CVR permanecen estables.</p><p><strong>Problema post-clic:</strong> CPA ↑ con CTR/CPC estables y conversión post-clic ↓.</p><p><strong>Fuga al cierre:</strong> intención inicial sana pero ATC→Compra y Visita→Compra caen.</p></div></div>
+        <div className="rounded-2xl p-3 bg-violet-50" style={{border:'2px solid #7c3aed'}}><h4 className="text-xs font-black uppercase mb-2 text-violet-800">Matriz de diagnóstico por combinación de métricas</h4><div className="space-y-2 text-[9px] text-slate-600"><p>CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ → <strong>Fatiga / saturación</strong></p><p>CPM ↑ + CTR estable + CVR estable → <strong>Subasta más cara</strong></p><p>CTR estable + CPC estable + CVR ↓ → <strong>Landing/oferta/cierre</strong></p><p>V→ATC ↓ + V→Compra ↓ → <strong>Calidad de tráfico deteriorada</strong></p></div></div>
       </div>
 
-      <div>
-        <h4 className="text-xs font-black uppercase mb-2">Guardrails de escalado</h4>
-        {adRows.length ? <div className="space-y-2">{adRows.map(({ad,diag}) => <div key={ad.id} className="border rounded-xl p-2.5 flex flex-col md:flex-row md:items-center gap-2 justify-between"><div><p className="text-[10px] font-black">{ad.name}</p><p className="text-[8px] text-slate-400">Para escala fuerte deben pasar los 5 controles.</p></div><div className="flex flex-wrap gap-1"><GuardrailPill ok={diag.guardrails.cpaMargin} label={`CPA ≤ ${fmtMoney(maxCpa*0.8)}`}/><GuardrailPill ok={diag.guardrails.stability} label="3D estable"/><GuardrailPill ok={diag.guardrails.volume} label="15+ compras"/><GuardrailPill ok={diag.guardrails.creative} label="Creativo sano"/><GuardrailPill ok={diag.guardrails.postClick} label="Post-clic sano"/></div><span className={`px-2 py-1 rounded-full text-[8px] font-black ${diag.canScale ? 'bg-emerald-500 text-zinc-950' : 'bg-zinc-100 text-zinc-500'}`}>{diag.canScale ? 'ESCALA PERMITIDA' : 'NO ESCALAR'}</span></div>)}</div> : <EmptyState>Sin anuncios activos.</EmptyState>}
+      <div className="rounded-2xl p-3 md:p-4 bg-orange-50/40 shadow-sm" style={{border:'2px solid #ea580c'}}>
+        <h4 className="text-xs font-black uppercase mb-3 text-orange-800">Guardrails de escalado</h4>
+        {adRows.length ? <div className="space-y-2">{adRows.map(({ad,diag}) => {const adAccent=ccVisualAccent(ad.id||ad.name,3);return <div key={ad.id} className="rounded-xl p-2.5 flex flex-col md:flex-row md:items-center gap-2 justify-between" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p><p className="text-[8px] text-slate-400">Para escala fuerte deben pasar los 5 controles.</p></div><div className="flex flex-wrap gap-1"><GuardrailPill ok={diag.guardrails.cpaMargin} label={`CPA ≤ ${fmtMoney(maxCpa*0.8)}`}/><GuardrailPill ok={diag.guardrails.stability} label="3D estable"/><GuardrailPill ok={diag.guardrails.volume} label="15+ compras"/><GuardrailPill ok={diag.guardrails.creative} label="Creativo sano"/><GuardrailPill ok={diag.guardrails.postClick} label="Post-clic sano"/></div><span className={`px-2 py-1 rounded-full text-[8px] font-black ${diag.canScale ? 'bg-emerald-500 text-zinc-950' : 'bg-zinc-100 text-zinc-500'}`}>{diag.canScale ? 'ESCALA PERMITIDA' : 'NO ESCALAR'}</span></div>})}</div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
-      <div>
-        <h4 className="text-xs font-black uppercase mb-2">Nivel de confianza del diagnóstico</h4>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px]"><div className="bg-slate-50 rounded-xl p-3"><strong>&lt;5 compras</strong><br/>Baja</div><div className="bg-slate-50 rounded-xl p-3"><strong>5–14</strong><br/>Media</div><div className="bg-slate-50 rounded-xl p-3"><strong>15–29</strong><br/>Alta</div><div className="bg-slate-50 rounded-xl p-3"><strong>30+</strong><br/>Muy alta</div></div>
+      <div className="rounded-2xl p-3 md:p-4 bg-blue-50/40 shadow-sm" style={{border:'2px solid #2563eb'}}>
+        <h4 className="text-xs font-black uppercase mb-3 text-blue-800">Nivel de confianza del diagnóstico</h4>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px]"><div className="bg-rose-50 rounded-xl p-3 border-2 border-rose-200"><strong className="text-rose-700">&lt;5 compras</strong><br/>Baja</div><div className="bg-amber-50 rounded-xl p-3 border-2 border-amber-200"><strong className="text-amber-700">5–14</strong><br/>Media</div><div className="bg-blue-50 rounded-xl p-3 border-2 border-blue-200"><strong className="text-blue-700">15–29</strong><br/>Alta</div><div className="bg-emerald-50 rounded-xl p-3 border-2 border-emerald-200"><strong className="text-emerald-700">30+</strong><br/>Muy alta</div></div>
         <p className="text-[8px] text-slate-400 mt-2">Antigüedad: &lt;3 días limita la confianza a Baja; 3–6 días la limita a Media; 7+ días no aplica penalización.</p>
       </div>
     </div>
@@ -2808,11 +2820,11 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
 
   return <div className="space-y-5">
     {managerMessage && <div className={`rounded-2xl border p-3 text-[10px] font-black ${managerMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{managerMessage.type === 'success' ? '✓ ' : '⚠ '}{managerMessage.text}</div>}
-    <SectionCard><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Nuevo producto Campaign Control</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
-    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));return <SectionCard key={product.id} className={product.active===false?'opacity-70':''}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><h3 className="font-black uppercase text-base">{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {product.createdDate ? parseDateSafe(product.createdDate)?.toLocaleDateString('es-CO') : '—'}</p></div><div className="flex gap-1"><button onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
+    <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto Campaign Control</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
+    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:productAccent.border}}></span><h3 className="font-black uppercase text-base" style={{color:productAccent.text}}>{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {product.createdDate ? parseDateSafe(product.createdDate)?.toLocaleDateString('es-CO') : '—'}</p></div><div className="flex gap-1"><button onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
       <div className="flex gap-2 mt-4"><input value={campaignNameByProduct[product.id]||''} onChange={e=>setCampaignNameByProduct(x=>({...x,[product.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCampaign(product.id);}}} placeholder="Nombre nueva campaña" className="flex-1 bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `campaign:${product.id}`} onClick={()=>addCampaign(product.id)} className="bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline mr-1"/> {busyKey === `campaign:${product.id}` ? 'Creando...' : 'Campaña'}</button></div>
-      <div className="space-y-3 mt-4">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]!==false;return <div key={campaign.id} className={`border rounded-2xl overflow-hidden ${campaign.archived?'bg-slate-50':'bg-white'}`}><div className="p-3 flex flex-col md:flex-row md:items-center gap-3 justify-between"><button onClick={()=>setExpanded(x=>({...x,[campaign.id]:!isOpen}))} className="text-left flex-1"><div className="flex items-center gap-2"><span className="font-black text-xs uppercase">{campaign.name}</span><StateBadge active={campaign.active!==false} archived={campaign.archived}/>{isOpen?<ChevronUp size={13}/>:<ChevronDown size={13}/>}</div><p className="text-[8px] text-slate-400 mt-1">{campaignAds.length} anuncios · alta {campaign.createdDate||'—'} · datos desde {campaign.effectiveStartDate||campaign.createdDate||'—'} · último cambio {campaign.stateChangedDate||'—'}</p></button><div className="flex gap-1 flex-wrap">{!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}{!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}<button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>
-        {isOpen&&<div className="border-t p-3 bg-slate-50/50">{!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=><div key={ad.id} className="bg-white border rounded-xl p-2.5 flex items-center justify-between gap-2"><div><p className="text-[10px] font-black">{ad.name}</p><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar anuncio definitivamente" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>)}</div>}</div>}
+      <div className="space-y-3 mt-4">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]!==false;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}><div className="p-3 flex flex-col md:flex-row md:items-center gap-3 justify-between"><button onClick={()=>setExpanded(x=>({...x,[campaign.id]:!isOpen}))} className="text-left flex-1"><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:campaignAccent.border}}></span><span className="font-black text-xs uppercase" style={{color:campaignAccent.text}}>{campaign.name}</span><StateBadge active={campaign.active!==false} archived={campaign.archived}/>{isOpen?<ChevronUp size={13}/>:<ChevronDown size={13}/>}</div><p className="text-[8px] text-slate-400 mt-1">{campaignAds.length} anuncios · alta {campaign.createdDate||'—'} · datos desde {campaign.effectiveStartDate||campaign.createdDate||'—'} · último cambio {campaign.stateChangedDate||'—'}</p></button><div className="flex gap-1 flex-wrap">{!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}{!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}<button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>
+        {isOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffffcc'}}>{!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar anuncio definitivamente" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
       </div>})}</div></SectionCard>})}
     <label className="flex items-center gap-2 text-[9px] font-black uppercase text-slate-500"><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Mostrar campañas archivadas</label>
   </div>;
@@ -2862,10 +2874,10 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
 
   return (
     <div className="space-y-5">
-      <SectionCard>
+      <SectionCard accent="#0891b2" soft="#ecfeff">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-black uppercase">Registro diario de Meta Ads</h3>
+            <h3 className="text-sm font-black uppercase text-cyan-800">Registro diario de Meta Ads</h3>
             <p className="text-[9px] text-slate-400 mt-1">Fecha → Productos → Campañas → Anuncios. Cada registro se guarda por fecha y campaña; volver a guardarlo actualiza el mismo documento, nunca crea duplicados.</p>
           </div>
           <div className="flex flex-wrap gap-2 items-end">
@@ -3116,16 +3128,16 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       </div>
     </div>
 
-    <div className="border rounded-2xl p-3">
+    <div className="rounded-2xl p-3 bg-indigo-50/50" style={{border:'2px solid #6366f1'}}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
-        <div><p className="font-black text-xs uppercase">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta.</p></div>
+        <div><p className="font-black text-xs uppercase text-indigo-800">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta.</p></div>
         <label className="cursor-pointer bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase flex items-center gap-2"><FileUp size={13}/> Seleccionar CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleCsv(e.target.files?.[0])}/></label>
       </div>
       {csvPreview && <CsvPreview rows={csvPreview} onApply={applyCsv}/>}
     </div>
 
-    <div>
-      <p className="font-black text-xs uppercase mb-2">Métricas generales de campaña</p>
+    <div className="rounded-2xl p-3 bg-blue-50/40" style={{border:'2px solid #2563eb'}}>
+      <p className="font-black text-xs uppercase mb-3 text-blue-800">Métricas generales de campaña</p>
       <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget disabled={!editing}/>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
         <MiniCard label="CPA calculado" value={fmtMoney(calcCpa(campaignForm.spend, campaignForm.purchases))}/>
@@ -3135,8 +3147,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       </div>
     </div>
 
-    <div>
-      <p className="font-black text-xs uppercase mb-2">Anuncios de la campaña</p>
+    <div className="rounded-2xl p-3 bg-emerald-50/40" style={{border:'2px solid #059669'}}>
+      <p className="font-black text-xs uppercase mb-3 text-emerald-800">Anuncios de la campaña</p>
       {ads.length === 0 ? <EmptyState>No hay anuncios. Puedes crearlos en Ver campañas o importarlos desde un CSV.</EmptyState> :
         <div className="space-y-3">{ads.map(ad => {
           const f = adForms[ad.id] || {};
@@ -3368,7 +3380,7 @@ function CsvPreview({ rows, onApply }) {
   const existing = rows.filter(r => r.status === 'existing').length;
   const news = rows.filter(r => r.status === 'new').length;
   const conflicts = rows.filter(r => r.status === 'conflict').length;
-  return <div className="space-y-3">
+  return <div className="space-y-3 rounded-2xl p-3 bg-amber-50/50" style={{border:'2px solid #d97706'}}>
     <div className="grid grid-cols-3 gap-2"><MiniCard label="Existentes" value={existing} tone="good" /><MiniCard label="Nuevos" value={news} /><MiniCard label="Conflictos" value={conflicts} tone={conflicts ? 'bad' : 'default'} /></div>
     <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-[10px]"><thead><tr className="text-left text-[8px] uppercase text-slate-400"><th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>Landing</th><th>ATC</th><th>ROAS</th></tr></thead><tbody>{rows.map((r, i) => <tr key={`${r.normalizedName}-${i}`} className="border-t"><td className="py-2 font-black">{r.adName}</td><td className={`font-black ${r.status === 'conflict' ? 'text-rose-600' : r.status === 'new' ? 'text-amber-600' : 'text-emerald-600'}`}>{r.status === 'existing' ? 'Actualizar existente' : r.status === 'new' ? 'Nuevo anuncio' : 'Conflicto'}</td><td>{r.reportDate}</td><td>{fmtMoney(r.metrics.spend)}</td><td>{fmtNum(r.metrics.purchases, 2)}</td><td>{fmtNum(r.metrics.ctr, 2)}%</td><td>{fmtMoney(r.metrics.cpc)}</td><td>{fmtMoney(r.metrics.cpm)}</td><td>{fmtNum(r.metrics.frequency, 2)}</td><td>{fmtNum(r.metrics.landingViews, 2)}</td><td>{fmtNum(r.metrics.atc, 2)}</td><td>{fmtNum(r.metrics.roas, 2)}</td></tr>)}</tbody></table></div>
     <button onClick={onApply} disabled={conflicts > 0} className="bg-zinc-950 text-white px-4 py-2.5 rounded-xl text-[9px] font-black uppercase disabled:opacity-30">Importar y actualizar campaña</button>
