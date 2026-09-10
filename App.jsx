@@ -1836,9 +1836,9 @@ function CampaignControlModule() {
   if (loading) return <div className="py-20 text-center text-slate-400 font-black uppercase text-xs">Cargando Campaign Control...</div>;
 
   const tabs = [
-    { id: 'dashboard', label: 'Resumen', icon: BarChart3 },
-    { id: 'register', label: 'Registrar día', icon: CalendarDays },
-    { id: 'campaigns', label: 'Ver campañas', icon: Layers }
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+    { id: 'campaigns', label: 'Ver campañas', icon: Layers },
+    { id: 'register', label: 'Registro diario', icon: CalendarDays }
   ];
 
   return (
@@ -1878,6 +1878,7 @@ function CampaignControlModule() {
           setPeriod={setPeriod}
           selectedCampaign={selectedCampaign}
           setSelectedCampaignId={setSelectedCampaignId}
+          setSubTab={setSubTab}
         />
       )}
 
@@ -1911,342 +1912,315 @@ function CampaignControlModule() {
 }
 
 
-function CampaignBehaviorChart({ campaign, product, dailyCampaigns }) {
+function CampaignCpaMiniChart({ campaign, product, dailyCampaigns }) {
   const history = eligibleCampaignRecords(
     dailyCampaigns.filter(r => r.campaignId === campaign.id),
     campaign
   ).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(-14);
 
-  if (!history.length) return <EmptyState>Esta campaña todavía no tiene histórico suficiente para dibujar su comportamiento.</EmptyState>;
+  if (!history.length) return <EmptyState>Sin histórico suficiente.</EmptyState>;
 
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
-  const scaleCpa = maxCpa * 0.8;
-  const pointsData = history.map(r => ({
-    date: r.date,
-    cpa: calcCpa(r.spend, r.purchases),
-    spend: toNumber(r.spend),
-    purchases: toNumber(r.purchases)
-  }));
+  const target = maxCpa * 0.8;
+  const data = history.map(r => ({ date:r.date, cpa:calcCpa(r.spend,r.purchases) }));
+  const valid = data.map(x=>x.cpa).filter(x=>x>0);
+  const chartMax = Math.max(maxCpa*1.35, ...(valid.length?valid.map(v=>v*1.1):[maxCpa]));
+  const W=620,H=180,px=16,py=15,bottom=28;
+  const iw=W-px*2, ih=H-py-bottom;
+  const x=i=>data.length<=1?W/2:px+i*iw/(data.length-1);
+  const y=v=>py+ih-(Math.min(Math.max(v,0),chartMax)/chartMax)*ih;
+  const points=data.map((d,i)=>`${x(i)},${y(d.cpa)}`).join(' ');
 
-  const validCpas = pointsData.map(x => x.cpa).filter(x => x > 0);
-  const chartMax = Math.max(maxCpa * 1.35, ...(validCpas.length ? validCpas.map(x => x * 1.1) : [maxCpa]), 1);
-  const W = 640, H = 170, padX = 18, padTop = 14, padBottom = 28;
-  const innerW = W - padX * 2;
-  const innerH = H - padTop - padBottom;
-  const xFor = i => pointsData.length <= 1 ? W / 2 : padX + (i * innerW / (pointsData.length - 1));
-  const yFor = value => padTop + innerH - (Math.min(Math.max(value, 0), chartMax) / chartMax) * innerH;
-  const polyline = pointsData.map((x,i) => `${xFor(i)},${yFor(x.cpa)}`).join(' ');
-  const yMax = yFor(maxCpa);
-  const yScale = yFor(scaleCpa);
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div>
-          <p className="text-[8px] font-black uppercase text-slate-400">Comportamiento CPA</p>
-          <p className="text-[9px] text-slate-500">Últimos {history.length} día(s) activos registrados</p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-[8px] font-black">
-          <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600">Máximo {fmtMoney(maxCpa)}</span>
-          <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Escala fuerte ≤ {fmtMoney(scaleCpa)}</span>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border bg-slate-50 p-2 overflow-hidden">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[190px]" preserveAspectRatio="none" aria-label="Evolución CPA">
-          <line x1={padX} x2={W-padX} y1={yMax} y2={yMax} stroke="#f43f5e" strokeWidth="1.5" strokeDasharray="6 5" />
-          <line x1={padX} x2={W-padX} y1={yScale} y2={yScale} stroke="#10b981" strokeWidth="1.5" strokeDasharray="6 5" />
-          <polyline points={polyline} fill="none" stroke="#18181b" strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
-          {pointsData.map((p,i) => (
-            <g key={`${p.date}-${i}`}>
-              <circle cx={xFor(i)} cy={yFor(p.cpa)} r="4" fill={p.cpa > maxCpa ? '#e11d48' : p.cpa <= scaleCpa ? '#10b981' : '#18181b'} />
-              {(i === 0 || i === pointsData.length - 1 || pointsData.length <= 7) &&
-                <text x={xFor(i)} y={H-8} textAnchor="middle" fontSize="8" fill="#94a3b8">{String(p.date).slice(5)}</text>}
-            </g>
-          ))}
-        </svg>
-      </div>
+  return <div>
+    <div className="rounded-2xl border bg-slate-50 p-2 overflow-hidden">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[180px]" preserveAspectRatio="none">
+        <line x1={px} x2={W-px} y1={y(maxCpa)} y2={y(maxCpa)} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="6 5"/>
+        <line x1={px} x2={W-px} y1={y(target)} y2={y(target)} stroke="#10b981" strokeWidth="1.5" strokeDasharray="6 5"/>
+        <polyline points={points} fill="none" stroke="#2563eb" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round"/>
+        {data.map((d,i)=><circle key={`${d.date}-${i}`} cx={x(i)} cy={y(d.cpa)} r="4" fill="#2563eb"/>)}
+      </svg>
     </div>
-  );
+    <div className="flex flex-wrap gap-4 text-[8px] font-black text-slate-500 mt-2">
+      <span>🔴 CPA máximo {fmtMoney(maxCpa)}</span>
+      <span>🟢 CPA operativo {fmtMoney(target)}</span>
+      <span>🔵 CPA diario</span>
+    </div>
+  </div>;
 }
 
 function CampaignDashboard({
   ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, decisions, recommendations,
   attentionRows, activeProducts, activeCampaigns, activeAds, latestDate,
-  period, setPeriod, selectedCampaign, setSelectedCampaignId
+  period, setPeriod, selectedCampaign, setSelectedCampaignId, setSubTab
 }) {
-  const [selectedProductId, setSelectedProductId] = useState(selectedCampaign?.productId || '');
-  const [showGlobalAttention, setShowGlobalAttention] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [drawerCampaignId, setDrawerCampaignId] = useState('');
+  const [drawerPeriod, setDrawerPeriod] = useState(period || '3d');
 
-  const productsWithCampaigns = useMemo(() => (
-    products
-      .filter(p => campaigns.some(c => c.productId === p.id && !c.archived))
-      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))
-  ), [products, campaigns]);
+  const activeCampaignList = activeCampaigns.filter(c => !c.archived);
 
-  useEffect(() => {
-    if (selectedCampaign?.productId && selectedCampaign.productId !== selectedProductId) {
-      setSelectedProductId(selectedCampaign.productId);
-    } else if (!selectedProductId && productsWithCampaigns.length) {
-      const firstProduct = productsWithCampaigns[0];
-      setSelectedProductId(firstProduct.id);
-      const firstCampaign = campaigns
-        .filter(c => c.productId === firstProduct.id && !c.archived)
-        .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))[0];
-      if (firstCampaign) setSelectedCampaignId(firstCampaign.id);
+  const campaignRows = useMemo(() => activeCampaignList.map(c => {
+    const product = products.find(p => p.id === c.productId);
+    const history = eligibleCampaignRecords(
+      dailyCampaigns.filter(r => r.campaignId === c.id),
+      c
+    ).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+
+    const latest = history[history.length-1] || null;
+    const previous3 = history.slice(Math.max(0, history.length-4), Math.max(0, history.length-1));
+    const prev7 = history.slice(Math.max(0, history.length-8), Math.max(0, history.length-1));
+    const latestStats = latest ? aggregateRecords([latest]) : aggregateRecords([]);
+    const stats3 = aggregateRecords(previous3);
+    const stats7 = aggregateRecords(prev7);
+    const delta3 = latest ? pctChange(latestStats.cpa, stats3.cpa) : null;
+    const delta7 = latest ? pctChange(latestStats.cpa, stats7.cpa) : null;
+
+    const maxCpa = Math.max(1,toNumber(product?.maxCpa));
+    const campaignAds = ads.filter(a => a.campaignId === c.id && a.active !== false);
+    const adDiags = campaignAds.map(ad => diagnoseAd(
+      dailyAds.filter(r=>r.adId===ad.id), product, ad, '3d', c
+    ));
+
+    const hasCritical = adDiags.some(d=>d.priority==='critical');
+    const hasAlert = adDiags.some(d=>d.priority==='alert');
+    const hasScalable = adDiags.some(d=>d.canScale);
+    const cpa = latestStats.cpa;
+
+    let state='Sin datos', tone='attention', diagnosis='Pendiente', action='Registrar día';
+    if (latest) {
+      if (hasCritical || cpa > maxCpa) {
+        state='Crítico'; tone='critical';
+        diagnosis=cpa>maxCpa?'CPA fuera de objetivo':'Anuncio crítico';
+        action='Optimizar / no escalar';
+      } else if (hasAlert) {
+        state='Alerta'; tone='alert';
+        diagnosis='Variación fuera de rango';
+        action='Revisar diagnóstico';
+      } else if (hasScalable && cpa <= maxCpa*0.8) {
+        state='Escalable'; tone='normal';
+        diagnosis='Estable + margen';
+        action='Escalar controladamente';
+      } else {
+        state='Mantener'; tone='attention';
+        diagnosis='Rentable / observar';
+        action='Mantener';
+      }
     }
-  }, [selectedCampaign?.productId, selectedProductId, productsWithCampaigns, campaigns, setSelectedCampaignId]);
 
-  const productCampaigns = useMemo(() => (
-    campaigns
-      .filter(c => c.productId === selectedProductId && !c.archived)
-      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))
-  ), [campaigns, selectedProductId]);
+    const creativeHealth = hasCritical ? 'Reemplazar creativo'
+      : hasAlert ? 'Vigilar fatiga'
+      : 'Creativo sano';
 
-  const selectedProduct = products.find(p => p.id === selectedCampaign?.productId) || products.find(p => p.id === selectedProductId) || null;
+    return {
+      campaign:c, product, latest, latestStats, stats3, stats7, delta3, delta7,
+      maxCpa, state, tone, diagnosis, action, creativeHealth,
+      purchases:latestStats.purchases, frequency:latestStats.frequency
+    };
+  }), [activeCampaignList, products, dailyCampaigns, ads, dailyAds]);
 
-  const selectedCampaignHistory = selectedCampaign ? eligibleCampaignRecords(
-    dailyCampaigns.filter(r => r.campaignId === selectedCampaign.id),
-    selectedCampaign
-  ).sort((a,b) => String(a.date).localeCompare(String(b.date))) : [];
+  const filteredRows = campaignRows.filter(r => {
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q || `${r.product?.name||''} ${r.campaign.name}`.toLowerCase().includes(q);
+    const matchesStatus = statusFilter==='all'
+      || (statusFilter==='critical' && r.state==='Crítico')
+      || (statusFilter==='alert' && r.state==='Alerta')
+      || (statusFilter==='scalable' && r.state==='Escalable')
+      || (statusFilter==='testing' && /test/i.test(r.campaign.name))
+      || (statusFilter==='scaled' && /escala|escalad/i.test(r.campaign.name));
+    return matchesSearch && matchesStatus;
+  });
 
-  const latestSelectedRecord = selectedCampaignHistory.length ? selectedCampaignHistory[selectedCampaignHistory.length - 1] : null;
-  const selectedCpa = latestSelectedRecord ? calcCpa(latestSelectedRecord.spend, latestSelectedRecord.purchases) : 0;
-  const maxCpa = toNumber(selectedProduct?.maxCpa);
-  const scaleCpa = maxCpa * 0.8;
+  const totalSpend = campaignRows.reduce((sum,r)=>sum+toNumber(r.latest?.spend),0);
+  const totalPurchases = campaignRows.reduce((sum,r)=>sum+toNumber(r.latest?.purchases),0);
+  const globalCpa = calcCpa(totalSpend,totalPurchases);
+  const scalableCount = campaignRows.filter(r=>r.state==='Escalable').length;
+  const maintainCount = campaignRows.filter(r=>r.state==='Mantener').length;
+  const alertCount = campaignRows.filter(r=>r.state==='Alerta').length;
+  const criticalCount = campaignRows.filter(r=>r.state==='Crítico').length;
 
-  const selectedAttention = attentionRows.filter(x => x.campaign.id === selectedCampaign?.id);
-  const criticalCount = attentionRows.filter(x => x.diag.priority === 'critical').length;
-  const alertCount = attentionRows.filter(x => x.diag.priority === 'alert').length;
-  const globalSpendRecords = dailyCampaigns.filter(r => r.date === latestDate && campaigns.some(c => c.id === r.campaignId && entityActiveOnDate(c, r.date)));
-  const totalSpend = globalSpendRecords.reduce((sum,r) => sum + toNumber(r.spend), 0);
-  const totalPurchases = globalSpendRecords.reduce((sum,r) => sum + toNumber(r.purchases), 0);
-  const globalCpa = calcCpa(totalSpend, totalPurchases);
+  const drawerCampaign = campaigns.find(c=>c.id===drawerCampaignId) || null;
+  const drawerProduct = drawerCampaign ? products.find(p=>p.id===drawerCampaign.productId) : null;
+  const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
+    dailyCampaigns.filter(r=>r.campaignId===drawerCampaign.id), drawerCampaign
+  ).sort((a,b)=>String(a.date).localeCompare(String(b.date))) : [];
+  const drawerLatest = drawerHistory[drawerHistory.length-1] || null;
+  const drawerCurrent = drawerLatest ? aggregateRecords([drawerLatest]) : aggregateRecords([]);
+  const drawerPrev3 = aggregateRecords(drawerHistory.slice(Math.max(0,drawerHistory.length-4),Math.max(0,drawerHistory.length-1)));
+  const drawerDelta = pctChange(drawerCurrent.cpa,drawerPrev3.cpa);
 
-  const campaignIndex = productCampaigns.findIndex(c => c.id === selectedCampaign?.id);
-  const moveCampaign = delta => {
-    if (!productCampaigns.length) return;
-    let next = campaignIndex < 0 ? 0 : campaignIndex + delta;
-    if (next < 0) next = productCampaigns.length - 1;
-    if (next >= productCampaigns.length) next = 0;
-    setSelectedCampaignId(productCampaigns[next].id);
+  const openDrawer = campaignId => {
+    setSelectedCampaignId(campaignId);
+    setDrawerCampaignId(campaignId);
+    setDrawerPeriod(period || '3d');
   };
-
-  const handleProductChange = productId => {
-    setSelectedProductId(productId);
-    const first = campaigns
-      .filter(c => c.productId === productId && !c.archived)
-      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))[0];
-    setSelectedCampaignId(first?.id || '');
-  };
-
-  const campaignState = !selectedCampaign ? 'Sin campaña'
-    : selectedCampaign.active === false ? 'Campaña OFF'
-    : !latestSelectedRecord ? 'Sin datos'
-    : selectedCpa > maxCpa ? 'CPA fuera de objetivo'
-    : selectedCpa <= scaleCpa ? 'Zona de escala'
-    : 'Rentable / mantener';
-
-  const stateTone = selectedCampaign?.active === false || (selectedCpa > maxCpa && selectedCpa > 0)
-    ? 'critical'
-    : selectedCpa > 0 && selectedCpa <= scaleCpa ? 'normal'
-    : 'attention';
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniCard label="Productos activos" value={activeProducts.length} />
-        <MiniCard label="Campañas activas" value={activeCampaigns.filter(c => c.active !== false).length} />
-        <MiniCard label="Anuncios activos" value={activeAds.length} />
-        <MiniCard label={`Gasto ${latestDate}`} value={fmtMoney(totalSpend)} />
-        <MiniCard label="CPA global" value={fmtMoney(globalCpa)} />
-        <MiniCard label="Alertas críticas" value={criticalCount + alertCount} tone={(criticalCount + alertCount) ? 'bad' : 'good'} />
+      {/* TOPBAR VALIDADO */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">Dashboard de campañas</h3>
+          <p className="text-[9px] md:text-[10px] text-slate-400 font-semibold mt-1">Control diario, variaciones, acciones recomendadas y techo rentable por producto</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={()=>setSubTab('register')} className="bg-white border px-4 py-2 rounded-xl text-[9px] font-black uppercase">+ Registrar día</button>
+          <button onClick={()=>setSubTab('campaigns')} className="bg-zinc-950 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase">+ Nuevo producto</button>
+        </div>
       </div>
 
-      <SectionCard className="border-2 border-zinc-900">
-        <div className="flex flex-col xl:flex-row xl:items-end gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <Target size={16} className="text-emerald-500" />
-              <h3 className="font-black uppercase text-sm">Seleccionar campaña para analizar</h3>
-            </div>
-            <p className="text-[9px] text-slate-400">
-              El Dashboard muestra solamente la campaña seleccionada. La administración masiva permanece en “Ver campañas”.
-            </p>
+      {/* QUE REQUIERE ATENCION: UNA SOLA VEZ */}
+      <SectionCard>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-black uppercase text-sm">Qué requiere mi atención hoy</h3>
+            <p className="text-[9px] text-slate-400 mt-1">Una sola cola priorizada. Cada anuncio muestra la campaña que lo contiene.</p>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[240px_320px_auto] gap-2 w-full xl:w-auto">
-            <div>
-              <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Producto</p>
-              <select
-                value={selectedProductId}
-                onChange={e => handleProductChange(e.target.value)}
-                className="w-full bg-slate-50 border-2 border-slate-200 focus:border-emerald-400 rounded-xl px-3 py-2.5 text-[10px] font-black outline-none"
-              >
-                {productsWithCampaigns.length === 0 && <option value="">Sin productos</option>}
-                {productsWithCampaigns.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Campaña</p>
-              <select
-                value={selectedCampaign?.id || ''}
-                onChange={e => setSelectedCampaignId(e.target.value)}
-                className="w-full bg-zinc-950 text-white border-2 border-zinc-950 rounded-xl px-3 py-2.5 text-[10px] font-black outline-none"
-              >
-                {productCampaigns.length === 0 && <option value="">Sin campañas</option>}
-                {productCampaigns.map(c => <option key={c.id} value={c.id}>{c.name}{c.active === false ? ' · OFF' : ''}</option>)}
-              </select>
-            </div>
-
-            <div className="flex gap-1 items-end">
-              <button onClick={() => moveCampaign(-1)} disabled={!productCampaigns.length} className="h-[40px] px-3 rounded-xl bg-slate-100 text-slate-600 font-black text-xs disabled:opacity-30">←</button>
-              <button onClick={() => moveCampaign(1)} disabled={!productCampaigns.length} className="h-[40px] px-3 rounded-xl bg-slate-100 text-slate-600 font-black text-xs disabled:opacity-30">→</button>
-            </div>
-          </div>
+          <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
         </div>
+        {attentionRows.length===0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> :
+          <div className="space-y-2">{attentionRows.slice(0,12).map(({ad,campaign,product,diag})=>(
+            <button key={ad.id} onClick={()=>openDrawer(campaign.id)} className={`w-full text-left rounded-2xl border p-3 ${diag.priority==='critical'?'bg-rose-50 border-rose-200':diag.priority==='alert'?'bg-orange-50 border-orange-200':'bg-slate-50'}`}>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
+                  <p className="font-black text-xs mt-1">{diag.finalDiagnosis || diag.diagnosis}</p>
+                  <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
+                </div>
+                <div className="md:text-right">
+                  <p className="text-[8px] uppercase font-black text-slate-400">Acción</p>
+                  <p className="text-[10px] font-black">{diag.action}</p>
+                </div>
+              </div>
+            </button>
+          ))}</div>
+        }
+      </SectionCard>
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mt-4 pt-4 border-t">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${toneBg(stateTone)} ${toneText(stateTone)}`}>{campaignState}</span>
-            {selectedCampaign && <span className="text-[9px] font-black text-slate-500">{selectedProduct?.name} → {selectedCampaign.name}</span>}
-          </div>
-          <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto">
-            {PERIODS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setPeriod(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-[9px] font-black whitespace-nowrap ${period === p.id ? 'bg-zinc-950 text-white' : 'text-slate-500'}`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+      {/* KPIs VALIDADO */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <MiniCard label="Productos activos" value={activeProducts.length} />
+        <MiniCard label="Escalables" value={scalableCount} tone={scalableCount?'good':'default'} />
+        <MiniCard label="Mantener" value={maintainCount} />
+        <MiniCard label="En alerta" value={alertCount} />
+        <MiniCard label="Críticos" value={criticalCount} tone={criticalCount?'bad':'default'} />
+        <MiniCard label="Gasto hoy" value={fmtMoney(totalSpend)} />
+      </div>
+
+      {/* FILTROS + BUSQUEDA */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex gap-2 flex-wrap">
+          {[
+            ['all','Todos'],['critical','🔴 Críticos'],['alert','🟠 Alertas'],
+            ['scalable','🟢 Escalables'],['testing','Testing'],['scaled','Escaladas']
+          ].map(([id,label])=>(
+            <button key={id} onClick={()=>setStatusFilter(id)} className={`px-3 py-2 rounded-full text-[9px] font-black ${statusFilter===id?'bg-zinc-950 text-white':'bg-white border text-slate-500'}`}>{label}</button>
+          ))}
+        </div>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar producto o campaña..." className="w-full lg:w-[300px] border rounded-xl px-3 py-2.5 text-[10px] font-semibold outline-none focus:border-emerald-400"/>
+      </div>
+
+      {/* TABLA PRINCIPAL DE CAMPAÑAS - CLIC ABRE DRAWER */}
+      <SectionCard className="p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1350px] text-[10px]">
+            <thead className="bg-slate-50">
+              <tr className="text-left uppercase text-[8px] text-slate-400">
+                <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA hoy</th>
+                <th>CPA 3D</th><th>Δ vs 3D</th><th>CPA 7D</th><th>Δ 7D</th>
+                <th>Compras</th><th>Frecuencia</th><th>Salud tráfico/creativo</th><th>Diagnóstico</th><th>Acción hoy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.length===0 ? <tr><td colSpan="13" className="p-8 text-center text-slate-400">No hay campañas que coincidan con el filtro.</td></tr> :
+                filteredRows.map(r=>(
+                  <tr key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className="border-t hover:bg-slate-50 cursor-pointer">
+                    <td className="p-3"><span className={`px-2 py-1 rounded-full font-black ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>● {r.state}</span></td>
+                    <td><p className="font-black">{r.product?.name||'Producto'}</p><p className="text-[8px] text-slate-400">{r.campaign.name}</p></td>
+                    <td className="font-black">{r.latest?fmtMoney(r.latest.budget):'—'}</td>
+                    <td className={`font-black ${r.latestStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.latest?fmtMoney(r.latestStats.cpa):'—'}</td>
+                    <td>{r.stats3.purchases>0?fmtMoney(r.stats3.cpa):'—'}</td>
+                    <td>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3),1)}%`}</td>
+                    <td>{r.stats7.purchases>0?fmtMoney(r.stats7.cpa):'—'}</td>
+                    <td>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7),1)}%`}</td>
+                    <td>{fmtNum(r.purchases,0)}</td>
+                    <td>{fmtNum(r.frequency,2)}</td>
+                    <td><span className="font-black">{r.creativeHealth}</span></td>
+                    <td><span className="font-black">{r.diagnosis}</span></td>
+                    <td><span className="font-black text-blue-600">{r.action}</span></td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
         </div>
       </SectionCard>
 
-      {!selectedCampaign ? <EmptyState>Crea un producto y una campaña en “Ver campañas” para comenzar.</EmptyState> : (
+      {/* PRIORIDADES DE ACCION HOY */}
+      <SectionCard>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-black uppercase text-sm">Prioridades de acción hoy</h3>
+          <span className="text-[8px] text-slate-400 font-black uppercase">Lo más importante primero</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {campaignRows.filter(r=>['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
+            <button key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className={`text-left rounded-2xl border p-3 ${r.state==='Crítico'?'bg-rose-50 border-rose-200':r.state==='Alerta'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'}`}>
+              <p className="font-black text-xs">{r.state==='Crítico'?'🔴':r.state==='Alerta'?'🟠':'🟢'} {r.product?.name} — {r.campaign.name}</p>
+              <p className="text-[9px] text-slate-600 mt-1">CPA {r.latest?fmtMoney(r.latestStats.cpa):'—'}. Acción: {r.action}.</p>
+            </button>
+          ))}
+          {!campaignRows.some(r=>['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales por ahora.</EmptyState>}
+        </div>
+      </SectionCard>
+
+      {/* DRAWER LATERAL COMO EN LA VERSION VALIDADA */}
+      {drawerCampaign && (
         <>
-          <SectionCard>
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
-              <div>
-                <p className="text-[8px] font-black uppercase text-emerald-600">Campaña seleccionada</p>
-                <h3 className="font-black uppercase text-lg mt-1">{selectedProduct?.name} → {selectedCampaign.name}</h3>
-                <p className="text-[9px] text-slate-400 mt-1">
-                  {latestSelectedRecord ? `Último registro activo: ${latestSelectedRecord.date}` : 'Sin registros activos todavía'}
-                </p>
-              </div>
-              <StateBadge active={selectedCampaign.active !== false} archived={selectedCampaign.archived} />
+          <div className="fixed inset-0 bg-black/35 z-[80]" onClick={()=>setDrawerCampaignId('')}></div>
+          <aside className="fixed right-0 top-0 w-[730px] max-w-[96vw] h-screen bg-white shadow-2xl z-[90] overflow-y-auto p-4 md:p-6">
+            <button onClick={()=>setDrawerCampaignId('')} className="absolute right-4 top-4 w-9 h-9 rounded-xl bg-slate-100 font-black">✕</button>
+
+            <div className="pr-12">
+              <h3 className="text-xl md:text-2xl font-black uppercase">{drawerProduct?.name}</h3>
+              <p className="text-[10px] text-slate-400 mt-1">{drawerCampaign.name} · Historial, variaciones y capacidad de escala</p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
-              <MiniCard label="Presupuesto" value={latestSelectedRecord ? fmtMoney(latestSelectedRecord.budget) : '—'} />
-              <MiniCard label="Gasto" value={latestSelectedRecord ? fmtMoney(latestSelectedRecord.spend) : '—'} />
-              <MiniCard label="Compras" value={latestSelectedRecord ? fmtNum(latestSelectedRecord.purchases,0) : '—'} />
-              <MiniCard label="CPA" value={latestSelectedRecord ? fmtMoney(selectedCpa) : '—'} tone={selectedCpa > maxCpa && selectedCpa > 0 ? 'bad' : selectedCpa > 0 && selectedCpa <= scaleCpa ? 'good' : 'default'} />
-              <MiniCard label="CPA máximo" value={fmtMoney(maxCpa)} />
-              <MiniCard label="Zona escala" value={`≤ ${fmtMoney(scaleCpa)}`} />
-              <MiniCard label="Frecuencia" value={latestSelectedRecord ? fmtNum(latestSelectedRecord.frequency,2) : '—'} />
-              <MiniCard label="ROAS" value={latestSelectedRecord ? fmtNum(latestSelectedRecord.roas,2) : '—'} />
+            <div className="flex gap-2 mt-5 mb-4 flex-wrap">
+              {PERIODS.map(p=><button key={p.id} onClick={()=>{setDrawerPeriod(p.id);setPeriod(p.id)}} className={`px-3 py-2 rounded-lg text-[9px] font-black ${drawerPeriod===p.id?'bg-zinc-950 text-white':'bg-slate-100 text-slate-500'}`}>{p.label}</button>)}
             </div>
-          </SectionCard>
 
-          <SectionCard>
-            <CampaignBehaviorChart campaign={selectedCampaign} product={selectedProduct} dailyCampaigns={dailyCampaigns} />
-          </SectionCard>
+            <CampaignCpaMiniChart campaign={drawerCampaign} product={drawerProduct} dailyCampaigns={dailyCampaigns}/>
 
-          {selectedAttention.length > 0 && (
-            <SectionCard>
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div>
-                  <h3 className="font-black uppercase text-sm flex items-center gap-2"><AlertTriangle size={15} className="text-amber-500"/> Alertas de esta campaña</h3>
-                  <p className="text-[9px] text-slate-400">Solo aparecen los anuncios de la campaña seleccionada.</p>
-                </div>
-                <span className="bg-zinc-950 text-white px-2 py-1 rounded-full text-[9px] font-black">{selectedAttention.length}</span>
-              </div>
-              <div className="space-y-2">
-                {selectedAttention.map(({ad,diag}) => (
-                  <div key={ad.id} className={`rounded-2xl border p-3 ${diag.priority === 'critical' ? 'bg-rose-50 border-rose-200' : diag.priority === 'alert' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50'}`}>
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                      <div>
-                        <p className="text-[9px] font-black uppercase text-slate-500">{ad.name}</p>
-                        <p className={`font-black text-sm ${diag.priority === 'critical' ? 'text-rose-700' : diag.priority === 'alert' ? 'text-amber-700' : 'text-slate-700'}`}>{diag.diagnosis}</p>
-                        <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
-                      </div>
-                      <div className="md:text-right">
-                        <p className="text-[8px] font-black uppercase text-slate-400">Acción</p>
-                        <p className="text-[10px] font-black">{diag.action}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
-
-          <SectionCard>
-            <div className="mb-4">
-              <h3 className="font-black uppercase text-sm">Comportamiento y diagnóstico completo</h3>
-              <p className="text-[9px] text-slate-400 mt-1">
-                Todo lo que aparece debajo corresponde exclusivamente a {selectedCampaign.name}.
-              </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+              <MiniCard label="CPA hoy" value={drawerLatest?fmtMoney(drawerCurrent.cpa):'—'} />
+              <MiniCard label="CPA 3D anteriores" value={drawerPrev3.purchases>0?fmtMoney(drawerPrev3.cpa):'—'} />
+              <MiniCard label="Variación vs 3D" value={drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta,1)}%`} />
+              <MiniCard label="Frecuencia" value={drawerLatest?fmtNum(drawerCurrent.frequency,2):'—'} />
+              <MiniCard label="Compras hoy" value={drawerLatest?fmtNum(drawerCurrent.purchases,0):'—'} />
+              <MiniCard label="Presupuesto actual" value={drawerLatest?fmtMoney(drawerLatest.budget):'—'} />
+              <MiniCard label="CPA máximo" value={fmtMoney(drawerProduct?.maxCpa)} />
+              <MiniCard label="CPA operativo" value={fmtMoney(toNumber(drawerProduct?.maxCpa)*0.8)} />
             </div>
-            <CampaignDiagnosticDetail
-              ownerUid={ownerUid}
-              campaign={selectedCampaign}
-              product={selectedProduct}
-              ads={ads.filter(a => a.campaignId === selectedCampaign.id)}
-              allAds={ads}
-              allCampaigns={campaigns}
-              dailyAds={dailyAds}
-              dailyCampaigns={dailyCampaigns}
-              budgetChanges={budgetChanges}
-              decisions={decisions}
-              recommendations={recommendations}
-              period={period}
-            />
-          </SectionCard>
+
+            <div className="mt-5">
+              <CampaignDiagnosticDetail
+                ownerUid={ownerUid}
+                campaign={drawerCampaign}
+                product={drawerProduct}
+                ads={ads.filter(a=>a.campaignId===drawerCampaign.id)}
+                allAds={ads}
+                allCampaigns={campaigns}
+                dailyAds={dailyAds}
+                dailyCampaigns={dailyCampaigns}
+                budgetChanges={budgetChanges}
+                decisions={decisions}
+                recommendations={recommendations}
+                period={drawerPeriod}
+              />
+            </div>
+          </aside>
         </>
       )}
-
-      <SectionCard>
-        <button onClick={() => setShowGlobalAttention(x => !x)} className="w-full flex items-center justify-between gap-3 text-left">
-          <div>
-            <h3 className="font-black uppercase text-sm">Qué requiere mi atención hoy — todas las campañas</h3>
-            <p className="text-[9px] text-slate-400 mt-1">Cola global compacta. Se mantiene cerrada para no saturar el Dashboard cuando tengas muchos productos.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="bg-zinc-950 text-white px-2 py-1 rounded-full text-[9px] font-black">{attentionRows.length}</span>
-            {showGlobalAttention ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
-          </div>
-        </button>
-
-        {showGlobalAttention && (
-          <div className="space-y-2 mt-4 pt-4 border-t">
-            {attentionRows.length === 0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> :
-              attentionRows.map(({ad,campaign,product,diag}) => (
-                <button
-                  key={ad.id}
-                  onClick={() => { setSelectedProductId(product.id); setSelectedCampaignId(campaign.id); window.scrollTo({top:0,behavior:'smooth'}); }}
-                  className={`w-full text-left rounded-2xl border p-3 ${diag.priority === 'critical' ? 'bg-rose-50 border-rose-200' : diag.priority === 'alert' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
-                      <p className="font-black text-xs mt-1">{diag.diagnosis}</p>
-                    </div>
-                    <div className="md:text-right">
-                      <p className="text-[8px] text-slate-400 uppercase font-black">Acción</p>
-                      <p className="text-[10px] font-black">{diag.action}</p>
-                    </div>
-                  </div>
-                </button>
-              ))
-            }
-          </div>
-        )}
-      </SectionCard>
     </div>
   );
 }
