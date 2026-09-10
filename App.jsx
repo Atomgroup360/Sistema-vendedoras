@@ -1788,7 +1788,7 @@ function CampaignControlModule() {
       const diag = diagnoseAd(recs, product, ad, '3d');
       if (diag.priority === 'critical' || diag.priority === 'alert') rows.push({ ad, campaign, product, diag });
     }
-    return rows.sort((a, b) => ({ critical: 0, alert: 1, monitor: 2 }[a.diag.priority] - ({ critical: 0, alert: 1, monitor: 2 }[b.diag.priority]));
+    return rows.sort((a, b) => (({ critical: 0, alert: 1, monitor: 2 })[a.diag.priority] ?? 99) - (({ critical: 0, alert: 1, monitor: 2 })[b.diag.priority] ?? 99));
   }, [ads, campaigns, products, dailyAds]);
 
   const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId) || activeCampaigns[0] || null;
