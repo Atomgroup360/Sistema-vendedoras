@@ -1563,6 +1563,15 @@ function confidenceLabel(purchases, ageDays) {
   return ['Baja', 'Baja', 'Media', 'Alta', 'Muy alta'][level];
 }
 
+function volumeConfidenceLabel(purchases) {
+  const value = toNumber(purchases);
+  if (value <= 0) return 'Sin muestra';
+  if (value < 5) return 'Baja';
+  if (value < 15) return 'Media';
+  if (value < 30) return 'Alta';
+  return 'Muy alta';
+}
+
 function daysBetween(from, to = todayColombiaCC()) {
   const a = parseDateSafe(from);
   const b = parseDateSafe(to);
@@ -1668,13 +1677,42 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   };
   const dynamic = adVariationDiagnosisFromDelta(delta);
   const post = funnelVariationDiagnosisFromDelta(delta);
-  const guardrails = {
-    cpaMargin: c.cpa > 0 && c.cpa <= scaleCpa,
-    stability: delta.cpa === null || Math.abs(delta.cpa) <= 15,
-    volume: c.purchases >= 15,
-    creative: !['Fatiga probable', 'Fatiga confirmada'].includes(dynamic.diagnosis),
-    postClick: !['Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo', 'Fuga al cierre'].includes(post.diagnosis)
+
+  // GUARDRAILS DE ESCALADO: SIEMPRE 3D.
+  // El selector Último día / 7D / 14D / 30D sirve para explorar diagnóstico,
+  // pero NO cambia la decisión operativa de escala.
+  const {
+    currentStats: scale3d,
+    previousStats: scalePrev3d
+  } = splitPeriodRecords(eligible, '3d');
+
+  const scaleDelta3d = {
+    cpa: pctChange(scale3d.cpa, scalePrev3d.cpa),
+    ctr: pctChange(scale3d.ctr, scalePrev3d.ctr),
+    cpc: pctChange(scale3d.cpc, scalePrev3d.cpc),
+    cpm: pctChange(scale3d.cpm, scalePrev3d.cpm),
+    frequency: pctChange(scale3d.frequency, scalePrev3d.frequency),
+    visitToAtc: pctChange(scale3d.visitToAtc, scalePrev3d.visitToAtc),
+    visitToPurchase: pctChange(scale3d.visitToPurchase, scalePrev3d.visitToPurchase),
+    atcToPurchase: pctChange(scale3d.atcToPurchase, scalePrev3d.atcToPurchase)
   };
+
+  const scaleDynamic3d = adVariationDiagnosisFromDelta(scaleDelta3d);
+  const scalePost3d = funnelVariationDiagnosisFromDelta(scaleDelta3d);
+
+  const guardrails = {
+    cpaMargin: scale3d.cpa > 0 && scale3d.cpa <= scaleCpa,
+    stability: scaleDelta3d.cpa === null || Math.abs(scaleDelta3d.cpa) <= 15,
+    creative: !['Fatiga probable', 'Fatiga confirmada'].includes(scaleDynamic3d.diagnosis),
+    postClick: !['Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo', 'Fuga al cierre'].includes(scalePost3d.diagnosis)
+  };
+
+  // Volumen = referencia de confianza. NUNCA bloquea una escala.
+  const volumeReference = {
+    purchases: scale3d.purchases,
+    confidence: volumeConfidenceLabel(scale3d.purchases)
+  };
+
   const canScale = Object.values(guardrails).every(Boolean);
   let finalDiagnosis = 'Sin suficiente información';
   let action = 'Monitorear';
@@ -1694,7 +1732,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     } else if (post.diagnosis === 'Calidad de tráfico cayendo') {
       finalDiagnosis = 'Calidad de tráfico deteriorándose'; action = c.cpa <= maxCpa ? 'Preparar reemplazo' : 'Apagar / reemplazar'; priority = 'alert'; reason = 'Las tasas visita→ATC y visita→compra empeoran frente a su ventana anterior.';
     } else if (c.cpa <= scaleCpa && dynamic.diagnosis === 'Estable' && post.diagnosis === 'Post-clic estable' && canScale) {
-      finalDiagnosis = 'Ganador estable'; action = 'Escalar +20%'; priority = 'monitor'; reason = 'CPA con margen ≥20%, variaciones sanas, volumen suficiente y post-clic estable.';
+      finalDiagnosis = 'Ganador estable'; action = 'Escalar +20%'; priority = 'monitor'; reason = `CPA 3D con margen ≥20%, estabilidad 3D, creativo sano y post-clic sano. Volumen: ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}), usado solo como referencia de confianza.`;
     } else if (c.cpa <= maxCpa) {
       finalDiagnosis = 'Rentable / mantener'; action = 'Mantener'; priority = 'monitor'; reason = 'CPA dentro del máximo y sin señales críticas combinadas.';
     } else {
@@ -1703,7 +1741,11 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   }
   return {
     diagnosis: finalDiagnosis, finalDiagnosis, action, priority, reason, confidence, delta, stats: c, previous: p,
-    guardrails, canScale, dynamicDiagnosis: dynamic.diagnosis, dynamicAction: dynamic.action,
+    guardrails, canScale, volumeReference,
+    scale3d, scalePrev3d, scaleDelta3d,
+    scaleDynamic3d: scaleDynamic3d.diagnosis,
+    scalePost3d: scalePost3d.diagnosis,
+    dynamicDiagnosis: dynamic.diagnosis, dynamicAction: dynamic.action,
     postDiagnosis: post.diagnosis, postAction: post.action, dynamicTone: dynamic.tone, postTone: post.tone,
     maxCpa, scaleCpa, ageDays
   };
@@ -2496,21 +2538,45 @@ function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allA
 
 function buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows) {
   const latest = [...campaignHistory].sort((a,b) => String(b.date).localeCompare(String(a.date)))[0];
-  if (!latest) return { status: 'Sin datos', action: 'Registrar datos', reason: 'Aún no existe un registro diario para esta campaña.', recommendedBudget: null };
+  if (!latest) return { status: 'Sin datos', action: 'Registrar datos', reason: 'Aún no existe un registro diario completo para esta campaña.', recommendedBudget: null };
+
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
-  const latestCpa = calcCpa(latest.spend, latest.purchases);
+  const campaign3d = splitPeriodRecords(campaignHistory, '3d').currentStats;
+  const cpa3d = campaign3d.cpa;
+
   const critical = adRows.filter(x => x.diag.priority === 'critical').length;
   const scalable = adRows.filter(x => x.diag.canScale).length;
-  if (critical > 0) return { status: 'Atención', action: 'Optimizar antes de escalar', reason: `${critical} anuncio(s) presentan señal crítica.`, recommendedBudget: null };
-  if (latestCpa <= maxCpa * 0.8 && scalable > 0 && toNumber(latest.budget) > 0) {
-    return { status: 'Escalable', action: 'Escalar +20%', reason: 'CPA de campaña con margen y al menos un anuncio supera todos los guardrails.', recommendedBudget: Math.round((toNumber(latest.budget) * 1.2) / 1000) * 1000 };
+
+  if (critical > 0) {
+    return { status: 'Atención', action: 'Optimizar antes de escalar', reason: `${critical} anuncio(s) presentan señal crítica.`, recommendedBudget: null };
   }
-  if (latestCpa > maxCpa) {
+
+  if (cpa3d > 0 && cpa3d <= maxCpa * 0.8 && scalable > 0 && toNumber(latest.budget) > 0) {
+    return {
+      status: 'Escalable',
+      action: 'Escalar +20%',
+      reason: `Decisión 3D: CPA de campaña ${fmtMoney(cpa3d)} con margen y al menos un anuncio supera los 4 guardrails obligatorios. El volumen solo indica confianza.`,
+      recommendedBudget: Math.round((toNumber(latest.budget) * 1.2) / 1000) * 1000
+    };
+  }
+
+  if (cpa3d > maxCpa) {
     const candidates = scaleRows.filter(r => r.budget < toNumber(latest.budget) && r.cpa > 0 && r.cpa <= maxCpa);
     const best = candidates.sort((a,b) => b.budget - a.budget)[0];
-    return { status: 'Sobreescalado / no rentable', action: best ? 'Reducir al último nivel rentable' : 'No escalar · optimizar', reason: `CPA actual ${fmtMoney(latestCpa)} supera el máximo ${fmtMoney(maxCpa)}.`, recommendedBudget: best?.budget || null };
+    return {
+      status: 'Sobreescalado / no rentable',
+      action: best ? 'Reducir al último nivel rentable' : 'No escalar · optimizar',
+      reason: `CPA 3D ${fmtMoney(cpa3d)} supera el máximo ${fmtMoney(maxCpa)}.`,
+      recommendedBudget: best?.budget || null
+    };
   }
-  return { status: 'Mantener', action: 'Mantener presupuesto', reason: 'Rentable, pero todavía falta algún guardrail para una escala fuerte.', recommendedBudget: null };
+
+  return {
+    status: 'Mantener',
+    action: 'Mantener presupuesto',
+    reason: 'La decisión de escala se mide en 3D. Todavía falta algún guardrail obligatorio o margen suficiente.',
+    recommendedBudget: null
+  };
 }
 
 function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, allCampaigns, dailyAds, dailyCampaigns, budgetChanges, decisions, recommendations, period }) {
@@ -2741,14 +2807,59 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-orange-50/40 shadow-sm" style={{border:'2px solid #ea580c'}}>
-        <h4 className="text-xs font-black uppercase mb-3 text-orange-800">Guardrails de escalado</h4>
-        {adRows.length ? <div className="space-y-2">{adRows.map(({ad,diag}) => {const adAccent=ccVisualAccent(ad.id||ad.name,3);return <div key={ad.id} className="rounded-xl p-2.5 flex flex-col md:flex-row md:items-center gap-2 justify-between" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p><p className="text-[8px] text-slate-400">Para escala fuerte deben pasar los 5 controles.</p></div><div className="flex flex-wrap gap-1"><GuardrailPill ok={diag.guardrails.cpaMargin} label={`CPA ≤ ${fmtMoney(maxCpa*0.8)}`}/><GuardrailPill ok={diag.guardrails.stability} label="3D estable"/><GuardrailPill ok={diag.guardrails.volume} label="15+ compras"/><GuardrailPill ok={diag.guardrails.creative} label="Creativo sano"/><GuardrailPill ok={diag.guardrails.postClick} label="Post-clic sano"/></div><span className={`px-2 py-1 rounded-full text-[8px] font-black ${diag.canScale ? 'bg-emerald-500 text-zinc-950' : 'bg-zinc-100 text-zinc-500'}`}>{diag.canScale ? 'ESCALA PERMITIDA' : 'NO ESCALAR'}</span></div>})}</div> : <EmptyState>Sin anuncios activos.</EmptyState>}
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-2 mb-3">
+          <div>
+            <h4 className="text-xs font-black uppercase text-orange-800">Guardrails de escalado</h4>
+            <p className="text-[8px] text-slate-500 mt-1">
+              Ventana fija de decisión: <strong>3D</strong>. Cambiar el selector superior NO modifica estos guardrails.
+            </p>
+          </div>
+          <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">3D determina</span>
+        </div>
+
+        {adRows.length ? <div className="space-y-2">{adRows.map(({ad,diag}) => {
+          const adAccent=ccVisualAccent(ad.id||ad.name,3);
+          const volumeTone =
+            diag.volumeReference.confidence === 'Muy alta' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+            diag.volumeReference.confidence === 'Alta' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+            diag.volumeReference.confidence === 'Media' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+            'bg-slate-100 text-slate-600 border-slate-200';
+
+          return <div key={ad.id} className="rounded-xl p-3" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}>
+            <div className="flex flex-col xl:flex-row xl:items-center gap-3 justify-between">
+              <div>
+                <p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p>
+                <p className="text-[8px] text-slate-500 mt-1">Para escala fuerte deben pasar 4 controles obligatorios. El volumen NO bloquea.</p>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                <GuardrailPill ok={diag.guardrails.cpaMargin} label={`CPA 3D ≤ ${fmtMoney(maxCpa*0.8)}`}/>
+                <GuardrailPill ok={diag.guardrails.stability} label="CPA 3D estable"/>
+                <GuardrailPill ok={diag.guardrails.creative} label="Creativo 3D sano"/>
+                <GuardrailPill ok={diag.guardrails.postClick} label="Post-clic 3D sano"/>
+              </div>
+
+              <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black ${diag.canScale ? 'bg-emerald-500 text-zinc-950' : 'bg-zinc-100 text-zinc-500'}`}>
+                {diag.canScale ? 'ESCALA PERMITIDA' : 'NO ESCALAR'}
+              </span>
+            </div>
+
+            <div className="mt-2 pt-2 border-t border-white/80 flex flex-wrap items-center gap-2">
+              <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${volumeTone}`}>
+                Volumen referencia 3D: {fmtNum(diag.volumeReference.purchases, 2)} compras · Confianza {diag.volumeReference.confidence}
+              </span>
+              <span className="text-[8px] text-slate-500">
+                El volumen aumenta o reduce la confianza de la decisión, pero nunca cambia por sí solo ESCALA PERMITIDA a NO ESCALAR.
+              </span>
+            </div>
+          </div>
+        })}</div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-blue-50/40 shadow-sm" style={{border:'2px solid #2563eb'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-blue-800">Nivel de confianza del diagnóstico</h4>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px]"><div className="bg-rose-50 rounded-xl p-3 border-2 border-rose-200"><strong className="text-rose-700">&lt;5 compras</strong><br/>Baja</div><div className="bg-amber-50 rounded-xl p-3 border-2 border-amber-200"><strong className="text-amber-700">5–14</strong><br/>Media</div><div className="bg-blue-50 rounded-xl p-3 border-2 border-blue-200"><strong className="text-blue-700">15–29</strong><br/>Alta</div><div className="bg-emerald-50 rounded-xl p-3 border-2 border-emerald-200"><strong className="text-emerald-700">30+</strong><br/>Muy alta</div></div>
-        <p className="text-[8px] text-slate-400 mt-2">Antigüedad: &lt;3 días limita la confianza a Baja; 3–6 días la limita a Media; 7+ días no aplica penalización.</p>
+        <p className="text-[8px] text-slate-500 mt-2">Referencia de volumen: 1–4 compras = Baja · 5–14 = Media · 15–29 = Alta · 30+ = Muy alta. Este nivel informa cuánta evidencia hay, pero NO bloquea una escala. La antigüedad sigue ayudando a interpretar la confianza general del diagnóstico.</p>
       </div>
     </div>
   );
