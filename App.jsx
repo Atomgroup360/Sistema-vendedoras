@@ -1657,6 +1657,81 @@ function funnelVariationDiagnosisFromDelta(delta) {
 }
 
 
+
+function buildMetaDeliveryDiagnosis3D(records, ad, campaign) {
+  const eligible = eligibleAdRecords(records || [], ad, campaign);
+  const { current } = splitPeriodRecords(eligible, '3d');
+
+  const days = [...new Set(
+    current
+      .map(r => String(r.date || ''))
+      .filter(Boolean)
+  )];
+
+  const omittedDays = [...new Set(
+    current
+      .filter(r => r.metaOmittedNoDelivery === true || r.source === 'meta_csv_zero_fill')
+      .map(r => String(r.date || ''))
+      .filter(Boolean)
+  )];
+
+  const stats = aggregateRecords(current);
+  const omittedCount = omittedDays.length;
+  const totalDays = days.length;
+
+  if (!totalDays) {
+    return {
+      status: 'Sin lectura 3D',
+      level: 'neutral',
+      action: 'Esperar datos',
+      reason: 'Aún no existen días completos dentro de la ventana 3D.',
+      omittedDays: 0,
+      totalDays: 0,
+      isNoDelivery: false,
+      isLimited: false
+    };
+  }
+
+  // Caso más claro: Meta omitió el anuncio y no hubo ninguna entrega real.
+  if (omittedCount === totalDays && stats.spend <= 0 && stats.impressions <= 0) {
+    return {
+      status: 'Sin entrega de Meta',
+      level: 'attention',
+      action: 'No juzgar rendimiento · revisar distribución',
+      reason: `El anuncio estuvo activo pero Meta lo omitió en ${omittedCount}/${totalDays} día(s) de la ventana 3D. No tuvo gasto ni impresiones suficientes para evaluar rendimiento.`,
+      omittedDays: omittedCount,
+      totalDays,
+      isNoDelivery: true,
+      isLimited: false
+    };
+  }
+
+  // Caso parcial: uno o más días completos fueron omitidos por Meta.
+  if (omittedCount > 0) {
+    return {
+      status: 'Entrega limitada por Meta',
+      level: 'attention',
+      action: 'Vigilar distribución · no apagar por rendimiento',
+      reason: `Meta omitió este anuncio en ${omittedCount}/${totalDays} día(s) de la ventana 3D. La señal de rendimiento tiene menos exposición y debe interpretarse con cautela.`,
+      omittedDays: omittedCount,
+      totalDays,
+      isNoDelivery: false,
+      isLimited: true
+    };
+  }
+
+  return {
+    status: 'Entrega normal',
+    level: 'good',
+    action: 'Evaluar rendimiento normalmente',
+    reason: 'Meta reportó entrega en todos los días disponibles de la ventana 3D.',
+    omittedDays: 0,
+    totalDays,
+    isNoDelivery: false,
+    isLimited: false
+  };
+}
+
 function buildCpaObservation3D(stats3d, previous3d, maxCpa) {
   const max = Math.max(1, toNumber(maxCpa));
   const scaleLimit = max * 0.8;
@@ -1811,13 +1886,19 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   // DECISIÓN OPERATIVA: SIEMPRE 3D.
   // Nunca depende del selector visual Último día / 7D / 14D / 30D.
   const cpaObservation3d = buildCpaObservation3D(scale3d, scalePrev3d, maxCpa);
+  const metaDelivery3d = buildMetaDeliveryDiagnosis3D(records, ad, campaign);
   let operational3dDiagnosis = 'Sin suficiente información 3D';
   let operational3dAction = 'Monitorear';
   let operational3dPriority = 'monitor';
   let operational3dReason = 'Todavía no existe suficiente historial 3D comparable.';
 
   if (scale3d.days > 0) {
-    if (scale3d.spend > 0 && scale3d.purchases <= 0) {
+    if (metaDelivery3d.isNoDelivery) {
+      operational3dDiagnosis = 'Sin entrega de Meta · 3D';
+      operational3dAction = 'No juzgar rendimiento · revisar distribución';
+      operational3dPriority = 'alert';
+      operational3dReason = metaDelivery3d.reason;
+    } else if (scale3d.spend > 0 && scale3d.purchases <= 0) {
       operational3dDiagnosis = 'Gasto sin compras 3D';
       operational3dAction = 'No escalar · optimizar';
       operational3dPriority = 'critical';
@@ -1867,6 +1948,11 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
       operational3dAction = scale3d.cpa <= maxCpa ? 'Preparar reemplazo' : 'No escalar · reemplazar';
       operational3dPriority = 'alert';
       operational3dReason = 'Las tasas post-clic 3D muestran deterioro en la calidad del tráfico.';
+    } else if (metaDelivery3d.isLimited && scale3d.cpa > 0 && scale3d.cpa <= maxCpa) {
+      operational3dDiagnosis = 'Entrega limitada por Meta · 3D';
+      operational3dAction = 'Mantener activo · vigilar distribución';
+      operational3dPriority = 'alert';
+      operational3dReason = `${metaDelivery3d.reason} El CPA 3D todavía está dentro del objetivo, pero la exposición fue incompleta.`;
     } else if (canScale && scale3d.cpa > 0 && scale3d.cpa <= scaleCpa) {
       operational3dDiagnosis = 'Ganador 3D · escala permitida';
       operational3dAction = 'Escalar +20%';
@@ -1908,7 +1994,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   return {
     diagnosis: finalDiagnosis, finalDiagnosis, action, priority, reason, confidence, delta, stats: c, previous: p,
     guardrails, canScale, volumeReference,
-    cpaObservation3d,
+    cpaObservation3d, metaDelivery3d,
     operational3dDiagnosis, operational3dAction, operational3dPriority, operational3dReason,
     scale3d, scalePrev3d, scaleDelta3d,
     scaleMomentum:
@@ -2024,6 +2110,10 @@ function buildCampaignContribution3D(campaign, product, allAds = [], dailyAds = 
       status = 'Sin datos 3D';
       tone = 'neutral';
       cause = 'Todavía no existen datos completos suficientes de la campaña.';
+    } else if (adStats.spend <= 0 && adRecords.some(r => r.metaOmittedNoDelivery === true || r.source === 'meta_csv_zero_fill')) {
+      status = 'Sin entrega de Meta';
+      tone = 'alert';
+      cause = 'El anuncio estuvo activo, pero Meta no le asignó entrega en la ventana 3D. No se clasifica como drenaje porque no consumió presupuesto.';
     } else if (adStats.spend <= 0) {
       status = 'Bajo aporte / vigilar';
       tone = 'alert';
@@ -2514,6 +2604,8 @@ function CampaignDashboard({
     // la lectura analítica del último día, no estas decisiones.
     const hasCritical = adDiags.some(d=>d.operational3dPriority==='critical');
     const hasAlert = adDiags.some(d=>d.operational3dPriority==='alert');
+    const hasNoDelivery = adDiags.some(d=>d.metaDelivery3d?.isNoDelivery);
+    const hasLimitedDelivery = adDiags.some(d=>d.metaDelivery3d?.isLimited);
     const hasScalable = adDiags.some(d=>d.canScale);
     const cpa = stats3.cpa;
     const cpaObservation3d = buildCpaObservation3D(stats3, split3.previousStats, maxCpa);
@@ -2542,6 +2634,14 @@ function CampaignDashboard({
         state='Crítico'; tone='critical';
         diagnosis='Anuncio crítico en 3D';
         action='Optimizar / no escalar';
+      } else if (hasNoDelivery) {
+        state='Alerta'; tone='alert';
+        diagnosis='Meta no entrega a uno o más anuncios';
+        action='Revisar distribución · no juzgar rendimiento';
+      } else if (hasLimitedDelivery) {
+        state='Alerta'; tone='alert';
+        diagnosis='Entrega limitada por Meta';
+        action='Vigilar distribución';
       } else if (hasAlert) {
         state='Alerta'; tone='alert';
         diagnosis='Señal operativa 3D';
@@ -3258,12 +3358,13 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         </div>
 
         {adRows.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
             {[
               ['Aporta fuerte', adRows.filter(x => x.contribution?.status === 'Aporta fuertemente').length, 'bg-emerald-50 text-emerald-700 border-emerald-200'],
               ['Aporta', adRows.filter(x => x.contribution?.status === 'Aporta').length, 'bg-blue-50 text-blue-700 border-blue-200'],
               ['Bajo aporte', adRows.filter(x => x.contribution?.status === 'Bajo aporte / vigilar').length, 'bg-amber-50 text-amber-700 border-amber-200'],
-              ['Drena campaña', adRows.filter(x => x.contribution?.status === 'Drena la campaña').length, 'bg-rose-50 text-rose-700 border-rose-200']
+              ['Drena campaña', adRows.filter(x => x.contribution?.status === 'Drena la campaña').length, 'bg-rose-50 text-rose-700 border-rose-200'],
+              ['Sin entrega Meta', adRows.filter(x => x.diag.metaDelivery3d?.isNoDelivery).length, 'bg-cyan-50 text-cyan-700 border-cyan-200']
             ].map(([label, value, cls]) => (
               <div key={label} className={`rounded-xl border p-2.5 ${cls}`}>
                 <p className="text-[8px] font-black uppercase">{label}</p>
@@ -3272,7 +3373,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             ))}
           </div>
         )}
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1750px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1950px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
           const contributionClass =
             contribution?.tone === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
             contribution?.tone === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -3291,6 +3392,22 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             <td className="font-black">{fmtMoney(diag.stats.cpa)}</td>
             <td>{diag.dynamicDiagnosis}</td>
             <td>{diag.postDiagnosis}</td>
+            <td className="min-w-[220px] py-2 pr-3">
+              <div className={`rounded-xl border p-2 ${
+                diag.metaDelivery3d?.isNoDelivery
+                  ? 'bg-blue-50 border-blue-200 text-blue-700'
+                  : diag.metaDelivery3d?.isLimited
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              }`}>
+                <p className="text-[8px] font-black uppercase">{diag.metaDelivery3d?.status || 'Sin lectura 3D'}</p>
+                <p className="text-[8px] mt-1">
+                  {diag.metaDelivery3d?.totalDays > 0
+                    ? `${diag.metaDelivery3d.omittedDays}/${diag.metaDelivery3d.totalDays} día(s) omitidos por Meta`
+                    : 'Sin días completos'}
+                </p>
+              </div>
+            </td>
             <td className="min-w-[320px] py-2 pr-3">
               {contribution ? (
                 <div className="rounded-xl bg-white/80 border border-white p-2.5">
@@ -3486,6 +3603,15 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             <div className="mt-2 pt-2 border-t border-white/80 flex flex-wrap items-center gap-2">
               <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${volumeTone}`}>
                 Volumen referencia 3D: {fmtNum(diag.volumeReference.purchases, 2)} compras · Confianza {diag.volumeReference.confidence}
+              </span>
+              <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${
+                diag.metaDelivery3d?.isNoDelivery
+                  ? 'bg-blue-100 text-blue-700 border-blue-200'
+                  : diag.metaDelivery3d?.isLimited
+                    ? 'bg-amber-100 text-amber-700 border-amber-200'
+                    : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+              }`}>
+                Entrega Meta: {diag.metaDelivery3d?.status || 'Sin lectura 3D'}
               </span>
               <span className={`px-2.5 py-1.5 rounded-full border text-[8px] font-black ${
                 diag.scaleDelta3d?.cpa !== null && diag.scaleDelta3d.cpa < -15
