@@ -1825,10 +1825,7 @@ function CampaignControlModule() {
   const activeCampaigns = useMemo(() => campaigns.filter(c => !c.archived), [campaigns]);
   const activeAds = useMemo(() => ads.filter(a => a.active !== false && campaigns.some(c => c.id === a.campaignId && c.active !== false && !c.archived) && products.some(p => p.id === a.productId && p.active !== false)), [ads, campaigns, products]);
 
-  const latestDate = useMemo(() => {
-    const dates = [...dailyAds.map(r => r.date), ...dailyCampaigns.map(r => r.date)].filter(Boolean).sort();
-    return dates.length ? dates[dates.length - 1] : todayColombiaCC();
-  }, [dailyAds, dailyCampaigns]);
+  const latestDate = todayColombiaCC();
 
   const attentionRows = useMemo(() => {
     const rows = [];
@@ -1838,7 +1835,8 @@ function CampaignControlModule() {
       const product = products.find(p => p.id === ad.productId && p.active !== false);
       if (!product) continue;
       const recs = dailyAds.filter(r => r.adId === ad.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-      const diag = diagnoseAd(recs, product, ad, '3d', campaign);
+      const diag = diagnoseAd(recs, product, ad, 'today', campaign);
+      if (diag.stats.days <= 0) continue;
       rows.push({ ad, campaign, product, diag });
     }
     return rows.sort((a, b) => ({ critical: 0, alert: 1, monitor: 2 }[a.diag.priority] ?? 9) - ({ critical: 0, alert: 1, monitor: 2 }[b.diag.priority] ?? 9));
@@ -1984,28 +1982,31 @@ function CampaignDashboard({
       c
     ).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
 
-    const latest = history[history.length-1] || null;
-    const previous3 = history.slice(Math.max(0, history.length-4), Math.max(0, history.length-1));
-    const prev7 = history.slice(Math.max(0, history.length-8), Math.max(0, history.length-1));
-    const latestStats = latest ? aggregateRecords([latest]) : aggregateRecords([]);
+    const today = todayColombiaCC();
+    const todayRecord = history.find(r => String(r.date) === today) || null;
+    const latestKnown = history[history.length - 1] || null;
+    const completePreviousDays = history.filter(r => String(r.date) < today);
+    const previous3 = completePreviousDays.slice(-3);
+    const prev7 = completePreviousDays.slice(-7);
+    const todayStats = todayRecord ? aggregateRecords([todayRecord]) : aggregateRecords([]);
     const stats3 = aggregateRecords(previous3);
     const stats7 = aggregateRecords(prev7);
-    const delta3 = latest ? pctChange(latestStats.cpa, stats3.cpa) : null;
-    const delta7 = latest ? pctChange(latestStats.cpa, stats7.cpa) : null;
+    const delta3 = todayRecord ? pctChange(todayStats.cpa, stats3.cpa) : null;
+    const delta7 = todayRecord ? pctChange(todayStats.cpa, stats7.cpa) : null;
 
     const maxCpa = Math.max(1,toNumber(product?.maxCpa));
     const campaignAds = ads.filter(a => a.campaignId === c.id && a.active !== false);
     const adDiags = campaignAds.map(ad => diagnoseAd(
-      dailyAds.filter(r=>r.adId===ad.id), product, ad, '3d', c
-    ));
+      dailyAds.filter(r=>r.adId===ad.id), product, ad, 'today', c
+    )).filter(d => d.stats.days > 0);
 
     const hasCritical = adDiags.some(d=>d.priority==='critical');
     const hasAlert = adDiags.some(d=>d.priority==='alert');
     const hasScalable = adDiags.some(d=>d.canScale);
-    const cpa = latestStats.cpa;
+    const cpa = todayStats.cpa;
 
-    let state='Sin datos', tone='attention', diagnosis='Pendiente', action='Registrar día';
-    if (latest) {
+    let state='Sin datos hoy', tone='attention', diagnosis='Pendiente', action='Registrar día';
+    if (todayRecord) {
       if (hasCritical || cpa > maxCpa) {
         state='Crítico'; tone='critical';
         diagnosis=cpa>maxCpa?'CPA fuera de objetivo':'Anuncio crítico';
@@ -2030,9 +2031,9 @@ function CampaignDashboard({
       : 'Creativo sano';
 
     return {
-      campaign:c, product, latest, latestStats, stats3, stats7, delta3, delta7,
+      campaign:c, product, todayRecord, latestKnown, todayStats, stats3, stats7, delta3, delta7,
       maxCpa, state, tone, diagnosis, action, creativeHealth,
-      purchases:latestStats.purchases, frequency:latestStats.frequency
+      purchases:todayStats.purchases, frequency:todayStats.frequency
     };
   }), [activeCampaignList, products, dailyCampaigns, ads, dailyAds]);
 
@@ -2061,10 +2062,13 @@ function CampaignDashboard({
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
     dailyCampaigns.filter(r=>r.campaignId===drawerCampaign.id), drawerCampaign
   ).sort((a,b)=>String(a.date).localeCompare(String(b.date))) : [];
-  const drawerLatest = drawerHistory[drawerHistory.length-1] || null;
-  const drawerCurrent = drawerLatest ? aggregateRecords([drawerLatest]) : aggregateRecords([]);
-  const drawerPrev3 = aggregateRecords(drawerHistory.slice(Math.max(0,drawerHistory.length-4),Math.max(0,drawerHistory.length-1)));
-  const drawerDelta = pctChange(drawerCurrent.cpa,drawerPrev3.cpa);
+  const today = todayColombiaCC();
+  const drawerToday = drawerHistory.find(r => String(r.date) === today) || null;
+  const drawerLatestKnown = drawerHistory[drawerHistory.length - 1] || null;
+  const drawerPreviousComplete = drawerHistory.filter(r => String(r.date) < today);
+  const drawerCurrent = drawerToday ? aggregateRecords([drawerToday]) : aggregateRecords([]);
+  const drawerPrev3 = aggregateRecords(drawerPreviousComplete.slice(-3));
+  const drawerDelta = drawerToday ? pctChange(drawerCurrent.cpa, drawerPrev3.cpa) : null;
 
   const openDrawer = campaignId => {
     setSelectedCampaignId(campaignId);
@@ -2154,8 +2158,8 @@ function CampaignDashboard({
                   <tr key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className="border-t hover:bg-slate-50 cursor-pointer">
                     <td className="p-3"><span className={`px-2 py-1 rounded-full font-black ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>● {r.state}</span></td>
                     <td><p className="font-black">{r.product?.name||'Producto'}</p><p className="text-[8px] text-slate-400">{r.campaign.name}</p></td>
-                    <td className="font-black">{r.latest?fmtMoney(r.latest.budget):'—'}</td>
-                    <td className={`font-black ${r.latestStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.latest?fmtMoney(r.latestStats.cpa):'—'}</td>
+                    <td className="font-black">{r.latestKnown?fmtMoney(r.latestKnown.budget):'—'}</td>
+                    <td className={`font-black ${r.todayStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.todayRecord?fmtMoney(r.todayStats.cpa):'—'}</td>
                     <td>{r.stats3.purchases>0?fmtMoney(r.stats3.cpa):'—'}</td>
                     <td>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</td>
                     <td>{r.stats7.purchases>0?fmtMoney(r.stats7.cpa):'—'}</td>
@@ -2180,13 +2184,13 @@ function CampaignDashboard({
           <span className="text-[8px] text-slate-400 font-black uppercase">Lo más importante primero</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {campaignRows.filter(r=>['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
+          {campaignRows.filter(r=>r.todayRecord && ['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
             <button key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className={`text-left rounded-2xl border p-3 ${r.state==='Crítico'?'bg-rose-50 border-rose-200':r.state==='Alerta'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'}`}>
               <p className="font-black text-xs">{r.state==='Crítico'?'🔴':r.state==='Alerta'?'🟠':'🟢'} {r.product?.name} — {r.campaign.name}</p>
-              <p className="text-[9px] text-slate-600 mt-1">CPA {r.latest?fmtMoney(r.latestStats.cpa):'—'}. Acción: {r.action}.</p>
+              <p className="text-[9px] text-slate-600 mt-1">CPA {r.todayRecord?fmtMoney(r.todayStats.cpa):'—'}. Acción: {r.action}.</p>
             </button>
           ))}
-          {!campaignRows.some(r=>['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales por ahora.</EmptyState>}
+          {!campaignRows.some(r=>r.todayRecord && ['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales con datos registrados hoy.</EmptyState>}
         </div>
       </SectionCard>
 
@@ -2208,13 +2212,19 @@ function CampaignDashboard({
 
             <CampaignCpaMiniChart campaign={drawerCampaign} product={drawerProduct} dailyCampaigns={dailyCampaigns}/>
 
+            {!drawerToday && (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-black text-amber-700">
+                SIN DATOS HOY — No existe un registro con fecha {today}. Los datos históricos no se usan como sustituto del día actual.
+              </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-              <MiniCard label="CPA hoy" value={drawerLatest?fmtMoney(drawerCurrent.cpa):'—'} />
+              <MiniCard label="CPA hoy" value={drawerToday?fmtMoney(drawerCurrent.cpa):'—'} />
               <MiniCard label="CPA 3D anteriores" value={drawerPrev3.purchases>0?fmtMoney(drawerPrev3.cpa):'—'} />
               <MiniCard label="Variación vs 3D" value={drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta, 2)}%`} />
-              <MiniCard label="Frecuencia" value={drawerLatest?fmtNum(drawerCurrent.frequency,2):'—'} />
-              <MiniCard label="Compras hoy" value={drawerLatest?fmtNum(drawerCurrent.purchases, 2):'—'} />
-              <MiniCard label="Presupuesto actual" value={drawerLatest?fmtMoney(drawerLatest.budget):'—'} />
+              <MiniCard label="Frecuencia" value={drawerToday?fmtNum(drawerCurrent.frequency,2):'—'} />
+              <MiniCard label="Compras hoy" value={drawerToday?fmtNum(drawerCurrent.purchases, 2):'—'} />
+              <MiniCard label="Presupuesto actual" value={drawerLatestKnown?fmtMoney(drawerLatestKnown.budget):'—'} />
               <MiniCard label="CPA máximo" value={fmtMoney(drawerProduct?.maxCpa)} />
               <MiniCard label="CPA operativo" value={fmtMoney(toNumber(drawerProduct?.maxCpa)*0.8)} />
             </div>
