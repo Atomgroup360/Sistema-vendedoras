@@ -3515,6 +3515,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const [campaignNameByProduct, setCampaignNameByProduct] = useState({});
   const [adNameByCampaign, setAdNameByCampaign] = useState({});
   const [expanded, setExpanded] = useState({});
+  const [expandedAds, setExpandedAds] = useState({});
   const [showArchived, setShowArchived] = useState(false);
   const [managerMessage, setManagerMessage] = useState(null);
   const [busyKey, setBusyKey] = useState('');
@@ -3655,6 +3656,12 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       ids.forEach(id => { next[id] = false; });
       return next;
     });
+
+    setExpandedAds(prev => {
+      const next = { ...prev };
+      ids.forEach(id => { next[id] = false; });
+      return next;
+    });
   };
   const addCampaign = async productId => {
     const name = String(campaignNameByProduct[productId] || '').trim();
@@ -3696,6 +3703,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       });
       setCampaignNameByProduct(x => ({ ...x, [productId]: '' }));
       setExpanded(x => ({ ...x, [ref.id]: true }));
+      setExpandedAds(x => ({ ...x, [ref.id]: false }));
       showManagerMessage('success', `Campaña "${name}" creada correctamente.`);
     } catch (error) {
       console.error('Campaign Control · crear campaña', error);
@@ -3881,40 +3889,66 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}><div className="flex items-start justify-between gap-3"><div><div className="flex gap-2 items-center flex-wrap"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:productAccent.border}}></span><h3 className="font-black uppercase text-base" style={{color:productAccent.text}}>{product.name}</h3><StateBadge active={product.active!==false}/></div><p className="text-[9px] font-black text-slate-400 mt-1">CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {(product.effectiveStartDate || product.createdDate) ? parseDateSafe(product.effectiveStartDate || product.createdDate)?.toLocaleDateString('es-CO') : '—'}</p></div><div className="flex gap-1"><button title="Editar nombre y CPA" onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button><button title="Editar fecha de creación / inicio" onClick={()=>editProductStartDate(product)} className="p-2 rounded-xl bg-blue-50 text-blue-600"><CalendarDays size={14}/></button><button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button><button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button></div></div>
       <div className="flex gap-2 mt-4"><input value={campaignNameByProduct[product.id]||''} onChange={e=>setCampaignNameByProduct(x=>({...x,[product.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCampaign(product.id);}}} placeholder="Nombre nueva campaña" className="flex-1 bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `campaign:${product.id}`} onClick={()=>addCampaign(product.id)} className="bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline mr-1"/> {busyKey === `campaign:${product.id}` ? 'Creando...' : 'Campaña'}</button></div>
       {productCampaigns.length > 0 && <div className="flex items-center justify-between gap-2 mt-3">
-        <p className="text-[8px] font-bold text-slate-400">Campañas contraídas por defecto · presiona una campaña para ver sus anuncios</p>
+        <p className="text-[8px] font-bold text-slate-400">Nivel 1: nombre de campaña · Nivel 2: resumen y controles · Nivel 3: anuncios</p>
         <div className="flex gap-1.5 shrink-0">
           <button type="button" onClick={()=>expandAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronDown size={11}/> Expandir todas</button>
           <button type="button" onClick={()=>collapseAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronUp size={11}/> Contraer todas</button>
         </div>
       </div>}
-      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}><div className="p-3 flex flex-col md:flex-row md:items-center gap-3 justify-between"><button
+      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}>
+        <button
           type="button"
           aria-expanded={isOpen}
           onClick={()=>setExpanded(x=>({...x,[campaign.id]:!isOpen}))}
-          className="text-left flex-1 rounded-xl p-1 -m-1 hover:bg-white/40 transition-colors"
+          className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-white/35 transition-colors"
         >
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-2 h-2 rounded-full" style={{backgroundColor:campaignAccent.border}}></span>
-            <span className="font-black text-xs uppercase" style={{color:campaignAccent.text}}>{campaign.name}</span>
-            <StateBadge active={campaign.active!==false} archived={campaign.archived}/>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/70 border border-white text-[8px] font-black text-slate-500">
-              {campaignAds.length} anuncio(s)
-            </span>
-            <span className="ml-auto md:ml-0 inline-flex items-center gap-1 text-[8px] font-black uppercase" style={{color:campaignAccent.text}}>
-              {isOpen ? 'Ocultar detalles' : 'Ver detalles'}
-              {isOpen?<ChevronUp size={13}/>:<ChevronDown size={13}/>}
-            </span>
+          <span className="font-black text-xs uppercase" style={{color:campaignAccent.text}}>{campaign.name}</span>
+          {isOpen?<ChevronUp size={14} style={{color:campaignAccent.text}}/>:<ChevronDown size={14} style={{color:campaignAccent.text}}/>}
+        </button>
+
+        {isOpen&&<div className="border-t" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffffcc'}}>
+          <div className="p-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <StateBadge active={campaign.active!==false} archived={campaign.archived}/>
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-slate-200 text-[8px] font-black text-slate-500">
+                    {campaignAds.length} anuncio(s)
+                  </span>
+                </div>
+                <p className="text-[8px] text-slate-400 mt-2">
+                  inicio editable {campaign.effectiveStartDate||campaign.createdDate||'—'} · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}
+                </p>
+              </div>
+
+              <div className="flex gap-1 flex-wrap">
+                <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
+                {!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}
+                {!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}
+                <button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button>
+                <button type="button" onClick={()=>setExpanded(x=>({...x,[campaign.id]:false}))} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-[8px] font-black uppercase flex items-center gap-1"><ChevronUp size={10}/> Cerrar campaña</button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              aria-expanded={adsOpen}
+              onClick={()=>setExpandedAds(x=>({...x,[campaign.id]:!adsOpen}))}
+              className="w-full mt-3 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors"
+            >
+              <span className="text-[9px] font-black uppercase text-slate-600">
+                Anuncios de la campaña · {campaignAds.length}
+              </span>
+              <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase" style={{color:campaignAccent.text}}>
+                {adsOpen ? 'Ocultar anuncios' : 'Ver anuncios'}
+                {adsOpen?<ChevronUp size={12}/>:<ChevronDown size={12}/>}
+              </span>
+            </button>
           </div>
-          <p className="text-[8px] text-slate-400 mt-1">
-            inicio editable {campaign.effectiveStartDate||campaign.createdDate||'—'} · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}
-          </p>
-        </button><div className="flex gap-1 flex-wrap"><button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>{!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}{!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}<button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>
-        {isOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffffcc'}}>
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <p className="text-[8px] font-black uppercase" style={{color:campaignAccent.text}}>Anuncios de la campaña</p>
-            <button type="button" onClick={()=>setExpanded(x=>({...x,[campaign.id]:false}))} className="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[8px] font-black uppercase flex items-center gap-1"><ChevronUp size={10}/> Contraer</button>
-          </div>
+
+          {adsOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffff'}}>
           {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar anuncio definitivamente" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
+        </div>}
       </div>})}</div></SectionCard>})}
     <label className="flex items-center gap-2 text-[9px] font-black uppercase text-slate-500"><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Mostrar campañas archivadas</label>
   </div>;
