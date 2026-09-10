@@ -1367,7 +1367,10 @@ function dateToIso(value) {
 
 function fmtMoney(v) {
   return new Intl.NumberFormat('es-CO', {
-    style: 'currency', currency: 'COP', maximumFractionDigits: 0
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   }).format(Number(v) || 0);
 }
 
@@ -1526,6 +1529,19 @@ function aggregateRecords(records = []) {
 function splitPeriodRecords(records, periodId) {
   const period = PERIODS.find(p => p.id === periodId) || PERIODS[0];
   const sorted = [...records].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  if (periodId === 'today') {
+    const today = todayColombiaCC();
+    const current = sorted.filter(r => String(r.date) === today).slice(0, 1);
+    const previous = sorted.filter(r => String(r.date) < today).slice(0, 3);
+    return {
+      current,
+      previous,
+      currentStats: aggregateRecords(current),
+      previousStats: aggregateRecords(previous)
+    };
+  }
+
   const current = sorted.slice(0, period.size);
   const previous = sorted.slice(period.size, period.size + period.previousSize);
   return { current, previous, currentStats: aggregateRecords(current), previousStats: aggregateRecords(previous) };
@@ -1586,13 +1602,13 @@ function eligibleCampaignRecords(records, campaign) {
 
 function variationExplanation(periodId) {
   const map = {
-    today: 'Hoy compara el último día activo registrado contra el promedio ponderado de los 3 días activos completos anteriores.',
-    '3d': '3D compara los últimos 3 días activos contra los 3 días activos inmediatamente anteriores.',
-    '7d': '7D compara los últimos 7 días activos contra los 7 anteriores.',
-    '14d': '14D funciona como contexto histórico intermedio: últimos 14 días activos contra los 14 anteriores.',
-    '30d': '30D funciona como benchmark de largo plazo: últimos 30 días activos contra los 30 anteriores.'
+    today: 'HOY toma exclusivamente los datos del día actual y los compara contra el promedio ponderado de los 3 días activos completos anteriores. Si hoy todavía no tiene datos, no sustituye HOY por otro día.',
+    '3d': '3D toma los últimos 3 días activos registrados y los compara contra los 3 días activos inmediatamente anteriores.',
+    '7d': '7D toma los últimos 7 días activos y los compara contra los 7 días activos anteriores.',
+    '14d': '14D toma los últimos 14 días activos y los compara contra los 14 días activos anteriores para detectar cambios de tendencia intermedia.',
+    '30d': '30D toma los últimos 30 días activos y los compara contra los 30 días activos anteriores para mostrar la tendencia y estabilidad de largo plazo.'
   };
-  return map[periodId] || map['3d'];
+  return map[periodId] || map.today;
 }
 
 function adVariationDiagnosisFromDelta(delta) {
@@ -1715,7 +1731,7 @@ function metricDirectionClass(metric, delta) {
 
 function Delta({ metric, value }) {
   if (value === null || value === undefined) return <span className="text-slate-300">—</span>;
-  return <span className={`font-black ${metricDirectionClass(metric, value)}`}>{value > 0 ? '+' : ''}{fmtNum(value, 1)}%</span>;
+  return <span className={`font-black ${metricDirectionClass(metric, value)}`}>{value > 0 ? '+' : ''}{fmtNum(value, 2)}%</span>;
 }
 
 function parseMetaRows(rows, existingAds, selectedDate) {
@@ -2141,10 +2157,10 @@ function CampaignDashboard({
                     <td className="font-black">{r.latest?fmtMoney(r.latest.budget):'—'}</td>
                     <td className={`font-black ${r.latestStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.latest?fmtMoney(r.latestStats.cpa):'—'}</td>
                     <td>{r.stats3.purchases>0?fmtMoney(r.stats3.cpa):'—'}</td>
-                    <td>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3),1)}%`}</td>
+                    <td>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</td>
                     <td>{r.stats7.purchases>0?fmtMoney(r.stats7.cpa):'—'}</td>
-                    <td>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7),1)}%`}</td>
-                    <td>{fmtNum(r.purchases,0)}</td>
+                    <td>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}</td>
+                    <td>{fmtNum(r.purchases, 2)}</td>
                     <td>{fmtNum(r.frequency,2)}</td>
                     <td><span className="font-black">{r.creativeHealth}</span></td>
                     <td><span className="font-black">{r.diagnosis}</span></td>
@@ -2195,9 +2211,9 @@ function CampaignDashboard({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
               <MiniCard label="CPA hoy" value={drawerLatest?fmtMoney(drawerCurrent.cpa):'—'} />
               <MiniCard label="CPA 3D anteriores" value={drawerPrev3.purchases>0?fmtMoney(drawerPrev3.cpa):'—'} />
-              <MiniCard label="Variación vs 3D" value={drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta,1)}%`} />
+              <MiniCard label="Variación vs 3D" value={drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta, 2)}%`} />
               <MiniCard label="Frecuencia" value={drawerLatest?fmtNum(drawerCurrent.frequency,2):'—'} />
-              <MiniCard label="Compras hoy" value={drawerLatest?fmtNum(drawerCurrent.purchases,0):'—'} />
+              <MiniCard label="Compras hoy" value={drawerLatest?fmtNum(drawerCurrent.purchases, 2):'—'} />
               <MiniCard label="Presupuesto actual" value={drawerLatest?fmtMoney(drawerLatest.budget):'—'} />
               <MiniCard label="CPA máximo" value={fmtMoney(drawerProduct?.maxCpa)} />
               <MiniCard label="CPA operativo" value={fmtMoney(toNumber(drawerProduct?.maxCpa)*0.8)} />
@@ -2302,10 +2318,25 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
 }
 
 function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, allCampaigns, dailyAds, dailyCampaigns, budgetChanges, decisions, recommendations, period }) {
+  const MONITOR_PERIODS = [
+    { id: 'today', label: 'HOY' },
+    { id: '3d', label: '3D' },
+    { id: '7d', label: '7D' },
+    { id: '14d', label: '14D' },
+    { id: '30d', label: '30D' }
+  ];
+  const [monitorPeriod, setMonitorPeriod] = useState(
+    ['today', '3d', '7d', '14d', '30d'].includes(period) ? period : 'today'
+  );
+
+  useEffect(() => {
+    if (['today', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
+  }, [period]);
+
   const visibleAds = ads.filter(a => a.active !== false && campaign.active !== false && !campaign.archived);
   const adRows = visibleAds.map(ad => {
     const records = dailyAds.filter(r => r.adId === ad.id);
-    return { ad, diag: diagnoseAd(records, product, ad, period, campaign) };
+    return { ad, diag: diagnoseAd(records, product, ad, monitorPeriod, campaign) };
   }).sort((a, b) => (a.diag.stats.cpa || 999999999) - (b.diag.stats.cpa || 999999999));
 
   const campaignHistory = eligibleCampaignRecords(
@@ -2350,7 +2381,30 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         <div className="border rounded-2xl p-3 bg-slate-50"><p className="text-[8px] font-black uppercase text-slate-400">Motor de fatiga y saturación</p><p className="text-[9px] text-slate-600 mt-1">CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ = fatiga. CPM ↑ con CTR/CVR estables = subasta cara, no necesariamente fatiga.</p></div>
       </div>
 
-      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3"><p className="text-[9px] font-black uppercase text-blue-700">Cómo funcionan las variaciones por anuncio</p><p className="text-[9px] text-blue-600 mt-1">{variationExplanation(period)} Bandas: 0–10% normal · &gt;10–15% atención · &gt;15–20% alerta · &gt;20% crítica. La dirección se interpreta según la métrica.</p></div>
+      <div className="border-2 border-zinc-900 rounded-2xl p-3 md:p-4 bg-white">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-black uppercase text-zinc-900">Período de monitoreo por anuncio</p>
+            <p className="text-[8px] text-slate-500 mt-1">Controla Variaciones dinámicas, Embudo post-clic, diagnóstico consolidado y guardrails.</p>
+          </div>
+          <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+            {MONITOR_PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setMonitorPeriod(p.id)}
+                className={`px-4 py-2 rounded-lg text-[9px] font-black transition ${monitorPeriod === p.id ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500 hover:text-zinc-900'}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[8px] text-slate-500 mt-3">
+          <strong>{monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}:</strong> {variationExplanation(monitorPeriod)} Los días OFF se excluyen completamente del período y no cuentan como cero.
+        </p>
+      </div>
+
+      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3"><p className="text-[9px] font-black uppercase text-blue-700">Cómo funcionan las variaciones por anuncio</p><p className="text-[9px] text-blue-600 mt-1">{variationExplanation(monitorPeriod)} Bandas: 0–10% normal · &gt;10–15% atención · &gt;15–20% alerta · &gt;20% crítica. La dirección se interpreta según la métrica.</p></div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="border rounded-2xl p-3 bg-slate-50">
@@ -2368,28 +2422,28 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
 
       <div>
-        <h4 className="text-xs font-black uppercase mb-2">Variaciones dinámicas por anuncio</h4>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3 font-black">{ad.name}</td><td>{fmtMoney(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtNum(diag.stats.visitToPurchase,1)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
+        <div className="flex items-center justify-between gap-2 mb-2"><h4 className="text-xs font-black uppercase">Variaciones dinámicas por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}</span></div>
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3 font-black">{ad.name}</td><td>{fmtMoney(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
       </div>
 
       <div>
-        <h4 className="text-xs font-black uppercase mb-2">Embudo post-clic dinámico por anuncio</h4>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3 font-black">{ad.name}</td><td>{fmtNum(diag.stats.landingViews,0)}</td><td>{fmtNum(diag.stats.atc,0)}</td><td>{fmtNum(diag.stats.purchases,0)}</td><td className="font-black">{fmtNum(diag.stats.visitToAtc,1)}%</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtNum(diag.stats.visitToPurchase,1)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtNum(diag.stats.atcToPurchase,1)}%</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
+        <div className="flex items-center justify-between gap-2 mb-2"><h4 className="text-xs font-black uppercase">Embudo post-clic dinámico por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}</span></div>
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3 font-black">{ad.name}</td><td>{fmtNum(diag.stats.landingViews, 2)}</td><td>{fmtNum(diag.stats.atc, 2)}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtNum(diag.stats.visitToAtc, 2)}%</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtNum(diag.stats.atcToPurchase, 2)}%</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
       </div>
 
       <div>
-        <h4 className="text-xs font-black uppercase mb-2">Optimización por anuncio — diagnóstico consolidado</h4>
+        <div className="flex items-center justify-between gap-2 mb-2"><h4 className="text-xs font-black uppercase">Optimización por anuncio — diagnóstico consolidado</h4><span className="text-[8px] font-black uppercase text-slate-400">Ventana {monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}</span></div>
         {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Diagnóstico final</th><th>Confianza</th><th>Por qué</th><th>Acción recomendada</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3"><p className="font-black">{ad.name}</p><p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p></td><td className="font-black">{fmtMoney(diag.stats.cpa)}</td><td>{diag.dynamicDiagnosis}</td><td>{diag.postDiagnosis}</td><td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td><td className="font-black">{diag.confidence}</td><td className="max-w-[330px] text-slate-500">{diag.reason}</td><td className="font-black">{diag.action}</td></tr>)}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
       <div>
         <h4 className="text-xs font-black uppercase mb-2">Historial de cambios de presupuesto</h4>
-        {budgetRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map(r => <tr key={r.id} className="border-t"><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct,1)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
+        {budgetRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map(r => <tr key={r.id} className="border-t"><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
       </div>
 
       <div>
         <h4 className="text-xs font-black uppercase mb-2">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map(r => <tr key={r.budget} className="border-t"><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases,0)}</td><td>{fmtMoney(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map(r => <tr key={r.budget} className="border-t"><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtMoney(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
       <div>
@@ -2399,7 +2453,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div>
         <h4 className="text-xs font-black uppercase mb-2">Benchmark propio del producto</h4>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2"><MiniCard label="Días rentables" value={benchmark.days}/><MiniCard label="CPA ponderado" value={fmtMoney(benchmark.cpa)}/><MiniCard label="CTR" value={`${fmtNum(benchmark.ctr,2)}%`}/><MiniCard label="CPC" value={fmtMoney(benchmark.cpc)}/><MiniCard label="Frecuencia" value={fmtNum(benchmark.frequency,2)}/><MiniCard label="Visita→Compra" value={`${fmtNum(benchmark.visitToPurchase,1)}%`}/></div>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2"><MiniCard label="Días rentables" value={benchmark.days}/><MiniCard label="CPA ponderado" value={fmtMoney(benchmark.cpa)}/><MiniCard label="CTR" value={`${fmtNum(benchmark.ctr,2)}%`}/><MiniCard label="CPC" value={fmtMoney(benchmark.cpc)}/><MiniCard label="Frecuencia" value={fmtNum(benchmark.frequency,2)}/><MiniCard label="Visita→Compra" value={`${fmtNum(benchmark.visitToPurchase, 2)}%`}/></div>
         <p className="text-[8px] text-slate-400 mt-2">Benchmark calculado únicamente con días del producto cuyo CPA estuvo dentro del máximo configurado.</p>
       </div>
 
@@ -2955,9 +3009,9 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget disabled={!editing}/>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
         <MiniCard label="CPA calculado" value={fmtMoney(calcCpa(campaignForm.spend, campaignForm.purchases))}/>
-        <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews),1)}%`}/>
-        <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews),1)}%`}/>
-        <MiniCard label="ATC → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.atc),1)}%`}/>
+        <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 2)}%`}/>
+        <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 2)}%`}/>
+        <MiniCard label="ATC → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.atc), 2)}%`}/>
       </div>
     </div>
 
@@ -3144,9 +3198,9 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
           <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget />
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
             <MiniCard label="CPA calculado" value={fmtMoney(calcCpa(campaignForm.spend, campaignForm.purchases))} />
-            <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 1)}%`} />
-            <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 1)}%`} />
-            <MiniCard label="ATC → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.atc), 1)}%`} />
+            <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 2)}%`} />
+            <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 2)}%`} />
+            <MiniCard label="ATC → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.atc), 2)}%`} />
           </div>
         </SectionCard>
 
@@ -3185,7 +3239,7 @@ function CsvPreview({ rows, onApply }) {
   const conflicts = rows.filter(r => r.status === 'conflict').length;
   return <div className="space-y-3">
     <div className="grid grid-cols-3 gap-2"><MiniCard label="Existentes" value={existing} tone="good" /><MiniCard label="Nuevos" value={news} /><MiniCard label="Conflictos" value={conflicts} tone={conflicts ? 'bad' : 'default'} /></div>
-    <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-[10px]"><thead><tr className="text-left text-[8px] uppercase text-slate-400"><th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>Landing</th><th>ATC</th><th>ROAS</th></tr></thead><tbody>{rows.map((r, i) => <tr key={`${r.normalizedName}-${i}`} className="border-t"><td className="py-2 font-black">{r.adName}</td><td className={`font-black ${r.status === 'conflict' ? 'text-rose-600' : r.status === 'new' ? 'text-amber-600' : 'text-emerald-600'}`}>{r.status === 'existing' ? 'Actualizar existente' : r.status === 'new' ? 'Nuevo anuncio' : 'Conflicto'}</td><td>{r.reportDate}</td><td>{fmtMoney(r.metrics.spend)}</td><td>{r.metrics.purchases}</td><td>{fmtNum(r.metrics.ctr, 2)}%</td><td>{fmtMoney(r.metrics.cpc)}</td><td>{fmtMoney(r.metrics.cpm)}</td><td>{fmtNum(r.metrics.frequency, 2)}</td><td>{r.metrics.landingViews}</td><td>{r.metrics.atc}</td><td>{fmtNum(r.metrics.roas, 2)}</td></tr>)}</tbody></table></div>
+    <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-[10px]"><thead><tr className="text-left text-[8px] uppercase text-slate-400"><th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>Landing</th><th>ATC</th><th>ROAS</th></tr></thead><tbody>{rows.map((r, i) => <tr key={`${r.normalizedName}-${i}`} className="border-t"><td className="py-2 font-black">{r.adName}</td><td className={`font-black ${r.status === 'conflict' ? 'text-rose-600' : r.status === 'new' ? 'text-amber-600' : 'text-emerald-600'}`}>{r.status === 'existing' ? 'Actualizar existente' : r.status === 'new' ? 'Nuevo anuncio' : 'Conflicto'}</td><td>{r.reportDate}</td><td>{fmtMoney(r.metrics.spend)}</td><td>{fmtNum(r.metrics.purchases, 2)}</td><td>{fmtNum(r.metrics.ctr, 2)}%</td><td>{fmtMoney(r.metrics.cpc)}</td><td>{fmtMoney(r.metrics.cpm)}</td><td>{fmtNum(r.metrics.frequency, 2)}</td><td>{fmtNum(r.metrics.landingViews, 2)}</td><td>{fmtNum(r.metrics.atc, 2)}</td><td>{fmtNum(r.metrics.roas, 2)}</td></tr>)}</tbody></table></div>
     <button onClick={onApply} disabled={conflicts > 0} className="bg-zinc-950 text-white px-4 py-2.5 rounded-xl text-[9px] font-black uppercase disabled:opacity-30">Importar y actualizar campaña</button>
   </div>;
 }
@@ -3226,7 +3280,7 @@ async function detectBudgetChange({ ownerUid, date, campaign, currentBudget, dai
     adId: null,
     date,
     action: origin === 'recommendation' ? 'Recomendación de presupuesto aplicada' : 'Cambio manual de presupuesto',
-    detail: `${fmtMoney(previousBudget)} → ${fmtMoney(currentBudget)} (${fmtNum(((currentBudget - previousBudget) / previousBudget) * 100, 1)}%)`,
+    detail: `${fmtMoney(previousBudget)} → ${fmtMoney(currentBudget)} (${fmtNum(((currentBudget - previousBudget) / previousBudget) * 100, 2)}%)`,
     createdAt: serverTimestamp()
   });
 }
