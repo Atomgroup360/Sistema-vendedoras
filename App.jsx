@@ -2389,7 +2389,13 @@ function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allA
     .map(([date, records]) => ({ date, ...aggregateRecords(records) }))
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
-  const profitableDays = dailyProduct.filter(day =>
+  // Benchmark operativo principal: últimos 14 días activos completos del producto.
+  // El histórico anterior se conserva únicamente para comparar estabilidad.
+  const BENCHMARK_WINDOW_DAYS = 14;
+  const benchmarkWindow = dailyProduct.slice(-BENCHMARK_WINDOW_DAYS);
+  const benchmarkDates = new Set(benchmarkWindow.map(day => day.date));
+
+  const profitableDays = benchmarkWindow.filter(day =>
     toNumber(day.purchases) > 0 &&
     toNumber(day.cpa) > 0 &&
     toNumber(day.cpa) <= max
@@ -2398,6 +2404,7 @@ function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allA
   const stableProfitableDays = [];
 
   dailyProduct.forEach((day, idx) => {
+    if (!benchmarkDates.has(day.date)) return;
     if (toNumber(day.purchases) <= 0 || toNumber(day.cpa) <= 0 || toNumber(day.cpa) > max) return;
 
     const previous = dailyProduct.slice(Math.max(0, idx - 3), idx);
@@ -2462,7 +2469,9 @@ function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allA
     sampleDays: selectedDays.length,
     profitableDays: profitableDays.length,
     stableDays: stableProfitableDays.length,
-    availableDays: dailyProduct.length,
+    availableDays: benchmarkWindow.length,
+    historicalDays: dailyProduct.length,
+    windowDays: BENCHMARK_WINDOW_DAYS,
     status: benchmarkStatus,
     spend: totalSpend,
     purchases: totalPurchases,
@@ -2478,10 +2487,10 @@ function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allA
     visitToPurchase: safeRate(totalPurchases, totalLanding),
     atcToPurchase: safeRate(totalPurchases, totalAtc),
     criteria: stableProfitableDays.length > 0
-      ? 'Días completos + activos + rentables + estables'
+      ? 'Últimos 14 días activos completos · rentables + estables'
       : profitableDays.length > 0
-        ? 'Benchmark provisional con días completos + activos + rentables'
-        : 'Todavía no existen días rentables válidos'
+        ? 'Últimos 14 días activos completos · benchmark provisional rentable'
+        : 'Sin días rentables válidos dentro de los últimos 14 días activos completos'
   };
 }
 
@@ -2652,27 +2661,77 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         {decisionRows.length ? <div className="space-y-2">{decisionRows.slice(0,30).map((r,i) => <div key={r.id} className="flex gap-3 rounded-xl pl-3 py-2" style={{border:`2px solid ${ccVisualAccent(r.id||r.action,i).border}`,backgroundColor:ccVisualAccent(r.id||r.action,i).soft}}><div className="text-[9px] text-slate-400 w-20 shrink-0">{r.date}</div><div><p className="text-[10px] font-black">{r.action}</p>{r.detail && <p className="text-[9px] text-slate-500">{r.detail}</p>}</div></div>)}</div> : <EmptyState>Sin decisiones registradas todavía.</EmptyState>}
       </div>
 
-      <div className="rounded-2xl p-3 md:p-4 bg-pink-50/40 shadow-sm" style={{border:'2px solid #db2777'}}>
-        <h4 className="text-xs font-black uppercase mb-3 text-pink-800">Benchmark propio del producto</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-          <MiniCard label="Días disponibles" value={benchmark.availableDays}/>
-          <MiniCard label="Días rentables" value={benchmark.profitableDays}/>
-          <MiniCard label="Días estables" value={benchmark.stableDays}/>
-          <MiniCard label="Muestra usada" value={benchmark.sampleDays}/>
-          <MiniCard label="CPA ponderado" value={benchmark.sampleDays ? fmtMoney(benchmark.cpa) : '—'}/>
-          <MiniCard label="CTR" value={benchmark.sampleDays ? `${fmtNum(benchmark.ctr,2)}%` : '—'}/>
-          <MiniCard label="CPC" value={benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}/>
-          <MiniCard label="Visita→Compra" value={benchmark.sampleDays ? `${fmtNum(benchmark.visitToPurchase, 2)}%` : '—'}/>
+      <div className="rounded-2xl p-4 md:p-5 bg-pink-50/40 shadow-sm" style={{border:'2px solid #db2777'}}>
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-4">
+          <div>
+            <h4 className="text-sm font-black uppercase text-pink-800">Benchmark propio del producto</h4>
+            <p className="text-[9px] md:text-[10px] text-slate-500 mt-1 leading-relaxed">
+              Benchmark operativo móvil sobre los últimos <strong>14 días activos completos</strong>. HOY y los días OFF no participan.
+            </p>
+          </div>
+          <span className={`shrink-0 px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${
+            benchmark.status === 'Estable' ? 'bg-emerald-100 text-emerald-700' :
+            benchmark.status === 'Provisional' ? 'bg-amber-100 text-amber-700' :
+            'bg-slate-100 text-slate-500'
+          }`}>
+            {benchmark.status}
+          </span>
         </div>
-        <div className={`mt-3 rounded-xl p-2.5 text-[9px] font-black ${
+
+        <div className="rounded-2xl bg-white p-3 md:p-4" style={{border:'1px solid #fbcfe8'}}>
+          <p className="text-[9px] font-black uppercase text-pink-700 mb-3">Calidad de la muestra</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-xl bg-slate-50 p-3 min-h-[82px] flex flex-col justify-between">
+              <p className="text-[9px] font-bold text-slate-500 leading-tight">Días activos en ventana</p>
+              <p className="text-lg font-black text-slate-900">{benchmark.availableDays}</p>
+            </div>
+            <div className="rounded-xl bg-amber-50 p-3 min-h-[82px] flex flex-col justify-between" style={{border:'1px solid #fde68a'}}>
+              <p className="text-[9px] font-bold text-amber-700 leading-tight">Días rentables</p>
+              <p className="text-lg font-black text-amber-800">{benchmark.profitableDays}</p>
+            </div>
+            <div className="rounded-xl bg-blue-50 p-3 min-h-[82px] flex flex-col justify-between" style={{border:'1px solid #bfdbfe'}}>
+              <p className="text-[9px] font-bold text-blue-700 leading-tight">Días estables</p>
+              <p className="text-lg font-black text-blue-800">{benchmark.stableDays}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-3 min-h-[82px] flex flex-col justify-between" style={{border:'1px solid #a7f3d0'}}>
+              <p className="text-[9px] font-bold text-emerald-700 leading-tight">Muestra usada</p>
+              <p className="text-lg font-black text-emerald-800">{benchmark.sampleDays}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white p-3 md:p-4 mt-3" style={{border:'1px solid #fbcfe8'}}>
+          <p className="text-[9px] font-black uppercase text-pink-700 mb-3">Rendimiento benchmark</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
+              <p className="text-[9px] font-bold text-slate-500">CPA ponderado</p>
+              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtMoney(benchmark.cpa) : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
+              <p className="text-[9px] font-bold text-slate-500">CTR</p>
+              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? `${fmtNum(benchmark.ctr,2)}%` : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
+              <p className="text-[9px] font-bold text-slate-500">CPC</p>
+              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
+              <p className="text-[9px] font-bold text-slate-500">Visita → Compra</p>
+              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? `${fmtNum(benchmark.visitToPurchase,2)}%` : '—'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className={`mt-3 rounded-xl p-3 text-[9px] md:text-[10px] font-bold leading-relaxed ${
           benchmark.status === 'Estable' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
           benchmark.status === 'Provisional' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
           'bg-slate-50 text-slate-500 border border-slate-200'
         }`}>
-          Estado: {benchmark.status} · {benchmark.criteria}
+          <strong>Estado:</strong> {benchmark.status} · {benchmark.criteria}
         </div>
-        <p className="text-[8px] text-slate-400 mt-2">
-          Se alimenta con todos los días completos anteriores a hoy de las campañas y anuncios de este producto. Los días OFF se excluyen. Si todavía no existen 3 días anteriores para validar estabilidad, utiliza temporalmente los días rentables como benchmark provisional.
+
+        <p className="text-[9px] text-slate-500 mt-3 leading-relaxed">
+          Se evalúan como máximo los últimos <strong>14 días activos completos</strong> del producto. Dentro de esa ventana se identifican los días rentables y estables. Si todavía no existe suficiente muestra para certificar estabilidad, el sistema usa temporalmente los días rentables como benchmark provisional. El histórico anterior solo se utiliza para comparar estabilidad, no para inflar el promedio actual.
         </p>
       </div>
 
