@@ -1910,103 +1910,342 @@ function CampaignControlModule() {
   );
 }
 
+
+function CampaignBehaviorChart({ campaign, product, dailyCampaigns }) {
+  const history = eligibleCampaignRecords(
+    dailyCampaigns.filter(r => r.campaignId === campaign.id),
+    campaign
+  ).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(-14);
+
+  if (!history.length) return <EmptyState>Esta campaña todavía no tiene histórico suficiente para dibujar su comportamiento.</EmptyState>;
+
+  const maxCpa = Math.max(1, toNumber(product?.maxCpa));
+  const scaleCpa = maxCpa * 0.8;
+  const pointsData = history.map(r => ({
+    date: r.date,
+    cpa: calcCpa(r.spend, r.purchases),
+    spend: toNumber(r.spend),
+    purchases: toNumber(r.purchases)
+  }));
+
+  const validCpas = pointsData.map(x => x.cpa).filter(x => x > 0);
+  const chartMax = Math.max(maxCpa * 1.35, ...(validCpas.length ? validCpas.map(x => x * 1.1) : [maxCpa]), 1);
+  const W = 640, H = 170, padX = 18, padTop = 14, padBottom = 28;
+  const innerW = W - padX * 2;
+  const innerH = H - padTop - padBottom;
+  const xFor = i => pointsData.length <= 1 ? W / 2 : padX + (i * innerW / (pointsData.length - 1));
+  const yFor = value => padTop + innerH - (Math.min(Math.max(value, 0), chartMax) / chartMax) * innerH;
+  const polyline = pointsData.map((x,i) => `${xFor(i)},${yFor(x.cpa)}`).join(' ');
+  const yMax = yFor(maxCpa);
+  const yScale = yFor(scaleCpa);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div>
+          <p className="text-[8px] font-black uppercase text-slate-400">Comportamiento CPA</p>
+          <p className="text-[9px] text-slate-500">Últimos {history.length} día(s) activos registrados</p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-[8px] font-black">
+          <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600">Máximo {fmtMoney(maxCpa)}</span>
+          <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">Escala fuerte ≤ {fmtMoney(scaleCpa)}</span>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-slate-50 p-2 overflow-hidden">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[190px]" preserveAspectRatio="none" aria-label="Evolución CPA">
+          <line x1={padX} x2={W-padX} y1={yMax} y2={yMax} stroke="#f43f5e" strokeWidth="1.5" strokeDasharray="6 5" />
+          <line x1={padX} x2={W-padX} y1={yScale} y2={yScale} stroke="#10b981" strokeWidth="1.5" strokeDasharray="6 5" />
+          <polyline points={polyline} fill="none" stroke="#18181b" strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
+          {pointsData.map((p,i) => (
+            <g key={`${p.date}-${i}`}>
+              <circle cx={xFor(i)} cy={yFor(p.cpa)} r="4" fill={p.cpa > maxCpa ? '#e11d48' : p.cpa <= scaleCpa ? '#10b981' : '#18181b'} />
+              {(i === 0 || i === pointsData.length - 1 || pointsData.length <= 7) &&
+                <text x={xFor(i)} y={H-8} textAnchor="middle" fontSize="8" fill="#94a3b8">{String(p.date).slice(5)}</text>}
+            </g>
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 function CampaignDashboard({
   ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, decisions, recommendations,
   attentionRows, activeProducts, activeCampaigns, activeAds, latestDate,
   period, setPeriod, selectedCampaign, setSelectedCampaignId
 }) {
-  const latestCampaignRecords = dailyCampaigns.filter(r => r.date === latestDate);
-  const totalSpend = latestCampaignRecords.reduce((s, r) => s + toNumber(r.spend), 0);
-  const totalPurchases = latestCampaignRecords.reduce((s, r) => s + toNumber(r.purchases), 0);
+  const [selectedProductId, setSelectedProductId] = useState(selectedCampaign?.productId || '');
+  const [showGlobalAttention, setShowGlobalAttention] = useState(false);
+
+  const productsWithCampaigns = useMemo(() => (
+    products
+      .filter(p => campaigns.some(c => c.productId === p.id && !c.archived))
+      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))
+  ), [products, campaigns]);
+
+  useEffect(() => {
+    if (selectedCampaign?.productId && selectedCampaign.productId !== selectedProductId) {
+      setSelectedProductId(selectedCampaign.productId);
+    } else if (!selectedProductId && productsWithCampaigns.length) {
+      const firstProduct = productsWithCampaigns[0];
+      setSelectedProductId(firstProduct.id);
+      const firstCampaign = campaigns
+        .filter(c => c.productId === firstProduct.id && !c.archived)
+        .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))[0];
+      if (firstCampaign) setSelectedCampaignId(firstCampaign.id);
+    }
+  }, [selectedCampaign?.productId, selectedProductId, productsWithCampaigns, campaigns, setSelectedCampaignId]);
+
+  const productCampaigns = useMemo(() => (
+    campaigns
+      .filter(c => c.productId === selectedProductId && !c.archived)
+      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))
+  ), [campaigns, selectedProductId]);
+
+  const selectedProduct = products.find(p => p.id === selectedCampaign?.productId) || products.find(p => p.id === selectedProductId) || null;
+
+  const selectedCampaignHistory = selectedCampaign ? eligibleCampaignRecords(
+    dailyCampaigns.filter(r => r.campaignId === selectedCampaign.id),
+    selectedCampaign
+  ).sort((a,b) => String(a.date).localeCompare(String(b.date))) : [];
+
+  const latestSelectedRecord = selectedCampaignHistory.length ? selectedCampaignHistory[selectedCampaignHistory.length - 1] : null;
+  const selectedCpa = latestSelectedRecord ? calcCpa(latestSelectedRecord.spend, latestSelectedRecord.purchases) : 0;
+  const maxCpa = toNumber(selectedProduct?.maxCpa);
+  const scaleCpa = maxCpa * 0.8;
+
+  const selectedAttention = attentionRows.filter(x => x.campaign.id === selectedCampaign?.id);
+  const criticalCount = attentionRows.filter(x => x.diag.priority === 'critical').length;
+  const alertCount = attentionRows.filter(x => x.diag.priority === 'alert').length;
+  const globalSpendRecords = dailyCampaigns.filter(r => r.date === latestDate && campaigns.some(c => c.id === r.campaignId && entityActiveOnDate(c, r.date)));
+  const totalSpend = globalSpendRecords.reduce((sum,r) => sum + toNumber(r.spend), 0);
+  const totalPurchases = globalSpendRecords.reduce((sum,r) => sum + toNumber(r.purchases), 0);
   const globalCpa = calcCpa(totalSpend, totalPurchases);
-  const campaignPriorityRows = activeCampaigns.filter(c => c.active !== false).map(c => {
-    const product = products.find(p => p.id === c.productId);
-    const rec = [...eligibleCampaignRecords(dailyCampaigns.filter(r => r.campaignId === c.id), c)].sort((a,b) => String(b.date).localeCompare(String(a.date)))[0];
-    const cpa = rec ? calcCpa(rec.spend, rec.purchases) : 0;
-    const max = toNumber(product?.maxCpa);
-    let state = 'Sin datos', action = 'Registrar día', tone = 'attention';
-    if (rec && cpa > 0 && cpa <= max * 0.8) { state = 'Escalable'; action = 'Revisar guardrails'; tone = 'normal'; }
-    else if (rec && cpa > 0 && cpa <= max) { state = 'Rentable'; action = 'Mantener'; tone = 'normal'; }
-    else if (rec && cpa > max) { state = 'CPA fuera de objetivo'; action = 'Optimizar / no escalar'; tone = 'critical'; }
-    return { campaign: c, product, rec, cpa, max, state, action, tone };
-  }).sort((a,b) => (a.tone === 'critical' ? 0 : a.tone === 'attention' ? 1 : 2) - (b.tone === 'critical' ? 0 : b.tone === 'attention' ? 1 : 2));
+
+  const campaignIndex = productCampaigns.findIndex(c => c.id === selectedCampaign?.id);
+  const moveCampaign = delta => {
+    if (!productCampaigns.length) return;
+    let next = campaignIndex < 0 ? 0 : campaignIndex + delta;
+    if (next < 0) next = productCampaigns.length - 1;
+    if (next >= productCampaigns.length) next = 0;
+    setSelectedCampaignId(productCampaigns[next].id);
+  };
+
+  const handleProductChange = productId => {
+    setSelectedProductId(productId);
+    const first = campaigns
+      .filter(c => c.productId === productId && !c.archived)
+      .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')))[0];
+    setSelectedCampaignId(first?.id || '');
+  };
+
+  const campaignState = !selectedCampaign ? 'Sin campaña'
+    : selectedCampaign.active === false ? 'Campaña OFF'
+    : !latestSelectedRecord ? 'Sin datos'
+    : selectedCpa > maxCpa ? 'CPA fuera de objetivo'
+    : selectedCpa <= scaleCpa ? 'Zona de escala'
+    : 'Rentable / mantener';
+
+  const stateTone = selectedCampaign?.active === false || (selectedCpa > maxCpa && selectedCpa > 0)
+    ? 'critical'
+    : selectedCpa > 0 && selectedCpa <= scaleCpa ? 'normal'
+    : 'attention';
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <MiniCard label="Productos activos" value={activeProducts.length} />
         <MiniCard label="Campañas activas" value={activeCampaigns.filter(c => c.active !== false).length} />
         <MiniCard label="Anuncios activos" value={activeAds.length} />
         <MiniCard label={`Gasto ${latestDate}`} value={fmtMoney(totalSpend)} />
-        <MiniCard label="CPA global" value={fmtMoney(globalCpa)} tone={globalCpa > 0 ? 'default' : 'default'} />
+        <MiniCard label="CPA global" value={fmtMoney(globalCpa)} />
+        <MiniCard label="Alertas críticas" value={criticalCount + alertCount} tone={(criticalCount + alertCount) ? 'bad' : 'good'} />
       </div>
 
-      <SectionCard>
-        <div className="flex items-center justify-between gap-3 mb-3"><div><h3 className="font-black uppercase text-sm">Prioridades de acción hoy</h3><p className="text-[9px] text-slate-400 mt-1">Lectura rápida por campaña usando su último registro disponible.</p></div></div>
-        {campaignPriorityRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-[10px]"><thead><tr className="text-left text-[8px] uppercase text-slate-400 border-b"><th className="py-2">Producto → Campaña</th><th>Fecha</th><th>Presupuesto</th><th>Gasto</th><th>Compras</th><th>CPA</th><th>Máximo</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{campaignPriorityRows.map(r => <tr key={r.campaign.id} className="border-b last:border-0"><td className="py-2 font-black">{r.product?.name || 'Producto'} → {r.campaign.name}</td><td>{r.rec?.date || '—'}</td><td>{r.rec ? fmtMoney(r.rec.budget) : '—'}</td><td>{r.rec ? fmtMoney(r.rec.spend) : '—'}</td><td>{r.rec ? fmtNum(r.rec.purchases,0) : '—'}</td><td className="font-black">{r.rec ? fmtMoney(r.cpa) : '—'}</td><td>{fmtMoney(r.max)}</td><td className={`font-black ${toneText(r.tone)}`}>{r.state}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Sin campañas activas.</EmptyState>}
-      </SectionCard>
+      <SectionCard className="border-2 border-zinc-900">
+        <div className="flex flex-col xl:flex-row xl:items-end gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <Target size={16} className="text-emerald-500" />
+              <h3 className="font-black uppercase text-sm">Seleccionar campaña para analizar</h3>
+            </div>
+            <p className="text-[9px] text-slate-400">
+              El Dashboard muestra solamente la campaña seleccionada. La administración masiva permanece en “Ver campañas”.
+            </p>
+          </div>
 
-      <SectionCard>
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 className="font-black uppercase text-sm flex items-center gap-2"><AlertTriangle size={16} className="text-amber-500" /> Qué requiere mi atención hoy</h3>
-            <p className="text-[9px] text-slate-400 font-semibold mt-1">Una sola cola priorizada por anuncio · Producto → Campaña → Anuncio</p>
-          </div>
-          <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[9px] font-black">{attentionRows.length}</span>
-        </div>
-        {attentionRows.length === 0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> : (
-          <div className="space-y-2">
-            {attentionRows.slice(0, 12).map(({ ad, campaign, product, diag }) => (
-              <div key={ad.id} className={`rounded-2xl border p-3 ${diag.priority === 'critical' ? 'bg-rose-50 border-rose-200' : diag.priority === 'alert' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
-                <div className="flex flex-col md:flex-row md:items-center gap-2 justify-between">
-                  <div>
-                    <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
-                    <p className={`font-black text-sm mt-1 ${diag.priority === 'critical' ? 'text-rose-700' : diag.priority === 'alert' ? 'text-amber-700' : 'text-slate-700'}`}>{diag.diagnosis}</p>
-                    <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
-                  </div>
-                  <div className="text-left md:text-right shrink-0">
-                    <p className="text-[9px] font-black uppercase text-slate-400">Acción</p>
-                    <p className="text-xs font-black">{diag.action}</p>
-                    <p className="text-[8px] text-slate-400 mt-1">Confianza {diag.confidence}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[240px_320px_auto] gap-2 w-full xl:w-auto">
+            <div>
+              <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Producto</p>
+              <select
+                value={selectedProductId}
+                onChange={e => handleProductChange(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-200 focus:border-emerald-400 rounded-xl px-3 py-2.5 text-[10px] font-black outline-none"
+              >
+                {productsWithCampaigns.length === 0 && <option value="">Sin productos</option>}
+                {productsWithCampaigns.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
 
-      <SectionCard>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 className="font-black uppercase text-sm">Diagnóstico por campaña</h3>
-            <p className="text-[9px] text-slate-400 font-semibold">Variaciones dinámicas + post-clic + CPA</p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <select value={selectedCampaign?.id || ''} onChange={e => setSelectedCampaignId(e.target.value)} className="bg-slate-50 border rounded-xl px-3 py-2 text-[10px] font-black">
-              {campaigns.filter(c => !c.archived).map(c => <option key={c.id} value={c.id}>{products.find(p => p.id === c.productId)?.name || 'Producto'} · {c.name}</option>)}
-            </select>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-              {PERIODS.map(p => <button key={p.id} onClick={() => setPeriod(p.id)} className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black ${period === p.id ? 'bg-zinc-950 text-white' : 'text-slate-500'}`}>{p.label}</button>)}
+            <div>
+              <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Campaña</p>
+              <select
+                value={selectedCampaign?.id || ''}
+                onChange={e => setSelectedCampaignId(e.target.value)}
+                className="w-full bg-zinc-950 text-white border-2 border-zinc-950 rounded-xl px-3 py-2.5 text-[10px] font-black outline-none"
+              >
+                {productCampaigns.length === 0 && <option value="">Sin campañas</option>}
+                {productCampaigns.map(c => <option key={c.id} value={c.id}>{c.name}{c.active === false ? ' · OFF' : ''}</option>)}
+              </select>
+            </div>
+
+            <div className="flex gap-1 items-end">
+              <button onClick={() => moveCampaign(-1)} disabled={!productCampaigns.length} className="h-[40px] px-3 rounded-xl bg-slate-100 text-slate-600 font-black text-xs disabled:opacity-30">←</button>
+              <button onClick={() => moveCampaign(1)} disabled={!productCampaigns.length} className="h-[40px] px-3 rounded-xl bg-slate-100 text-slate-600 font-black text-xs disabled:opacity-30">→</button>
             </div>
           </div>
         </div>
-        {selectedCampaign ? (
-          <CampaignDiagnosticDetail
-            ownerUid={ownerUid}
-            campaign={selectedCampaign}
-            product={products.find(p => p.id === selectedCampaign.productId)}
-            ads={ads.filter(a => a.campaignId === selectedCampaign.id)}
-            allAds={ads}
-            allCampaigns={campaigns}
-            dailyAds={dailyAds}
-            dailyCampaigns={dailyCampaigns}
-            budgetChanges={budgetChanges}
-            decisions={decisions}
-            recommendations={recommendations}
-            period={period}
-          />
-        ) : <EmptyState>Crea una campaña para comenzar.</EmptyState>}
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mt-4 pt-4 border-t">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${toneBg(stateTone)} ${toneText(stateTone)}`}>{campaignState}</span>
+            {selectedCampaign && <span className="text-[9px] font-black text-slate-500">{selectedProduct?.name} → {selectedCampaign.name}</span>}
+          </div>
+          <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto">
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black whitespace-nowrap ${period === p.id ? 'bg-zinc-950 text-white' : 'text-slate-500'}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </SectionCard>
+
+      {!selectedCampaign ? <EmptyState>Crea un producto y una campaña en “Ver campañas” para comenzar.</EmptyState> : (
+        <>
+          <SectionCard>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+              <div>
+                <p className="text-[8px] font-black uppercase text-emerald-600">Campaña seleccionada</p>
+                <h3 className="font-black uppercase text-lg mt-1">{selectedProduct?.name} → {selectedCampaign.name}</h3>
+                <p className="text-[9px] text-slate-400 mt-1">
+                  {latestSelectedRecord ? `Último registro activo: ${latestSelectedRecord.date}` : 'Sin registros activos todavía'}
+                </p>
+              </div>
+              <StateBadge active={selectedCampaign.active !== false} archived={selectedCampaign.archived} />
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2">
+              <MiniCard label="Presupuesto" value={latestSelectedRecord ? fmtMoney(latestSelectedRecord.budget) : '—'} />
+              <MiniCard label="Gasto" value={latestSelectedRecord ? fmtMoney(latestSelectedRecord.spend) : '—'} />
+              <MiniCard label="Compras" value={latestSelectedRecord ? fmtNum(latestSelectedRecord.purchases,0) : '—'} />
+              <MiniCard label="CPA" value={latestSelectedRecord ? fmtMoney(selectedCpa) : '—'} tone={selectedCpa > maxCpa && selectedCpa > 0 ? 'bad' : selectedCpa > 0 && selectedCpa <= scaleCpa ? 'good' : 'default'} />
+              <MiniCard label="CPA máximo" value={fmtMoney(maxCpa)} />
+              <MiniCard label="Zona escala" value={`≤ ${fmtMoney(scaleCpa)}`} />
+              <MiniCard label="Frecuencia" value={latestSelectedRecord ? fmtNum(latestSelectedRecord.frequency,2) : '—'} />
+              <MiniCard label="ROAS" value={latestSelectedRecord ? fmtNum(latestSelectedRecord.roas,2) : '—'} />
+            </div>
+          </SectionCard>
+
+          <SectionCard>
+            <CampaignBehaviorChart campaign={selectedCampaign} product={selectedProduct} dailyCampaigns={dailyCampaigns} />
+          </SectionCard>
+
+          {selectedAttention.length > 0 && (
+            <SectionCard>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <h3 className="font-black uppercase text-sm flex items-center gap-2"><AlertTriangle size={15} className="text-amber-500"/> Alertas de esta campaña</h3>
+                  <p className="text-[9px] text-slate-400">Solo aparecen los anuncios de la campaña seleccionada.</p>
+                </div>
+                <span className="bg-zinc-950 text-white px-2 py-1 rounded-full text-[9px] font-black">{selectedAttention.length}</span>
+              </div>
+              <div className="space-y-2">
+                {selectedAttention.map(({ad,diag}) => (
+                  <div key={ad.id} className={`rounded-2xl border p-3 ${diag.priority === 'critical' ? 'bg-rose-50 border-rose-200' : diag.priority === 'alert' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50'}`}>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[9px] font-black uppercase text-slate-500">{ad.name}</p>
+                        <p className={`font-black text-sm ${diag.priority === 'critical' ? 'text-rose-700' : diag.priority === 'alert' ? 'text-amber-700' : 'text-slate-700'}`}>{diag.diagnosis}</p>
+                        <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
+                      </div>
+                      <div className="md:text-right">
+                        <p className="text-[8px] font-black uppercase text-slate-400">Acción</p>
+                        <p className="text-[10px] font-black">{diag.action}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+
+          <SectionCard>
+            <div className="mb-4">
+              <h3 className="font-black uppercase text-sm">Comportamiento y diagnóstico completo</h3>
+              <p className="text-[9px] text-slate-400 mt-1">
+                Todo lo que aparece debajo corresponde exclusivamente a {selectedCampaign.name}.
+              </p>
+            </div>
+            <CampaignDiagnosticDetail
+              ownerUid={ownerUid}
+              campaign={selectedCampaign}
+              product={selectedProduct}
+              ads={ads.filter(a => a.campaignId === selectedCampaign.id)}
+              allAds={ads}
+              allCampaigns={campaigns}
+              dailyAds={dailyAds}
+              dailyCampaigns={dailyCampaigns}
+              budgetChanges={budgetChanges}
+              decisions={decisions}
+              recommendations={recommendations}
+              period={period}
+            />
+          </SectionCard>
+        </>
+      )}
+
+      <SectionCard>
+        <button onClick={() => setShowGlobalAttention(x => !x)} className="w-full flex items-center justify-between gap-3 text-left">
+          <div>
+            <h3 className="font-black uppercase text-sm">Qué requiere mi atención hoy — todas las campañas</h3>
+            <p className="text-[9px] text-slate-400 mt-1">Cola global compacta. Se mantiene cerrada para no saturar el Dashboard cuando tengas muchos productos.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="bg-zinc-950 text-white px-2 py-1 rounded-full text-[9px] font-black">{attentionRows.length}</span>
+            {showGlobalAttention ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+          </div>
+        </button>
+
+        {showGlobalAttention && (
+          <div className="space-y-2 mt-4 pt-4 border-t">
+            {attentionRows.length === 0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> :
+              attentionRows.map(({ad,campaign,product,diag}) => (
+                <button
+                  key={ad.id}
+                  onClick={() => { setSelectedProductId(product.id); setSelectedCampaignId(campaign.id); window.scrollTo({top:0,behavior:'smooth'}); }}
+                  className={`w-full text-left rounded-2xl border p-3 ${diag.priority === 'critical' ? 'bg-rose-50 border-rose-200' : diag.priority === 'alert' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
+                      <p className="font-black text-xs mt-1">{diag.diagnosis}</p>
+                    </div>
+                    <div className="md:text-right">
+                      <p className="text-[8px] text-slate-400 uppercase font-black">Acción</p>
+                      <p className="text-[10px] font-black">{diag.action}</p>
+                    </div>
+                  </div>
+                </button>
+              ))
+            }
+          </div>
+        )}
       </SectionCard>
     </div>
   );
