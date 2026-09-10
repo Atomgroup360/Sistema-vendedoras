@@ -1317,7 +1317,7 @@ const COLLECTIONS = {
 };
 
 const PERIODS = [
-  { id: 'today', label: 'Hoy', size: 1, previousSize: 3 },
+  { id: 'last', label: 'Último día', size: 1, previousSize: 3 },
   { id: '3d', label: '3D', size: 3, previousSize: 3 },
   { id: '7d', label: '7D', size: 7, previousSize: 7 },
   { id: '14d', label: '14D', size: 14, previousSize: 14 },
@@ -1528,12 +1528,16 @@ function aggregateRecords(records = []) {
 
 function splitPeriodRecords(records, periodId) {
   const period = PERIODS.find(p => p.id === periodId) || PERIODS[0];
-  const sorted = [...records].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const today = todayColombiaCC();
 
-  if (periodId === 'today') {
-    const today = todayColombiaCC();
-    const current = sorted.filter(r => String(r.date) === today).slice(0, 1);
-    const previous = sorted.filter(r => String(r.date) < today).slice(0, 3);
+  // El diagnóstico solo usa días completos: cualquier registro de HOY queda fuera.
+  const sorted = [...records]
+    .filter(r => String(r.date) < today)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  if (periodId === 'last') {
+    const current = sorted.slice(0, 1);
+    const previous = sorted.slice(1, 4);
     return {
       current,
       previous,
@@ -1544,7 +1548,12 @@ function splitPeriodRecords(records, periodId) {
 
   const current = sorted.slice(0, period.size);
   const previous = sorted.slice(period.size, period.size + period.previousSize);
-  return { current, previous, currentStats: aggregateRecords(current), previousStats: aggregateRecords(previous) };
+  return {
+    current,
+    previous,
+    currentStats: aggregateRecords(current),
+    previousStats: aggregateRecords(previous)
+  };
 }
 
 function confidenceLabel(purchases, ageDays) {
@@ -1602,13 +1611,13 @@ function eligibleCampaignRecords(records, campaign) {
 
 function variationExplanation(periodId) {
   const map = {
-    today: 'HOY toma exclusivamente los datos del día actual y los compara contra el promedio ponderado de los 3 días activos completos anteriores. Si hoy todavía no tiene datos, no sustituye HOY por otro día.',
-    '3d': '3D toma los últimos 3 días activos registrados y los compara contra los 3 días activos inmediatamente anteriores.',
-    '7d': '7D toma los últimos 7 días activos y los compara contra los 7 días activos anteriores.',
-    '14d': '14D toma los últimos 14 días activos y los compara contra los 14 días activos anteriores para detectar cambios de tendencia intermedia.',
-    '30d': '30D toma los últimos 30 días activos y los compara contra los 30 días activos anteriores para mostrar la tendencia y estabilidad de largo plazo.'
+    last: 'ÚLTIMO DÍA toma el registro activo completo más reciente anterior a hoy y lo compara contra los 3 días activos completos inmediatamente anteriores.',
+    '3d': '3D toma los últimos 3 días activos completos anteriores a hoy y los compara contra los 3 días activos completos anteriores a ese bloque.',
+    '7d': '7D toma los últimos 7 días activos completos anteriores a hoy y los compara contra los 7 días activos completos anteriores.',
+    '14d': '14D toma los últimos 14 días activos completos anteriores a hoy y los compara contra los 14 anteriores para detectar cambios de tendencia intermedia.',
+    '30d': '30D toma los últimos 30 días activos completos anteriores a hoy y los compara contra los 30 anteriores para mostrar tendencia y estabilidad de largo plazo.'
   };
-  return map[periodId] || map.today;
+  return map[periodId] || map.last;
 }
 
 function adVariationDiagnosisFromDelta(delta) {
@@ -1643,7 +1652,11 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   const { currentStats: c, previousStats: p } = splitPeriodRecords(eligible, periodId);
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
   const scaleCpa = maxCpa * 0.8;
-  const latestEligibleDate = eligible.length ? [...eligible].sort((a,b) => String(b.date).localeCompare(String(a.date)))[0].date : todayColombiaCC();
+  const today = todayColombiaCC();
+  const completeEligible = eligible.filter(r => String(r.date) < today);
+  const latestEligibleDate = completeEligible.length
+    ? [...completeEligible].sort((a,b) => String(b.date).localeCompare(String(a.date)))[0].date
+    : today;
   const activeDays = countEntityActiveDays(ad, latestEligibleDate, campaign);
   const ageDays = activeDays;
   const confidence = confidenceLabel(c.purchases, activeDays);
@@ -1718,14 +1731,33 @@ function SectionCard({ children, className = '' }) {
   return <div className={`bg-white border border-slate-100 shadow-sm rounded-3xl p-4 md:p-5 ${className}`}>{children}</div>;
 }
 
+const CC_VISUAL_ACCENTS = [
+  { border: '#2563eb', soft: '#eff6ff', text: '#1d4ed8' },
+  { border: '#7c3aed', soft: '#f5f3ff', text: '#6d28d9' },
+  { border: '#059669', soft: '#ecfdf5', text: '#047857' },
+  { border: '#ea580c', soft: '#fff7ed', text: '#c2410c' },
+  { border: '#db2777', soft: '#fdf2f8', text: '#be185d' },
+  { border: '#0891b2', soft: '#ecfeff', text: '#0e7490' },
+  { border: '#ca8a04', soft: '#fefce8', text: '#a16207' }
+];
+
+function ccVisualAccent(seed = '', offset = 0) {
+  const value = String(seed || '');
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return CC_VISUAL_ACCENTS[(Math.abs(hash) + offset) % CC_VISUAL_ACCENTS.length];
+}
+
 function EmptyState({ children }) {
   return <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center text-slate-400 text-xs font-bold">{children}</div>;
 }
 
 function metricDirectionClass(metric, delta) {
-  if (delta === null || Math.abs(delta) <= 10) return 'text-slate-400';
+  if (delta === null || delta === undefined || Number.isNaN(Number(delta))) return 'text-slate-300';
+  const value = Number(delta);
+  if (Math.abs(value) < 0.005) return 'text-slate-400';
   const lowerIsGood = ['cpa', 'cpc', 'cpm', 'frequency'].includes(metric);
-  const improvement = lowerIsGood ? delta < 0 : delta > 0;
+  const improvement = lowerIsGood ? value < 0 : value > 0;
   return improvement ? 'text-emerald-600' : 'text-rose-600';
 }
 
@@ -1796,7 +1828,7 @@ function CampaignControlModule() {
   const [decisions, setDecisions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [period, setPeriod] = useState('3d');
+  const [period, setPeriod] = useState('last');
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
 
   useEffect(() => {
@@ -1835,7 +1867,7 @@ function CampaignControlModule() {
       const product = products.find(p => p.id === ad.productId && p.active !== false);
       if (!product) continue;
       const recs = dailyAds.filter(r => r.adId === ad.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-      const diag = diagnoseAd(recs, product, ad, 'today', campaign);
+      const diag = diagnoseAd(recs, product, ad, 'last', campaign);
       if (diag.stats.days <= 0) continue;
       rows.push({ ad, campaign, product, diag });
     }
@@ -1928,10 +1960,12 @@ function CampaignControlModule() {
 
 
 function CampaignCpaMiniChart({ campaign, product, dailyCampaigns }) {
+  const today = todayColombiaCC();
   const history = eligibleCampaignRecords(
     dailyCampaigns.filter(r => r.campaignId === campaign.id),
     campaign
-  ).sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(-14);
+  ).filter(r => String(r.date) < today)
+   .sort((a,b) => String(a.date).localeCompare(String(b.date))).slice(-14);
 
   if (!history.length) return <EmptyState>Sin histórico suficiente.</EmptyState>;
 
@@ -1971,7 +2005,7 @@ function CampaignDashboard({
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [drawerCampaignId, setDrawerCampaignId] = useState('');
-  const [drawerPeriod, setDrawerPeriod] = useState(period || '3d');
+  const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
 
   const activeCampaignList = activeCampaigns.filter(c => !c.archived);
 
@@ -1984,29 +2018,30 @@ function CampaignDashboard({
 
     const today = todayColombiaCC();
     const todayRecord = history.find(r => String(r.date) === today) || null;
-    const latestKnown = history[history.length - 1] || null;
-    const completePreviousDays = history.filter(r => String(r.date) < today);
-    const previous3 = completePreviousDays.slice(-3);
-    const prev7 = completePreviousDays.slice(-7);
-    const todayStats = todayRecord ? aggregateRecords([todayRecord]) : aggregateRecords([]);
-    const stats3 = aggregateRecords(previous3);
-    const stats7 = aggregateRecords(prev7);
-    const delta3 = todayRecord ? pctChange(todayStats.cpa, stats3.cpa) : null;
-    const delta7 = todayRecord ? pctChange(todayStats.cpa, stats7.cpa) : null;
+    const completeHistory = history.filter(r => String(r.date) < today);
+    const lastComplete = completeHistory[completeHistory.length - 1] || null;
+    const lastStats = lastComplete ? aggregateRecords([lastComplete]) : aggregateRecords([]);
+
+    const split3 = splitPeriodRecords(history, '3d');
+    const split7 = splitPeriodRecords(history, '7d');
+    const stats3 = split3.currentStats;
+    const stats7 = split7.currentStats;
+    const delta3 = pctChange(split3.currentStats.cpa, split3.previousStats.cpa);
+    const delta7 = pctChange(split7.currentStats.cpa, split7.previousStats.cpa);
 
     const maxCpa = Math.max(1,toNumber(product?.maxCpa));
     const campaignAds = ads.filter(a => a.campaignId === c.id && a.active !== false);
     const adDiags = campaignAds.map(ad => diagnoseAd(
-      dailyAds.filter(r=>r.adId===ad.id), product, ad, 'today', c
+      dailyAds.filter(r=>r.adId===ad.id), product, ad, 'last', c
     )).filter(d => d.stats.days > 0);
 
     const hasCritical = adDiags.some(d=>d.priority==='critical');
     const hasAlert = adDiags.some(d=>d.priority==='alert');
     const hasScalable = adDiags.some(d=>d.canScale);
-    const cpa = todayStats.cpa;
+    const cpa = lastStats.cpa;
 
-    let state='Sin datos hoy', tone='attention', diagnosis='Pendiente', action='Registrar día';
-    if (todayRecord) {
+    let state='Sin cierre previo', tone='attention', diagnosis='Pendiente', action='Registrar histórico';
+    if (lastComplete) {
       if (hasCritical || cpa > maxCpa) {
         state='Crítico'; tone='critical';
         diagnosis=cpa>maxCpa?'CPA fuera de objetivo':'Anuncio crítico';
@@ -2031,9 +2066,9 @@ function CampaignDashboard({
       : 'Creativo sano';
 
     return {
-      campaign:c, product, todayRecord, latestKnown, todayStats, stats3, stats7, delta3, delta7,
+      campaign:c, product, todayRecord, lastComplete, lastStats, stats3, stats7, delta3, delta7,
       maxCpa, state, tone, diagnosis, action, creativeHealth,
-      purchases:todayStats.purchases, frequency:todayStats.frequency
+      purchases:lastStats.purchases, frequency:lastStats.frequency
     };
   }), [activeCampaignList, products, dailyCampaigns, ads, dailyAds]);
 
@@ -2049,9 +2084,16 @@ function CampaignDashboard({
     return matchesSearch && matchesStatus;
   });
 
-  const totalSpend = campaignRows.reduce((sum,r)=>sum+toNumber(r.latest?.spend),0);
-  const totalPurchases = campaignRows.reduce((sum,r)=>sum+toNumber(r.latest?.purchases),0);
+  const totalSpend = campaignRows.reduce((sum,r)=>sum+toNumber(r.lastComplete?.spend),0);
+  const totalPurchases = campaignRows.reduce((sum,r)=>sum+toNumber(r.lastComplete?.purchases),0);
   const globalCpa = calcCpa(totalSpend,totalPurchases);
+
+  const today = todayColombiaCC();
+  const todayCampaignRecords = dailyCampaigns.filter(r =>
+    String(r.date) === today &&
+    campaigns.some(c => c.id === r.campaignId && c.active !== false && !c.archived)
+  );
+  const provisionalToday = aggregateRecords(todayCampaignRecords);
   const scalableCount = campaignRows.filter(r=>r.state==='Escalable').length;
   const maintainCount = campaignRows.filter(r=>r.state==='Mantener').length;
   const alertCount = campaignRows.filter(r=>r.state==='Alerta').length;
@@ -2062,13 +2104,13 @@ function CampaignDashboard({
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
     dailyCampaigns.filter(r=>r.campaignId===drawerCampaign.id), drawerCampaign
   ).sort((a,b)=>String(a.date).localeCompare(String(b.date))) : [];
-  const today = todayColombiaCC();
   const drawerToday = drawerHistory.find(r => String(r.date) === today) || null;
-  const drawerLatestKnown = drawerHistory[drawerHistory.length - 1] || null;
-  const drawerPreviousComplete = drawerHistory.filter(r => String(r.date) < today);
-  const drawerCurrent = drawerToday ? aggregateRecords([drawerToday]) : aggregateRecords([]);
-  const drawerPrev3 = aggregateRecords(drawerPreviousComplete.slice(-3));
-  const drawerDelta = drawerToday ? pctChange(drawerCurrent.cpa, drawerPrev3.cpa) : null;
+  const drawerCompleteHistory = drawerHistory.filter(r => String(r.date) < today);
+  const drawerLastComplete = drawerCompleteHistory[drawerCompleteHistory.length - 1] || null;
+  const drawerCurrent = drawerLastComplete ? aggregateRecords([drawerLastComplete]) : aggregateRecords([]);
+  const drawerPrev3 = aggregateRecords(drawerCompleteHistory.slice(Math.max(0, drawerCompleteHistory.length - 4), Math.max(0, drawerCompleteHistory.length - 1)));
+  const drawerDelta = drawerLastComplete ? pctChange(drawerCurrent.cpa, drawerPrev3.cpa) : null;
+  const drawerTodayStats = drawerToday ? aggregateRecords([drawerToday]) : aggregateRecords([]);
 
   const openDrawer = campaignId => {
     setSelectedCampaignId(campaignId);
@@ -2095,7 +2137,7 @@ function CampaignDashboard({
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="font-black uppercase text-sm">Qué requiere mi atención hoy</h3>
-            <p className="text-[9px] text-slate-400 mt-1">Una sola cola priorizada. Cada anuncio muestra la campaña que lo contiene.</p>
+            <p className="text-[9px] text-slate-400 mt-1">Acciones para hoy basadas en el último día completo registrado. Cada anuncio muestra la campaña que lo contiene.</p>
           </div>
           <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
         </div>
@@ -2125,8 +2167,23 @@ function CampaignDashboard({
         <MiniCard label="Mantener" value={maintainCount} />
         <MiniCard label="En alerta" value={alertCount} />
         <MiniCard label="Críticos" value={criticalCount} tone={criticalCount?'bad':'default'} />
-        <MiniCard label="Gasto hoy" value={fmtMoney(totalSpend)} />
+        <MiniCard label="Gasto último cierre" value={fmtMoney(totalSpend)} />
       </div>
+
+      <SectionCard className="border-dashed border-2 border-blue-200 bg-blue-50/40">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p>
+            <p className="text-[8px] text-slate-500 mt-1">Solo informativo. Estos datos NO participan en diagnósticos, alertas, fatiga, guardrails ni decisiones de escala.</p>
+          </div>
+          <div className="grid grid-cols-4 gap-2 min-w-full lg:min-w-[440px]">
+            <MiniCard label="Gasto hoy" value={fmtMoney(provisionalToday.spend)} />
+            <MiniCard label="Compras hoy" value={fmtNum(provisionalToday.purchases, 2)} />
+            <MiniCard label="CPA provisional" value={provisionalToday.purchases > 0 ? fmtMoney(provisionalToday.cpa) : '—'} />
+            <MiniCard label="ROAS provisional" value={fmtNum(provisionalToday.roas, 2)} />
+          </div>
+        </div>
+      </SectionCard>
 
       {/* FILTROS + BUSQUEDA */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -2147,7 +2204,7 @@ function CampaignDashboard({
           <table className="w-full min-w-[1350px] text-[10px]">
             <thead className="bg-slate-50">
               <tr className="text-left uppercase text-[8px] text-slate-400">
-                <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA hoy</th>
+                <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA último día</th>
                 <th>CPA 3D</th><th>Δ vs 3D</th><th>CPA 7D</th><th>Δ 7D</th>
                 <th>Compras</th><th>Frecuencia</th><th>Salud tráfico/creativo</th><th>Diagnóstico</th><th>Acción hoy</th>
               </tr>
@@ -2158,12 +2215,12 @@ function CampaignDashboard({
                   <tr key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className="border-t hover:bg-slate-50 cursor-pointer">
                     <td className="p-3"><span className={`px-2 py-1 rounded-full font-black ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>● {r.state}</span></td>
                     <td><p className="font-black">{r.product?.name||'Producto'}</p><p className="text-[8px] text-slate-400">{r.campaign.name}</p></td>
-                    <td className="font-black">{r.latestKnown?fmtMoney(r.latestKnown.budget):'—'}</td>
-                    <td className={`font-black ${r.todayStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.todayRecord?fmtMoney(r.todayStats.cpa):'—'}</td>
+                    <td className="font-black">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
+                    <td className={`font-black ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtMoney(r.lastStats.cpa):'—'}</td>
                     <td>{r.stats3.purchases>0?fmtMoney(r.stats3.cpa):'—'}</td>
-                    <td>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</td>
+                    <td><span className={`font-black ${metricDirectionClass('cpa', r.delta3)}`}>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</span></td>
                     <td>{r.stats7.purchases>0?fmtMoney(r.stats7.cpa):'—'}</td>
-                    <td>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}</td>
+                    <td><span className={`font-black ${metricDirectionClass('cpa', r.delta7)}`}>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}</span></td>
                     <td>{fmtNum(r.purchases, 2)}</td>
                     <td>{fmtNum(r.frequency,2)}</td>
                     <td><span className="font-black">{r.creativeHealth}</span></td>
@@ -2184,13 +2241,13 @@ function CampaignDashboard({
           <span className="text-[8px] text-slate-400 font-black uppercase">Lo más importante primero</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {campaignRows.filter(r=>r.todayRecord && ['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
+          {campaignRows.filter(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
             <button key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className={`text-left rounded-2xl border p-3 ${r.state==='Crítico'?'bg-rose-50 border-rose-200':r.state==='Alerta'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'}`}>
               <p className="font-black text-xs">{r.state==='Crítico'?'🔴':r.state==='Alerta'?'🟠':'🟢'} {r.product?.name} — {r.campaign.name}</p>
-              <p className="text-[9px] text-slate-600 mt-1">CPA {r.todayRecord?fmtMoney(r.todayStats.cpa):'—'}. Acción: {r.action}.</p>
+              <p className="text-[9px] text-slate-600 mt-1">CPA {r.lastComplete?fmtMoney(r.lastStats.cpa):'—'}. Acción: {r.action}.</p>
             </button>
           ))}
-          {!campaignRows.some(r=>r.todayRecord && ['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales con datos registrados hoy.</EmptyState>}
+          {!campaignRows.some(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales según el último día completo registrado.</EmptyState>}
         </div>
       </SectionCard>
 
@@ -2212,19 +2269,30 @@ function CampaignDashboard({
 
             <CampaignCpaMiniChart campaign={drawerCampaign} product={drawerProduct} dailyCampaigns={dailyCampaigns}/>
 
-            {!drawerToday && (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-black text-amber-700">
-                SIN DATOS HOY — No existe un registro con fecha {today}. Los datos históricos no se usan como sustituto del día actual.
+            <div className="mt-4 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-[9px] font-black uppercase text-blue-700">Hoy · provisional</p>
+                <span className="text-[7px] font-black uppercase text-blue-500">No influye en decisiones</span>
               </div>
-            )}
+              {drawerToday ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <MiniCard label="Gasto" value={fmtMoney(drawerTodayStats.spend)} />
+                  <MiniCard label="Compras" value={fmtNum(drawerTodayStats.purchases, 2)} />
+                  <MiniCard label="CPA" value={drawerTodayStats.purchases > 0 ? fmtMoney(drawerTodayStats.cpa) : '—'} />
+                  <MiniCard label="Frecuencia" value={fmtNum(drawerTodayStats.frequency, 2)} />
+                </div>
+              ) : (
+                <p className="text-[9px] text-slate-500">Sin registro intradía para hoy. El diagnóstico continúa usando el último día completo disponible.</p>
+              )}
+            </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-              <MiniCard label="CPA hoy" value={drawerToday?fmtMoney(drawerCurrent.cpa):'—'} />
-              <MiniCard label="CPA 3D anteriores" value={drawerPrev3.purchases>0?fmtMoney(drawerPrev3.cpa):'—'} />
-              <MiniCard label="Variación vs 3D" value={drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta, 2)}%`} />
-              <MiniCard label="Frecuencia" value={drawerToday?fmtNum(drawerCurrent.frequency,2):'—'} />
-              <MiniCard label="Compras hoy" value={drawerToday?fmtNum(drawerCurrent.purchases, 2):'—'} />
-              <MiniCard label="Presupuesto actual" value={drawerLatestKnown?fmtMoney(drawerLatestKnown.budget):'—'} />
+              <MiniCard label="CPA último día" value={drawerLastComplete?fmtMoney(drawerCurrent.cpa):'—'} />
+              <MiniCard label="CPA 3 días anteriores" value={drawerPrev3.purchases>0?fmtMoney(drawerPrev3.cpa):'—'} />
+              <MiniCard label="Variación vs prev. 3D" value={<span className={metricDirectionClass('cpa', drawerDelta)}>{drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta, 2)}%`}</span>} />
+              <MiniCard label="Frecuencia último día" value={drawerLastComplete?fmtNum(drawerCurrent.frequency,2):'—'} />
+              <MiniCard label="Compras último día" value={drawerLastComplete?fmtNum(drawerCurrent.purchases, 2):'—'} />
+              <MiniCard label="Presupuesto último cierre" value={drawerLastComplete?fmtMoney(drawerLastComplete.budget):'—'} />
               <MiniCard label="CPA máximo" value={fmtMoney(drawerProduct?.maxCpa)} />
               <MiniCard label="CPA operativo" value={fmtMoney(toNumber(drawerProduct?.maxCpa)*0.8)} />
             </div>
@@ -2273,11 +2341,13 @@ function buildProductBenchmark(productId, dailyAds, maxCpa, allAds = [], allCamp
     const campaign = allCampaigns.find(c => c.id === ad.campaignId);
     if (!campaign) continue;
 
+    const today = todayColombiaCC();
     const history = eligibleAdRecords(
       (dailyAds || []).filter(r => r.adId === ad.id && r.productId === productId),
       ad,
       campaign
-    ).sort((a,b) => String(a.date).localeCompare(String(b.date)));
+    ).filter(r => String(r.date) < today)
+     .sort((a,b) => String(a.date).localeCompare(String(b.date)));
 
     history.forEach((record, idx) => {
       if (toNumber(record.purchases) <= 0) return;
@@ -2329,18 +2399,18 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
 
 function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, allCampaigns, dailyAds, dailyCampaigns, budgetChanges, decisions, recommendations, period }) {
   const MONITOR_PERIODS = [
-    { id: 'today', label: 'HOY' },
+    { id: 'last', label: 'ÚLTIMO DÍA' },
     { id: '3d', label: '3D' },
     { id: '7d', label: '7D' },
     { id: '14d', label: '14D' },
     { id: '30d', label: '30D' }
   ];
   const [monitorPeriod, setMonitorPeriod] = useState(
-    ['today', '3d', '7d', '14d', '30d'].includes(period) ? period : 'today'
+    ['last', '3d', '7d', '14d', '30d'].includes(period) ? period : 'last'
   );
 
   useEffect(() => {
-    if (['today', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
+    if (['last', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
   }, [period]);
 
   const visibleAds = ads.filter(a => a.active !== false && campaign.active !== false && !campaign.archived);
@@ -2349,10 +2419,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     return { ad, diag: diagnoseAd(records, product, ad, monitorPeriod, campaign) };
   }).sort((a, b) => (a.diag.stats.cpa || 999999999) - (b.diag.stats.cpa || 999999999));
 
+  const today = todayColombiaCC();
   const campaignHistory = eligibleCampaignRecords(
     dailyCampaigns.filter(r => r.campaignId === campaign.id),
     campaign
-  ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  ).filter(r => String(r.date) < today)
+   .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const scaleRows = useMemo(() => buildScaleHistory(campaignHistory, product?.maxCpa), [campaignHistory, product?.maxCpa]);
   const budgetRows = budgetChanges.filter(b => b.campaignId === campaign.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const decisionRows = decisions.filter(d => d.campaignId === campaign.id).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
@@ -2410,7 +2482,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           </div>
         </div>
         <p className="text-[8px] text-slate-500 mt-3">
-          <strong>{monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}:</strong> {variationExplanation(monitorPeriod)} Los días OFF se excluyen completamente del período y no cuentan como cero.
+          <strong>{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}:</strong> {variationExplanation(monitorPeriod)} Los días OFF se excluyen completamente del período y no cuentan como cero. Los registros de HOY también se excluyen del diagnóstico por ser intradía.
         </p>
       </div>
 
@@ -2431,19 +2503,31 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         </div>
       </div>
 
-      <div>
-        <div className="flex items-center justify-between gap-2 mb-2"><h4 className="text-xs font-black uppercase">Variaciones dinámicas por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3 font-black">{ad.name}</td><td>{fmtMoney(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
+      <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#2563eb' }}>
+        <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#bfdbfe' }}><h4 className="text-xs font-black uppercase text-blue-800">Variaciones dinámicas por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+          key={ad.id}
+          className="border-b-4 border-white"
+          style={{ backgroundColor: ccVisualAccent(ad.id || ad.name).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name).border}` }}
+        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name).text }}>{ad.name}</td><td>{fmtMoney(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
       </div>
 
-      <div>
-        <div className="flex items-center justify-between gap-2 mb-2"><h4 className="text-xs font-black uppercase">Embudo post-clic dinámico por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3 font-black">{ad.name}</td><td>{fmtNum(diag.stats.landingViews, 2)}</td><td>{fmtNum(diag.stats.atc, 2)}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtNum(diag.stats.visitToAtc, 2)}%</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtNum(diag.stats.atcToPurchase, 2)}%</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
+      <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#7c3aed' }}>
+        <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#ddd6fe' }}><h4 className="text-xs font-black uppercase text-violet-800">Embudo post-clic dinámico por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+          key={ad.id}
+          className="border-b-4 border-white"
+          style={{ backgroundColor: ccVisualAccent(ad.id || ad.name, 1).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name, 1).border}` }}
+        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 1).text }}>{ad.name}</td><td>{fmtNum(diag.stats.landingViews, 2)}</td><td>{fmtNum(diag.stats.atc, 2)}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtNum(diag.stats.visitToAtc, 2)}%</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtNum(diag.stats.atcToPurchase, 2)}%</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
       </div>
 
-      <div>
-        <div className="flex items-center justify-between gap-2 mb-2"><h4 className="text-xs font-black uppercase">Optimización por anuncio — diagnóstico consolidado</h4><span className="text-[8px] font-black uppercase text-slate-400">Ventana {monitorPeriod === 'today' ? 'HOY' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px]"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Diagnóstico final</th><th>Confianza</th><th>Por qué</th><th>Acción recomendada</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr key={ad.id} className="border-b last:border-0"><td className="py-3"><p className="font-black">{ad.name}</p><p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p></td><td className="font-black">{fmtMoney(diag.stats.cpa)}</td><td>{diag.dynamicDiagnosis}</td><td>{diag.postDiagnosis}</td><td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td><td className="font-black">{diag.confidence}</td><td className="max-w-[330px] text-slate-500">{diag.reason}</td><td className="font-black">{diag.action}</td></tr>)}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
+      <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#059669' }}>
+        <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#a7f3d0' }}><h4 className="text-xs font-black uppercase text-emerald-800">Optimización por anuncio — diagnóstico consolidado</h4><span className="text-[8px] font-black uppercase text-slate-400">Ventana {monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Diagnóstico final</th><th>Confianza</th><th>Por qué</th><th>Acción recomendada</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+          key={ad.id}
+          className="border-b-4 border-white"
+          style={{ backgroundColor: ccVisualAccent(ad.id || ad.name, 2).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name, 2).border}` }}
+        ><td className="py-3 pl-3"><p className="font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 2).text }}>{ad.name}</p><p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p></td><td className="font-black">{fmtMoney(diag.stats.cpa)}</td><td>{diag.dynamicDiagnosis}</td><td>{diag.postDiagnosis}</td><td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td><td className="font-black">{diag.confidence}</td><td className="max-w-[330px] text-slate-500">{diag.reason}</td><td className="font-black">{diag.action}</td></tr>)}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
       <div>
@@ -2809,11 +2893,23 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
           const isOpen = expandedProducts[product.id] === true;
           const productRegistered = dailyCampaigns.filter(r => r.date === date && r.productId === product.id).length;
 
-          return <SectionCard key={product.id} className={product.active === false ? 'opacity-80' : ''}>
+          const productAccent = ccVisualAccent(product.id || product.name);
+          return <div
+            key={product.id}
+            className={product.active === false ? 'opacity-80' : ''}
+            style={{
+              border: `3px solid ${productAccent.border}`,
+              borderRadius: '24px',
+              backgroundColor: productAccent.soft,
+              boxShadow: `0 8px 24px ${productAccent.border}14`
+            }}
+          >
+            <div className="bg-white rounded-[21px] p-4 md:p-5">
             <button onClick={() => setExpandedProducts(x => ({ ...x, [product.id]: !isOpen }))} className="w-full flex items-center justify-between gap-3 text-left">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-black uppercase text-sm">{product.name}</h3>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: productAccent.border }}></span>
+                  <h3 className="font-black uppercase text-sm" style={{ color: productAccent.text }}>{product.name}</h3>
                   <StateBadge active={entityActiveOnDate(product, date)} />
                 </div>
                 <p className="text-[8px] text-slate-400 mt-1">CPA máximo {fmtMoney(product.maxCpa)} · {productRegistered}/{productCampaigns.length} campañas registradas</p>
@@ -2827,11 +2923,24 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                   const campaignOpen = expandedCampaigns[campaign.id] === true;
                   const existing = dailyCampaigns.find(r => r.campaignId === campaign.id && r.date === date);
                   const included = entityActiveOnDate(campaign, date);
-                  return <div key={campaign.id} className="border rounded-2xl overflow-hidden">
-                    <button onClick={() => setExpandedCampaigns(x => ({ ...x, [campaign.id]: !campaignOpen }))} className="w-full p-3 flex items-center justify-between gap-3 text-left bg-slate-50">
+                  const campaignAccent = ccVisualAccent(campaign.id || campaign.name, 2);
+                  return <div
+                    key={campaign.id}
+                    className="rounded-2xl overflow-hidden"
+                    style={{
+                      border: `2px solid ${campaignAccent.border}`,
+                      backgroundColor: campaignAccent.soft
+                    }}
+                  >
+                    <button
+                      onClick={() => setExpandedCampaigns(x => ({ ...x, [campaign.id]: !campaignOpen }))}
+                      className="w-full p-3 flex items-center justify-between gap-3 text-left"
+                      style={{ backgroundColor: campaignAccent.soft }}
+                    >
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-black text-xs uppercase">{campaign.name}</span>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: campaignAccent.border }}></span>
+                          <span className="font-black text-xs uppercase" style={{ color: campaignAccent.text }}>{campaign.name}</span>
                           <StateBadge active={included} />
                           {existing && <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-[8px] font-black uppercase">Registrada</span>}
                         </div>
@@ -2855,7 +2964,8 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                 })
               }
             </div>}
-          </SectionCard>;
+            </div>
+          </div>;
         })
       }
     </div>
@@ -3031,10 +3141,21 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         <div className="space-y-3">{ads.map(ad => {
           const f = adForms[ad.id] || {};
           const activeThisDate = entityActiveOnDate(ad, date) && entityActiveOnDate(campaign, date);
-          return <div key={ad.id} className={`border rounded-2xl p-3 ${activeThisDate ? '' : 'bg-slate-50 opacity-75'}`}>
+          const adAccent = ccVisualAccent(ad.id || ad.name, 4);
+          return <div
+            key={ad.id}
+            className={`rounded-2xl p-3 ${activeThisDate ? '' : 'opacity-75'}`}
+            style={{
+              border: `2px solid ${adAccent.border}`,
+              backgroundColor: activeThisDate ? adAccent.soft : '#f8fafc'
+            }}
+          >
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
-                <p className="font-black text-xs">{ad.name}</p>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: adAccent.border }}></span>
+                  <p className="font-black text-xs" style={{ color: adAccent.text }}>{ad.name}</p>
+                </div>
                 <p className="text-[8px] text-slate-400">{activeThisDate ? 'Activo en esta fecha · incluido en análisis' : 'OFF en esta fecha · excluido de análisis'}</p>
               </div>
               <div className="text-right"><p className="text-[8px] font-black uppercase text-slate-400">CPA</p><p className="font-black">{fmtMoney(calcCpa(f.spend, f.purchases))}</p></div>
