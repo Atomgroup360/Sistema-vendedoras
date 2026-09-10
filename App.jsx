@@ -1751,6 +1751,184 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   };
 }
 
+
+function buildCampaignContribution3D(campaign, product, allAds = [], dailyAds = []) {
+  const today = todayColombiaCC();
+  const maxCpa = Math.max(1, toNumber(product?.maxCpa));
+
+  const campaignAds = (allAds || []).filter(a => a.campaignId === campaign?.id);
+  const adMap = new Map(campaignAds.map(a => [a.id, a]));
+
+  // Misma ventana de campaña para todos los anuncios:
+  // últimos 3 días completos con datos, excluyendo HOY y periodos OFF.
+  const eligible = (dailyAds || []).filter(r => {
+    if (r.campaignId !== campaign?.id) return false;
+    if (!r.date || String(r.date) >= today) return false;
+    const ad = adMap.get(r.adId);
+    if (!ad) return false;
+    return entityActiveOnDate(campaign, r.date) && entityActiveOnDate(ad, r.date);
+  });
+
+  const dates = [...new Set(eligible.map(r => String(r.date)))]
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, 3);
+
+  const dateSet = new Set(dates);
+  const windowRecords = eligible.filter(r => dateSet.has(String(r.date)));
+  const campaignStats = aggregateRecords(windowRecords);
+  const campaignCpa = campaignStats.cpa;
+
+  const results = {};
+
+  campaignAds.forEach(ad => {
+    const adRecords = windowRecords.filter(r => r.adId === ad.id);
+    const adStats = aggregateRecords(adRecords);
+
+    const spendShare = campaignStats.spend > 0 ? (adStats.spend / campaignStats.spend) * 100 : 0;
+    const purchaseShare = campaignStats.purchases > 0 ? (adStats.purchases / campaignStats.purchases) * 100 : 0;
+
+    const withoutSpend = Math.max(0, campaignStats.spend - adStats.spend);
+    const withoutPurchases = Math.max(0, campaignStats.purchases - adStats.purchases);
+    const cpaWithout = withoutPurchases > 0 ? calcCpa(withoutSpend, withoutPurchases) : null;
+
+    const removalImprovementPct =
+      campaignCpa > 0 && cpaWithout !== null
+        ? ((campaignCpa - cpaWithout) / campaignCpa) * 100
+        : null;
+
+    // Diagnósticos 3D del anuncio para explicar la causa de bajo aporte/drenaje.
+    const adEligible = eligibleAdRecords(
+      (dailyAds || []).filter(r => r.adId === ad.id),
+      ad,
+      campaign
+    );
+    const { currentStats: ad3d, previousStats: prevAd3d } = splitPeriodRecords(adEligible, '3d');
+    const delta3d = {
+      cpa: pctChange(ad3d.cpa, prevAd3d.cpa),
+      ctr: pctChange(ad3d.ctr, prevAd3d.ctr),
+      cpc: pctChange(ad3d.cpc, prevAd3d.cpc),
+      cpm: pctChange(ad3d.cpm, prevAd3d.cpm),
+      frequency: pctChange(ad3d.frequency, prevAd3d.frequency),
+      visitToAtc: pctChange(ad3d.visitToAtc, prevAd3d.visitToAtc),
+      visitToPurchase: pctChange(ad3d.visitToPurchase, prevAd3d.visitToPurchase),
+      atcToPurchase: pctChange(ad3d.atcToPurchase, prevAd3d.atcToPurchase)
+    };
+    const dynamic3d = adVariationDiagnosisFromDelta(delta3d);
+    const post3d = funnelVariationDiagnosisFromDelta(delta3d);
+
+    let status = 'Bajo aporte / vigilar';
+    let tone = 'alert';
+    let cause = 'Aporte todavía no concluyente dentro de la campaña.';
+
+    const meaningfulSpend =
+      adStats.spend >= maxCpa * 0.5 ||
+      spendShare >= 15;
+
+    const clearlyHurtsEfficiency =
+      removalImprovementPct !== null &&
+      removalImprovementPct >= 10;
+
+    const disproportionate =
+      spendShare >= purchaseShare + 10;
+
+    const stronglyEfficient =
+      adStats.purchases > 0 &&
+      campaignCpa > 0 &&
+      adStats.cpa > 0 &&
+      adStats.cpa <= campaignCpa * 0.8 &&
+      purchaseShare >= spendShare + 8;
+
+    const reasonablyEfficient =
+      adStats.purchases > 0 &&
+      campaignCpa > 0 &&
+      adStats.cpa > 0 &&
+      adStats.cpa <= campaignCpa * 1.1 &&
+      purchaseShare >= spendShare - 5;
+
+    if (campaignStats.spend <= 0 || dates.length === 0) {
+      status = 'Sin datos 3D';
+      tone = 'neutral';
+      cause = 'Todavía no existen datos completos suficientes de la campaña.';
+    } else if (adStats.spend <= 0) {
+      status = 'Bajo aporte / vigilar';
+      tone = 'alert';
+      cause = 'El anuncio no tuvo entrega dentro de la ventana 3D.';
+    } else if (adStats.purchases <= 0 && meaningfulSpend) {
+      status = 'Drena la campaña';
+      tone = 'critical';
+      cause = `Consume ${fmtNum(spendShare, 2)}% del gasto 3D y no aporta compras.`;
+    } else if (
+      clearlyHurtsEfficiency ||
+      (adStats.cpa > maxCpa && disproportionate) ||
+      (campaignCpa > 0 && adStats.cpa > campaignCpa * 1.35 && disproportionate)
+    ) {
+      status = 'Drena la campaña';
+      tone = 'critical';
+
+      if (post3d.diagnosis === 'Calidad de tráfico cayendo' || post3d.diagnosis === 'Tráfico post-clic deteriorado') {
+        cause = 'Está encareciendo la campaña y el tráfico post-clic muestra deterioro/calidad baja.';
+      } else if (post3d.diagnosis === 'Fuga al cierre') {
+        cause = 'Consume presupuesto, pero la conversión se frena después del ATC.';
+      } else if (['Fatiga probable', 'Fatiga confirmada'].includes(dynamic3d.diagnosis)) {
+        cause = 'Está encareciendo la campaña con señales de fatiga/saturación creativa.';
+      } else if (adStats.cpa > maxCpa) {
+        cause = `CPA 3D ${fmtMoney(adStats.cpa)} por encima del máximo ${fmtMoney(maxCpa)} y aporte desproporcionado.`;
+      } else {
+        cause = `Consume ${fmtNum(spendShare, 2)}% del gasto y aporta ${fmtNum(purchaseShare, 2)}% de las compras; retirarlo mejoraría el CPA de campaña.`;
+      }
+    } else if (stronglyEfficient) {
+      status = 'Aporta fuertemente';
+      tone = 'good';
+      cause = `Aporta ${fmtNum(purchaseShare, 2)}% de las compras usando ${fmtNum(spendShare, 2)}% del gasto, con CPA claramente mejor que la campaña.`;
+    } else if (reasonablyEfficient) {
+      status = 'Aporta';
+      tone = 'good';
+      cause = `Su participación en compras es proporcional o superior a su participación en gasto.`;
+    } else if (disproportionate || adStats.cpa > maxCpa) {
+      status = 'Bajo aporte / vigilar';
+      tone = 'alert';
+
+      if (post3d.diagnosis === 'Calidad de tráfico cayendo' || post3d.diagnosis === 'Tráfico post-clic deteriorado') {
+        cause = 'Bajo aporte con señales de tráfico menos calificado.';
+      } else if (post3d.diagnosis === 'Fuga al cierre') {
+        cause = 'Genera intención, pero pierde eficiencia en el cierre.';
+      } else if (['Fatiga temprana', 'Fatiga probable', 'Fatiga confirmada'].includes(dynamic3d.diagnosis)) {
+        cause = `Bajo aporte con señal de ${dynamic3d.diagnosis.toLowerCase()}.`;
+      } else {
+        cause = `Consume ${fmtNum(spendShare, 2)}% del gasto y aporta ${fmtNum(purchaseShare, 2)}% de las compras.`;
+      }
+    } else {
+      status = 'Aporta';
+      tone = 'good';
+      cause = 'El anuncio mantiene una contribución razonable al rendimiento de campaña.';
+    }
+
+    results[ad.id] = {
+      status,
+      tone,
+      cause,
+      dates,
+      spend: adStats.spend,
+      purchases: adStats.purchases,
+      cpa: adStats.cpa,
+      spendShare,
+      purchaseShare,
+      campaignCpa,
+      cpaWithout,
+      removalImprovementPct,
+      dynamic3d: dynamic3d.diagnosis,
+      post3d: post3d.diagnosis
+    };
+  });
+
+  return {
+    dates,
+    campaignStats,
+    campaignCpa,
+    byAd: results
+  };
+}
+
 function StateBadge({ active, archived = false }) {
   if (archived) return <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-500 text-[9px] font-black uppercase">Archivada</span>;
   return active
@@ -2596,9 +2774,24 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   }, [period]);
 
   const visibleAds = ads.filter(a => a.active !== false && campaign.active !== false && !campaign.archived);
+
+  const contribution3d = useMemo(
+    () => buildCampaignContribution3D(
+      campaign,
+      product,
+      allAds || ads,
+      dailyAds
+    ),
+    [campaign, product, allAds, ads, dailyAds]
+  );
+
   const adRows = visibleAds.map(ad => {
     const records = dailyAds.filter(r => r.adId === ad.id);
-    return { ad, diag: diagnoseAd(records, product, ad, monitorPeriod, campaign) };
+    return {
+      ad,
+      diag: diagnoseAd(records, product, ad, monitorPeriod, campaign),
+      contribution: contribution3d.byAd[ad.id] || null
+    };
   }).sort((a, b) => (a.diag.stats.cpa || 999999999) - (b.diag.stats.cpa || 999999999));
 
   const today = todayColombiaCC();
@@ -2704,12 +2897,106 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#059669' }}>
-        <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#a7f3d0' }}><h4 className="text-xs font-black uppercase text-emerald-800">Optimización por anuncio — diagnóstico consolidado</h4><span className="text-[8px] font-black uppercase text-slate-400">Ventana {monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Diagnóstico final</th><th>Confianza</th><th>Por qué</th><th>Acción recomendada</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
-          key={ad.id}
-          className="border-b-4 border-white"
-          style={{ backgroundColor: ccVisualAccent(ad.id || ad.name, 2).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name, 2).border}` }}
-        ><td className="py-3 pl-3"><p className="font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 2).text }}>{ad.name}</p><p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p></td><td className="font-black">{fmtMoney(diag.stats.cpa)}</td><td>{diag.dynamicDiagnosis}</td><td>{diag.postDiagnosis}</td><td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td><td className="font-black">{diag.confidence}</td><td className="max-w-[330px] text-slate-500">{diag.reason}</td><td className="font-black">{diag.action}</td></tr>)}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-2 mb-3 pb-3 border-b" style={{ borderColor: '#a7f3d0' }}>
+          <div>
+            <h4 className="text-xs font-black uppercase text-emerald-800">Optimización por anuncio — diagnóstico consolidado</h4>
+            <p className="text-[8px] text-slate-500 mt-1">
+              El diagnóstico dinámico respeta la ventana seleccionada. <strong>Contribución a campaña siempre se calcula en 3D fijo</strong>.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase">
+              Diagnóstico: {monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}
+            </span>
+            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[8px] font-black uppercase">
+              Contribución: 3D
+            </span>
+          </div>
+        </div>
+
+        {adRows.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
+            {[
+              ['Aporta fuerte', adRows.filter(x => x.contribution?.status === 'Aporta fuertemente').length, 'bg-emerald-50 text-emerald-700 border-emerald-200'],
+              ['Aporta', adRows.filter(x => x.contribution?.status === 'Aporta').length, 'bg-blue-50 text-blue-700 border-blue-200'],
+              ['Bajo aporte', adRows.filter(x => x.contribution?.status === 'Bajo aporte / vigilar').length, 'bg-amber-50 text-amber-700 border-amber-200'],
+              ['Drena campaña', adRows.filter(x => x.contribution?.status === 'Drena la campaña').length, 'bg-rose-50 text-rose-700 border-rose-200']
+            ].map(([label, value, cls]) => (
+              <div key={label} className={`rounded-xl border p-2.5 ${cls}`}>
+                <p className="text-[8px] font-black uppercase">{label}</p>
+                <p className="text-lg font-black mt-1">{value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1750px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Contribución campaña · 3D</th><th>Diagnóstico final</th><th>Confianza</th><th>Por qué</th><th>Acción recomendada</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
+          const contributionClass =
+            contribution?.tone === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+            contribution?.tone === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+            contribution?.tone === 'alert' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+            'bg-slate-100 text-slate-500 border-slate-200';
+
+          return <tr
+            key={ad.id}
+            className="border-b-4 border-white"
+            style={{ backgroundColor: ccVisualAccent(ad.id || ad.name, 2).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name, 2).border}` }}
+          >
+            <td className="py-3 pl-3">
+              <p className="font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 2).text }}>{ad.name}</p>
+              <p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p>
+            </td>
+            <td className="font-black">{fmtMoney(diag.stats.cpa)}</td>
+            <td>{diag.dynamicDiagnosis}</td>
+            <td>{diag.postDiagnosis}</td>
+            <td className="min-w-[320px] py-2 pr-3">
+              {contribution ? (
+                <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                  <span className={`inline-block px-2 py-1 rounded-full border text-[8px] font-black uppercase ${contributionClass}`}>
+                    {contribution.status}
+                  </span>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[8px]">
+                    <span className="text-slate-500">Gasto campaña</span>
+                    <span className="font-black">{fmtNum(contribution.spendShare, 2)}%</span>
+                    <span className="text-slate-500">Compras campaña</span>
+                    <span className="font-black">{fmtNum(contribution.purchaseShare, 2)}%</span>
+                    <span className="text-slate-500">CPA anuncio 3D</span>
+                    <span className="font-black">{contribution.purchases > 0 ? fmtMoney(contribution.cpa) : 'Sin compras'}</span>
+                    <span className="text-slate-500">CPA campaña sin anuncio</span>
+                    <span className={`font-black ${
+                      contribution.removalImprovementPct !== null && contribution.removalImprovementPct > 0
+                        ? 'text-emerald-600'
+                        : contribution.removalImprovementPct !== null && contribution.removalImprovementPct < 0
+                          ? 'text-rose-600'
+                          : ''
+                    }`}>
+                      {contribution.cpaWithout !== null ? fmtMoney(contribution.cpaWithout) : '—'}
+                    </span>
+                  </div>
+                  <p className="text-[8px] text-slate-600 leading-relaxed mt-2">{contribution.cause}</p>
+                  {contribution.removalImprovementPct !== null && (
+                    <p className={`text-[8px] font-black mt-1 ${
+                      contribution.removalImprovementPct >= 10 ? 'text-rose-600' :
+                      contribution.removalImprovementPct > 0 ? 'text-amber-600' :
+                      'text-emerald-600'
+                    }`}>
+                      {contribution.removalImprovementPct > 0
+                        ? `Sin este anuncio, el CPA de campaña mejoraría ${fmtNum(contribution.removalImprovementPct, 2)}%`
+                        : contribution.removalImprovementPct < 0
+                          ? `Sin este anuncio, el CPA empeoraría ${fmtNum(Math.abs(contribution.removalImprovementPct), 2)}%`
+                          : 'Impacto neutro sobre el CPA de campaña'}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <span className="text-slate-400">Sin datos 3D</span>
+              )}
+            </td>
+            <td className={`font-black ${diag.priority === 'critical' ? 'text-rose-600' : diag.priority === 'alert' ? 'text-orange-600' : 'text-emerald-600'}`}>{diag.finalDiagnosis}</td>
+            <td className="font-black">{diag.confidence}</td>
+            <td className="max-w-[330px] text-slate-500">{diag.reason}</td>
+            <td className="font-black">{diag.action}</td>
+          </tr>;
+        })}</tbody></table></div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50/40 shadow-sm" style={{border:'2px solid #0891b2'}}>
