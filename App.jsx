@@ -1506,16 +1506,31 @@ function parseCsvText(text) {
 function calcCpa(spend, purchases) {
   const s = toNumber(spend);
   const p = toNumber(purchases);
-  return p > 0 ? s / p : (s > 0 ? s : 0);
+  // CPA = gasto / compras. Sin compra NO existe CPA.
+  return p > 0 ? s / p : null;
+}
+
+function fmtCpa(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
+  return fmtMoney(value);
+}
+
+function fmtRate(value, suffix = '%') {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
+  return `${fmtNum(value, 2)}${suffix}`;
 }
 
 function safeRate(numerator, denominator) {
   const n = toNumber(numerator);
   const d = toNumber(denominator);
-  return d > 0 ? (n / d) * 100 : 0;
+  // Una tasa sin denominador no es 0%; es no calculable.
+  return d > 0 ? (n / d) * 100 : null;
 }
 
 function pctChange(current, previous) {
+  // No fabricar variaciones a partir de métricas no calculables.
+  if (current === null || current === undefined || current === '' ||
+      previous === null || previous === undefined || previous === '') return null;
   const c = toNumber(current);
   const p = toNumber(previous);
   if (p === 0) return c === 0 ? 0 : null;
@@ -1533,41 +1548,64 @@ function variationBand(value) {
 
 function aggregateRecords(records = []) {
   if (!records.length) return {
-    days: 0, spend: 0, purchases: 0, cpa: 0, ctr: 0, cpc: 0, cpm: 0,
-    frequency: 0, landingViews: 0, atc: 0, roas: 0,
-    visitToAtc: 0, visitToPurchase: 0, atcToPurchase: 0
+    days: 0, spend: 0, purchases: 0, cpa: null, ctr: null, cpc: null, cpm: null,
+    frequency: null, landingViews: 0, atc: 0, roas: null,
+    visitToAtc: null, visitToPurchase: null, atcToPurchase: null
   };
 
-  const spend = records.reduce((s, r) => s + toNumber(r.spend), 0);
-  const purchases = records.reduce((s, r) => s + toNumber(r.purchases), 0);
-  const landingViews = records.reduce((s, r) => s + toNumber(r.landingViews), 0);
-  const atc = records.reduce((s, r) => s + toNumber(r.atc), 0);
-  const impressions = records.reduce((s, r) => s + toNumber(r.impressions), 0);
-  const clicks = records.reduce((s, r) => s + toNumber(r.clicks), 0);
+  const spend = records.reduce((sum, r) => sum + toNumber(r.spend), 0);
+  const purchases = records.reduce((sum, r) => sum + toNumber(r.purchases), 0);
+  const landingViews = records.reduce((sum, r) => sum + toNumber(r.landingViews), 0);
+  const atc = records.reduce((sum, r) => sum + toNumber(r.atc), 0);
+  const impressions = records.reduce((sum, r) => sum + toNumber(r.impressions), 0);
+  const clicks = records.reduce((sum, r) => sum + toNumber(r.clicks), 0);
+  const days = new Set(records.map(r => String(r.date || '')).filter(Boolean)).size || records.length;
 
-  const weighted = key => {
-    const valid = records.filter(r => toNumber(r.spend) > 0 && Number.isFinite(toNumber(r[key])));
-    const denom = valid.reduce((s, r) => s + toNumber(r.spend), 0);
-    if (!denom) return valid.length ? valid.reduce((s, r) => s + toNumber(r[key]), 0) / valid.length : 0;
-    return valid.reduce((s, r) => s + toNumber(r[key]) * toNumber(r.spend), 0) / denom;
+  const weightedPositive = (key, weightKey = 'spend') => {
+    const valid = records.filter(r => {
+      const value = toNumber(r[key]);
+      const weight = toNumber(r[weightKey]);
+      return value > 0 && weight > 0;
+    });
+    const denom = valid.reduce((sum, r) => sum + toNumber(r[weightKey]), 0);
+    if (!denom) return null;
+    return valid.reduce((sum, r) => sum + toNumber(r[key]) * toNumber(r[weightKey]), 0) / denom;
   };
 
-  const ctr = impressions > 0 ? (clicks / impressions) * 100 : weighted('ctr');
-  const cpc = clicks > 0 ? spend / clicks : weighted('cpc');
-  const cpm = impressions > 0 ? (spend / impressions) * 1000 : weighted('cpm');
+  const weightedAllowZero = (key, weightKey = 'spend') => {
+    const valid = records.filter(r => toNumber(r[weightKey]) > 0 && r[key] !== null && r[key] !== undefined && r[key] !== '');
+    const denom = valid.reduce((sum, r) => sum + toNumber(r[weightKey]), 0);
+    if (!denom) return null;
+    return valid.reduce((sum, r) => sum + toNumber(r[key]) * toNumber(r[weightKey]), 0) / denom;
+  };
+
+  // CTR = clics de enlace / impresiones.
+  // CPC = gasto / clics.
+  // CPM = gasto / impresiones * 1000.
+  const ctr = impressions > 0 ? (clicks / impressions) * 100 : weightedAllowZero('ctr', 'spend');
+  const cpc = clicks > 0 ? spend / clicks : weightedPositive('cpc', 'spend');
+  const cpm = impressions > 0 ? (spend / impressions) * 1000 : weightedPositive('cpm', 'spend');
+
+  // Frecuencia de varios días no puede reconstruirse exactamente sin Reach.
+  // Usamos la mejor aproximación disponible: frecuencia reportada ponderada por impresiones.
+  const frequency = weightedPositive('frequency', 'impressions') ?? weightedPositive('frequency', 'spend');
+
+  // ROAS agregado ponderado por gasto equivale a sumar el valor atribuido / gasto
+  // cuando Meta entrega ROAS por fila.
+  const roas = weightedAllowZero('roas', 'spend');
 
   return {
-    days: records.length,
+    days,
     spend,
     purchases,
     cpa: calcCpa(spend, purchases),
     ctr,
     cpc,
     cpm,
-    frequency: weighted('frequency'),
+    frequency,
     landingViews,
     atc,
-    roas: weighted('roas'),
+    roas,
     visitToAtc: safeRate(atc, landingViews),
     visitToPurchase: safeRate(purchases, landingViews),
     atcToPurchase: safeRate(purchases, atc)
@@ -1852,11 +1890,33 @@ function buildCpaObservation3D(stats3d, previous3d, maxCpa) {
   }
 
   if (spend > 0 && purchases <= 0) {
+    const spendVsMax = (spend / max) * 100;
+
+    if (spend >= max) {
+      return {
+        level: 'critical',
+        title: 'SIN COMPRAS · GASTO ALCANZÓ EL CPA MÁXIMO',
+        text: `Se gastaron ${fmtMoney(spend)} en 3D sin ninguna compra (${fmtNum(spendVsMax, 2)}% del CPA máximo ${fmtMoney(max)}). El CPA no es calculable. No escalar y priorizar optimización.`,
+        delta: null,
+        aboveMaxPct: null
+      };
+    }
+
+    if (spend >= max * 0.5) {
+      return {
+        level: 'alert',
+        title: 'SIN COMPRAS · VIGILAR',
+        text: `Se gastaron ${fmtMoney(spend)} en 3D sin compras (${fmtNum(spendVsMax, 2)}% del CPA máximo). El CPA no es calculable; todavía no se debe interpretar el gasto como CPA.`,
+        delta: null,
+        aboveMaxPct: null
+      };
+    }
+
     return {
-      level: 'critical',
-      title: 'GASTO 3D SIN COMPRAS',
-      text: `Se gastaron ${fmtMoney(spend)} en la ventana 3D sin compras. No escalar.`,
-      delta,
+      level: 'attention',
+      title: 'SIN COMPRAS AÚN · CPA NO CALCULABLE',
+      text: `Se gastaron ${fmtMoney(spend)} en 3D sin compras (${fmtNum(spendVsMax, 2)}% del CPA máximo). Aún hay poca inversión para juzgar; CPA = —, nunca ${fmtMoney(spend)}.`,
+      delta: null,
       aboveMaxPct: null
     };
   }
@@ -1999,9 +2059,19 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
       operational3dPriority = 'alert';
       operational3dReason = metaDelivery3d.reason;
     } else if (scale3d.spend > 0 && scale3d.purchases <= 0) {
-      operational3dDiagnosis = 'Gasto sin compras 3D';
-      operational3dAction = 'No escalar · optimizar';
-      operational3dPriority = 'critical';
+      if (scale3d.spend >= maxCpa) {
+        operational3dDiagnosis = 'Sin compras · gasto alcanzó CPA máximo';
+        operational3dAction = 'No escalar · optimizar / reemplazar';
+        operational3dPriority = 'critical';
+      } else if (scale3d.spend >= maxCpa * 0.5) {
+        operational3dDiagnosis = 'Sin compras · vigilar 3D';
+        operational3dAction = 'No escalar · seguir observando';
+        operational3dPriority = 'alert';
+      } else {
+        operational3dDiagnosis = 'Sin compras aún · poca inversión';
+        operational3dAction = 'Mantener test · CPA no calculable';
+        operational3dPriority = 'monitor';
+      }
       operational3dReason = cpaObservation3d.text;
     } else if (scale3d.cpa > maxCpa && scaleDelta3d.cpa !== null && scaleDelta3d.cpa <= 0) {
       operational3dDiagnosis = 'Fuera del objetivo · recuperándose';
@@ -2088,7 +2158,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     } else if (c.cpa <= maxCpa) {
       finalDiagnosis = 'Rentable / mantener'; action = 'Mantener'; priority = 'monitor'; reason = 'CPA dentro del máximo y sin señales críticas combinadas.';
     } else {
-      finalDiagnosis = 'No rentable / observar'; action = 'No escalar'; priority = 'critical'; reason = `CPA ${fmtMoney(c.cpa)} supera el máximo ${fmtMoney(maxCpa)}.`;
+      finalDiagnosis = 'No rentable / observar'; action = 'No escalar'; priority = 'critical'; reason = `CPA ${fmtCpa(c.cpa)} supera el máximo ${fmtMoney(maxCpa)}.`;
     }
   }
   return {
@@ -2181,9 +2251,7 @@ function buildCampaignContribution3D(campaign, product, allAds = [], dailyAds = 
     let tone = 'alert';
     let cause = 'Aporte todavía no concluyente dentro de la campaña.';
 
-    const meaningfulSpend =
-      adStats.spend >= maxCpa * 0.5 ||
-      spendShare >= 15;
+    const meaningfulSpend = adStats.spend >= maxCpa * 0.5;
 
     const clearlyHurtsEfficiency =
       removalImprovementPct !== null &&
@@ -2219,9 +2287,15 @@ function buildCampaignContribution3D(campaign, product, allAds = [], dailyAds = 
       tone = 'alert';
       cause = 'El anuncio no tuvo entrega dentro de la ventana 3D.';
     } else if (adStats.purchases <= 0 && meaningfulSpend) {
-      status = 'Drena la campaña';
-      tone = 'critical';
-      cause = `Consume ${fmtNum(spendShare, 2)}% del gasto 3D y no aporta compras.`;
+      status = adStats.spend >= maxCpa ? 'Drena la campaña' : 'Bajo aporte / vigilar';
+      tone = adStats.spend >= maxCpa ? 'critical' : 'alert';
+      cause = adStats.spend >= maxCpa
+        ? `Gastó ${fmtMoney(adStats.spend)} (≥ CPA máximo ${fmtMoney(maxCpa)}) sin compras. CPA no calculable.`
+        : `Gastó ${fmtMoney(adStats.spend)} sin compras. Aún no alcanza el CPA máximo; vigilar sin fabricar un CPA.`;
+    } else if (adStats.purchases <= 0) {
+      status = 'Bajo aporte / vigilar';
+      tone = 'neutral';
+      cause = `Sin compras todavía con solo ${fmtMoney(adStats.spend)} de gasto. CPA no calculable; muestra insuficiente para condenar el anuncio.`;
     } else if (
       clearlyHurtsEfficiency ||
       (adStats.cpa > maxCpa && disproportionate) ||
@@ -2636,28 +2710,43 @@ function CampaignCpaMiniChart({ campaign, product, dailyCampaigns }) {
 
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
   const target = maxCpa * 0.8;
-  const data = history.map(r => ({ date:r.date, cpa:calcCpa(r.spend,r.purchases) }));
-  const valid = data.map(x=>x.cpa).filter(x=>x>0);
+  const data = history.map(r => ({ date:r.date, cpa:calcCpa(r.spend,r.purchases), spend:toNumber(r.spend), purchases:toNumber(r.purchases) }));
+  const valid = data.map(x=>x.cpa).filter(x=>x !== null && x > 0);
   const chartMax = Math.max(maxCpa*1.35, ...(valid.length?valid.map(v=>v*1.1):[maxCpa]));
   const W=620,H=180,px=16,py=15,bottom=28;
   const iw=W-px*2, ih=H-py-bottom;
   const x=i=>data.length<=1?W/2:px+i*iw/(data.length-1);
   const y=v=>py+ih-(Math.min(Math.max(v,0),chartMax)/chartMax)*ih;
-  const points=data.map((d,i)=>`${x(i)},${y(d.cpa)}`).join(' ');
+
+  const segments = [];
+  let segment = [];
+  data.forEach((d,i) => {
+    if (d.cpa === null) {
+      if (segment.length) segments.push(segment);
+      segment = [];
+    } else {
+      segment.push(`${x(i)},${y(d.cpa)}`);
+    }
+  });
+  if (segment.length) segments.push(segment);
 
   return <div>
     <div className="rounded-2xl border bg-slate-50 p-2 overflow-hidden">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[180px]" preserveAspectRatio="none">
         <line x1={px} x2={W-px} y1={y(maxCpa)} y2={y(maxCpa)} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="6 5"/>
         <line x1={px} x2={W-px} y1={y(target)} y2={y(target)} stroke="#10b981" strokeWidth="1.5" strokeDasharray="6 5"/>
-        <polyline points={points} fill="none" stroke="#2563eb" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round"/>
-        {data.map((d,i)=><circle key={`${d.date}-${i}`} cx={x(i)} cy={y(d.cpa)} r="4" fill="#2563eb"/>)}
+        {segments.map((points,i)=><polyline key={i} points={points.join(' ')} fill="none" stroke="#2563eb" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round"/>)}
+        {data.map((d,i)=>d.cpa !== null
+          ? <circle key={`${d.date}-${i}`} cx={x(i)} cy={y(d.cpa)} r="4" fill="#2563eb"/>
+          : <circle key={`${d.date}-${i}`} cx={x(i)} cy={y(0)} r="3" fill="#94a3b8"/>
+        )}
       </svg>
     </div>
     <div className="flex flex-wrap gap-4 text-[8px] font-black text-slate-500 mt-2">
       <span>🔴 CPA máximo {fmtMoney(maxCpa)}</span>
       <span>🟢 CPA operativo {fmtMoney(target)}</span>
       <span>🔵 CPA diario</span>
+      <span>⚪ Sin compra = CPA no calculable</span>
     </div>
   </div>;
 }
@@ -2714,9 +2803,19 @@ function CampaignDashboard({
     let state='Sin 3D suficiente', tone='attention', diagnosis='Pendiente 3D', action='Registrar histórico';
     if (stats3.days > 0) {
       if (stats3.spend > 0 && stats3.purchases <= 0) {
-        state='Crítico'; tone='critical';
-        diagnosis='Gasto 3D sin compras';
-        action='No escalar · optimizar';
+        if (stats3.spend >= maxCpa) {
+          state='Crítico'; tone='critical';
+          diagnosis='Sin compras · gasto alcanzó CPA máximo';
+          action='No escalar · optimizar';
+        } else if (stats3.spend >= maxCpa * 0.5) {
+          state='Alerta'; tone='alert';
+          diagnosis='Sin compras · vigilar 3D';
+          action='No escalar · observar';
+        } else {
+          state='Testing'; tone='attention';
+          diagnosis='Sin compras aún · CPA no calculable';
+          action='Mantener test';
+        }
       } else if (cpa > maxCpa) {
         if (delta3 !== null && delta3 <= 0) {
           state='Alerta'; tone='alert';
@@ -2932,10 +3031,10 @@ function CampaignDashboard({
                     <td className="p-3"><span className={`px-2 py-1 rounded-full font-black ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>● {r.state}</span></td>
                     <td><p className="font-black">{r.product?.name||'Producto'}</p><p className="text-[8px] text-slate-400">{r.campaign.name}</p></td>
                     <td className="font-black">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
-                    <td className={`font-black ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtMoney(r.lastStats.cpa):'—'}</td>
-                    <td>{r.stats3.purchases>0?fmtMoney(r.stats3.cpa):'—'}</td>
+                    <td className={`font-black ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}</td>
+                    <td>{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</td>
                     <td><span className={`font-black ${metricDirectionClass('cpa', r.delta3)}`}>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</span></td>
-                    <td>{r.stats7.purchases>0?fmtMoney(r.stats7.cpa):'—'}</td>
+                    <td>{r.stats7.purchases>0?fmtCpa(r.stats7.cpa):'—'}</td>
                     <td><span className={`font-black ${metricDirectionClass('cpa', r.delta7)}`}>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}</span></td>
                     <td>{fmtNum(r.purchases, 2)}</td>
                     <td>{fmtNum(r.frequency,2)}</td>
@@ -2960,7 +3059,7 @@ function CampaignDashboard({
           {campaignRows.filter(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
             <button key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className={`text-left rounded-2xl border p-3 ${r.state==='Crítico'?'bg-rose-50 border-rose-200':r.state==='Alerta'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'}`}>
               <p className="font-black text-xs">{r.state==='Crítico'?'🔴':r.state==='Alerta'?'🟠':'🟢'} {r.product?.name} — {r.campaign.name}</p>
-              <p className="text-[9px] text-slate-600 mt-1">CPA {r.lastComplete?fmtMoney(r.lastStats.cpa):'—'}. Acción: {r.action}.</p>
+              <p className="text-[9px] text-slate-600 mt-1">CPA {r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}. Acción: {r.action}.</p>
             </button>
           ))}
           {!campaignRows.some(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales según el último día completo registrado.</EmptyState>}
@@ -2994,7 +3093,7 @@ function CampaignDashboard({
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   <MiniCard label="Gasto" value={fmtMoney(drawerTodayStats.spend)} />
                   <MiniCard label="Compras" value={fmtNum(drawerTodayStats.purchases, 2)} />
-                  <MiniCard label="CPA" value={drawerTodayStats.purchases > 0 ? fmtMoney(drawerTodayStats.cpa) : '—'} />
+                  <MiniCard label="CPA" value={drawerTodayStats.purchases > 0 ? fmtCpa(drawerTodayStats.cpa) : '—'} />
                   <MiniCard label="Frecuencia" value={fmtNum(drawerTodayStats.frequency, 2)} />
                 </div>
               ) : (
@@ -3003,8 +3102,8 @@ function CampaignDashboard({
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-              <MiniCard label="CPA último día" value={drawerLastComplete?fmtMoney(drawerCurrent.cpa):'—'} />
-              <MiniCard label="CPA 3 días anteriores" value={drawerPrev3.purchases>0?fmtMoney(drawerPrev3.cpa):'—'} />
+              <MiniCard label="CPA último día" value={drawerLastComplete?fmtCpa(drawerCurrent.cpa):'—'} />
+              <MiniCard label="CPA 3 días anteriores" value={drawerPrev3.purchases>0?fmtCpa(drawerPrev3.cpa):'—'} />
               <MiniCard label="Variación vs prev. 3D" value={<span className={metricDirectionClass('cpa', drawerDelta)}>{drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta, 2)}%`}</span>} />
               <MiniCard label="Frecuencia último día" value={drawerLastComplete?fmtNum(drawerCurrent.frequency,2):'—'} />
               <MiniCard label="Compras último día" value={drawerLastComplete?fmtNum(drawerCurrent.purchases, 2):'—'} />
@@ -3224,9 +3323,14 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
   const scalable = adRows.filter(x => x.diag.canScale).length;
 
   if (campaign3d.spend > 0 && campaign3d.purchases <= 0) {
+    const spentVsMax = campaign3d.spend / maxCpa;
     return {
-      status: 'Crítico',
-      action: 'No escalar · optimizar',
+      status: spentVsMax >= 1 ? 'Crítico' : spentVsMax >= 0.5 ? 'Alerta' : 'Testing',
+      action: spentVsMax >= 1
+        ? 'No escalar · optimizar'
+        : spentVsMax >= 0.5
+          ? 'No escalar · seguir observando'
+          : 'Mantener test · CPA no calculable',
       reason: cpaObservation3d.text,
       recommendedBudget: null,
       cpaObservation3d
@@ -3446,7 +3550,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           key={ad.id}
           className="border-b-4 border-white"
           style={{ backgroundColor: ccVisualAccent(ad.id || ad.name).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name).border}` }}
-        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name).text }}>{ad.name}</td><td>{fmtMoney(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
+        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name).text }}>{ad.name}</td><td>{fmtCpa(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtRate(diag.stats.visitToPurchase)}</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
       </div>
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#7c3aed' }}>
@@ -3455,7 +3559,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           key={ad.id}
           className="border-b-4 border-white"
           style={{ backgroundColor: ccVisualAccent(ad.id || ad.name, 1).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name, 1).border}` }}
-        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 1).text }}>{ad.name}</td><td>{fmtNum(diag.stats.landingViews, 2)}</td><td>{fmtNum(diag.stats.atc, 2)}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtNum(diag.stats.visitToAtc, 2)}%</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtNum(diag.stats.visitToPurchase, 2)}%</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtNum(diag.stats.atcToPurchase, 2)}%</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
+        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 1).text }}>{ad.name}</td><td>{fmtNum(diag.stats.landingViews, 2)}</td><td>{fmtNum(diag.stats.atc, 2)}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtRate(diag.stats.visitToAtc)}</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtRate(diag.stats.visitToPurchase)}</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtRate(diag.stats.atcToPurchase)}</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
       </div>
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#059669' }}>
@@ -3508,7 +3612,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
               <p className="font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 2).text }}>{ad.name}</p>
               <p className="text-[8px] text-slate-400">{diag.ageDays} días activos</p>
             </td>
-            <td className="font-black">{fmtMoney(diag.stats.cpa)}</td>
+            <td className="font-black">{fmtCpa(diag.stats.cpa)}</td>
             <td>{diag.dynamicDiagnosis}</td>
             <td>{diag.postDiagnosis}</td>
             <td className="min-w-[220px] py-2 pr-3">
@@ -3539,7 +3643,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                     <span className="text-slate-500">Compras campaña</span>
                     <span className="font-black">{fmtNum(contribution.purchaseShare, 2)}%</span>
                     <span className="text-slate-500">CPA anuncio 3D</span>
-                    <span className="font-black">{contribution.purchases > 0 ? fmtMoney(contribution.cpa) : 'Sin compras'}</span>
+                    <span className="font-black">{contribution.purchases > 0 ? fmtCpa(contribution.cpa) : 'Sin compras'}</span>
                     <span className="text-slate-500">CPA campaña sin anuncio</span>
                     <span className={`font-black ${
                       contribution.removalImprovementPct !== null && contribution.removalImprovementPct > 0
@@ -3548,7 +3652,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                           ? 'text-rose-600'
                           : ''
                     }`}>
-                      {contribution.cpaWithout !== null ? fmtMoney(contribution.cpaWithout) : '—'}
+                      {contribution.cpaWithout !== null ? fmtCpa(contribution.cpaWithout) : '—'}
                     </span>
                   </div>
                   <p className="text-[8px] text-slate-600 leading-relaxed mt-2">{contribution.cause}</p>
@@ -3585,7 +3689,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'2px solid #059669'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtMoney(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'2px solid #6366f1'}}>
@@ -3637,7 +3741,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CPA ponderado</p>
-              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtMoney(benchmark.cpa) : '—'}</p>
+              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtCpa(benchmark.cpa) : '—'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CTR</p>
@@ -3649,7 +3753,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">Visita → Compra</p>
-              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? `${fmtNum(benchmark.visitToPurchase,2)}%` : '—'}</p>
+              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtRate(benchmark.visitToPurchase) : '—'}</p>
             </div>
           </div>
         </div>
@@ -4677,7 +4781,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       <p className="font-black text-xs uppercase mb-3 text-blue-800">Métricas generales de campaña</p>
       <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget disabled={!editing}/>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-        <MiniCard label="CPA calculado" value={fmtMoney(calcCpa(campaignForm.spend, campaignForm.purchases))}/>
+        <MiniCard label="CPA calculado" value={fmtCpa(calcCpa(campaignForm.spend, campaignForm.purchases))}/>
         <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 2)}%`}/>
         <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 2)}%`}/>
         <MiniCard label="ATC → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.atc), 2)}%`}/>
@@ -4707,7 +4811,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
                 </div>
                 <p className="text-[8px] text-slate-400">{activeThisDate ? 'Activo en esta fecha · incluido en análisis' : 'OFF en esta fecha · excluido de análisis'}</p>
               </div>
-              <div className="text-right"><p className="text-[8px] font-black uppercase text-slate-400">CPA</p><p className="font-black">{fmtMoney(calcCpa(f.spend, f.purchases))}</p></div>
+              <div className="text-right"><p className="text-[8px] font-black uppercase text-slate-400">CPA</p><p className="font-black">{fmtCpa(calcCpa(f.spend, f.purchases))}</p></div>
             </div>
             <MetricForm form={f} disabled={!editing} setForm={next => setAdForms(prev => ({ ...prev, [ad.id]: typeof next === 'function' ? next(prev[ad.id] || {}) : next }))}/>
           </div>;
@@ -4877,7 +4981,7 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
           <h3 className="font-black uppercase text-sm mb-3">Métricas generales de campaña</h3>
           <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget />
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
-            <MiniCard label="CPA calculado" value={fmtMoney(calcCpa(campaignForm.spend, campaignForm.purchases))} />
+            <MiniCard label="CPA calculado" value={fmtCpa(calcCpa(campaignForm.spend, campaignForm.purchases))} />
             <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 2)}%`} />
             <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 2)}%`} />
             <MiniCard label="ATC → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.atc), 2)}%`} />
@@ -4889,7 +4993,7 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
           {campaignAds.length === 0 ? <EmptyState>No hay anuncios. Puedes crearlos desde Ver campañas o importarlos desde el CSV.</EmptyState> : <div className="space-y-3">{campaignAds.map(ad => {
             const f = adForms[ad.id] || {};
             return <div key={ad.id} className="border rounded-2xl p-3">
-              <div className="flex items-center justify-between mb-3"><div><p className="font-black text-xs">{ad.name}</p><p className="text-[8px] text-slate-400">{ad.active === false ? 'OFF · el registro no cambia su estado' : 'ON'}</p></div><div className="text-right"><p className="text-[8px] uppercase font-black text-slate-400">CPA</p><p className="font-black text-sm">{fmtMoney(calcCpa(f.spend, f.purchases))}</p></div></div>
+              <div className="flex items-center justify-between mb-3"><div><p className="font-black text-xs">{ad.name}</p><p className="text-[8px] text-slate-400">{ad.active === false ? 'OFF · el registro no cambia su estado' : 'ON'}</p></div><div className="text-right"><p className="text-[8px] uppercase font-black text-slate-400">CPA</p><p className="font-black text-sm">{fmtCpa(calcCpa(f.spend, f.purchases))}</p></div></div>
               <MetricForm form={f} setForm={next => setAdForms(s => ({ ...s, [ad.id]: typeof next === 'function' ? next(s[ad.id] || {}) : next }))} />
             </div>;
           })}</div>}
