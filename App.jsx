@@ -1751,9 +1751,8 @@ function eligibleCampaignRecords(records, campaign) {
 }
 
 function campaignRegistrationCoverageCC(campaign, product, dailyCampaigns, throughDate = lastCompleteColombiaDateCC()) {
-  const campaignStart = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate);
-  const productStart = dateToIso(product?.effectiveStartDate || product?.createdDate);
-  const start = [campaignStart, productStart].filter(Boolean).sort().reverse()[0] || '';
+  // La fecha de campaña es independiente y manda para su histórico.
+  const start = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate) || '';
   const end = dateToIso(throughDate);
 
   if (!start || !end || start > end) {
@@ -1773,10 +1772,7 @@ function campaignRegistrationCoverageCC(campaign, product, dailyCampaigns, throu
   let safety = 0;
 
   while (cursor && cursor <= end && safety < 5000) {
-    if (
-      entityActiveOnDate(campaign, cursor) &&
-      (!product || entityActiveOnDate(product, cursor))
-    ) {
+    if (entityActiveOnDate(campaign, cursor)) {
       requiredDates.push(cursor);
     }
     cursor = shiftIsoDateCC(cursor, 1);
@@ -3993,6 +3989,7 @@ function rebaseInitialStateHistory(history, oldStart, newStart) {
 function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, recommendations, decisions }) {
   const [productForm, setProductForm] = useState({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
   const [campaignNameByProduct, setCampaignNameByProduct] = useState({});
+  const [campaignDateByProduct, setCampaignDateByProduct] = useState({});
   const [adNameByCampaign, setAdNameByCampaign] = useState({});
   const [expandedProductsManager, setExpandedProductsManager] = useState({});
   const [expanded, setExpanded] = useState({});
@@ -4055,20 +4052,6 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       return;
     }
 
-    const childCampaigns = campaigns.filter(c => c.productId === product.id);
-    const earliestCampaignStart = childCampaigns
-      .map(c => dateToIso(c.effectiveStartDate || c.createdDate))
-      .filter(Boolean)
-      .sort()[0];
-
-    if (earliestCampaignStart && newStart > earliestCampaignStart) {
-      showManagerMessage(
-        'error',
-        `El producto no puede iniciar después de su primera campaña (${earliestCampaignStart}). Ajusta primero la fecha de esa campaña.`
-      );
-      return;
-    }
-
     if (newStart === oldStart) {
       showManagerMessage('success', 'La fecha del producto no cambió.');
       return;
@@ -4078,7 +4061,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       `Cambiar inicio de "${product.name}" de ${oldStart} a ${newStart}.
 
 ` +
-      `No se borrarán registros. Los datos anteriores a la nueva fecha dejarán de participar en los análisis de este producto.`
+      `No se borrarán registros. La fecha del producto es independiente de las fechas configuradas en sus campañas.`
     )) return;
 
     try {
@@ -4164,7 +4147,16 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       return;
     }
 
-    const effectiveStartDate = dateToIso(parentProduct.effectiveStartDate || parentProduct.createdDate) || today;
+    const campaignStartDate = dateToIso(campaignDateByProduct[productId] || today);
+    if (!campaignStartDate) {
+      showManagerMessage('error', 'Selecciona una fecha válida para la campaña.');
+      return;
+    }
+    if (campaignStartDate > today) {
+      showManagerMessage('error', 'La fecha de la campaña no puede ser posterior a hoy.');
+      return;
+    }
+
     const ref = doc(collection(db, COLLECTIONS.campaigns));
     setBusyKey(`campaign:${productId}`);
     try {
@@ -4174,18 +4166,21 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         name,
         active: true,
         archived: false,
-        // Fecha técnica de alta: hoy. Fecha efectiva: permite cargar histórico.
-        createdDate: today,
-        effectiveStartDate,
-        stateChangedDate: effectiveStartDate,
-        stateHistory: [{ date: effectiveStartDate, active: true }],
+        // Fecha operativa elegida por el usuario. Es independiente del producto.
+        createdDate: campaignStartDate,
+        effectiveStartDate: campaignStartDate,
+        stateChangedDate: campaignStartDate,
+        stateHistory: [{ date: campaignStartDate, active: true }],
+        startDateHistory: [],
+        // Fecha técnica real de creación del documento en Firestore.
         createdAt: serverTimestamp(),
         previousAdStates: {}
       });
       setCampaignNameByProduct(x => ({ ...x, [productId]: '' }));
+      setCampaignDateByProduct(x => ({ ...x, [productId]: today }));
       setExpanded(x => ({ ...x, [ref.id]: true }));
       setExpandedAds(x => ({ ...x, [ref.id]: false }));
-      showManagerMessage('success', `Campaña "${name}" creada correctamente.`);
+      showManagerMessage('success', `Campaña "${name}" creada con fecha de inicio ${campaignStartDate}.`);
     } catch (error) {
       console.error('Campaign Control · crear campaña', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo crear la campaña'));
@@ -4194,9 +4189,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     }
   };
   const editCampaignStartDate = async campaign => {
-    const parentProduct = products.find(p => p.id === campaign.productId);
-    const productStart = dateToIso(parentProduct?.effectiveStartDate || parentProduct?.createdDate);
-    const oldStart = dateToIso(campaign.effectiveStartDate || campaign.createdDate) || productStart || today;
+    const oldStart = dateToIso(campaign.effectiveStartDate || campaign.createdDate) || today;
 
     const value = window.prompt(
       `Fecha de creación / inicio de "${campaign.name}" (AAAA-MM-DD):`,
@@ -4213,14 +4206,6 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       showManagerMessage('error', 'La fecha de la campaña no puede ser posterior a hoy.');
       return;
     }
-    if (productStart && newStart < productStart) {
-      showManagerMessage(
-        'error',
-        `La campaña no puede iniciar antes que su producto (${productStart}).`
-      );
-      return;
-    }
-
     if (newStart === oldStart) {
       showManagerMessage('success', 'La fecha de la campaña no cambió.');
       return;
@@ -4228,7 +4213,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
 
     if (!window.confirm(
       `Cambiar inicio de "${campaign.name}" de ${oldStart} a ${newStart}.\n\n` +
-      `No se borrarán registros. Los registros anteriores a la nueva fecha quedarán fuera del análisis de esta campaña.`
+      `No se borrarán registros. La nueva fecha será el inicio operativo independiente de esta campaña y podrá ser anterior o posterior a la fecha del producto.`
     )) return;
 
     try {
@@ -4317,8 +4302,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
 
     const parentProduct = products.find(p => p.id === campaign.productId);
     const effectiveStartDate =
-      dateToIso(campaign.effectiveStartDate) ||
-      dateToIso(parentProduct?.createdDate) ||
+      dateToIso(campaign.effectiveStartDate || campaign.createdDate) ||
       today;
 
     const ref = doc(collection(db, COLLECTIONS.ads));
@@ -4398,7 +4382,37 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           </div>
         </div>
 
-      <div className="flex gap-2 mt-4"><input value={campaignNameByProduct[product.id]||''} onChange={e=>setCampaignNameByProduct(x=>({...x,[product.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCampaign(product.id);}}} placeholder="Nombre nueva campaña" className="flex-1 bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `campaign:${product.id}`} onClick={()=>addCampaign(product.id)} className="bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline mr-1"/> {busyKey === `campaign:${product.id}` ? 'Creando...' : 'Campaña'}</button></div>
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 mt-4">
+        <div>
+          <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Nombre campaña</p>
+          <input
+            value={campaignNameByProduct[product.id]||''}
+            onChange={e=>setCampaignNameByProduct(x=>({...x,[product.id]:e.target.value}))}
+            onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addCampaign(product.id);}}}
+            placeholder="Nombre nueva campaña"
+            className="w-full bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"
+          />
+        </div>
+        <div>
+          <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Fecha inicio campaña</p>
+          <input
+            type="date"
+            max={today}
+            value={campaignDateByProduct[product.id] || today}
+            onChange={e=>setCampaignDateByProduct(x=>({...x,[product.id]:e.target.value}))}
+            className="w-full bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"
+          />
+          <p className="text-[7px] text-slate-400 mt-1">Independiente de la fecha del producto</p>
+        </div>
+        <button
+          type="button"
+          disabled={busyKey === `campaign:${product.id}`}
+          onClick={()=>addCampaign(product.id)}
+          className="md:self-end bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"
+        >
+          <Plus size={12} className="inline mr-1"/> {busyKey === `campaign:${product.id}` ? 'Creando...' : 'Campaña'}
+        </button>
+      </div>
       {productCampaigns.length > 0 && <div className="flex items-center justify-between gap-2 mt-3">
         <p className="text-[8px] font-bold text-slate-400">Producto → Campaña → resumen y controles → anuncios</p>
         <div className="flex gap-1.5 shrink-0">
@@ -4428,7 +4442,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                   </span>
                 </div>
                 <p className="text-[8px] text-slate-400 mt-2">
-                  inicio editable {campaign.effectiveStartDate||campaign.createdDate||'—'} · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}
+                  inicio campaña {campaign.effectiveStartDate||campaign.createdDate||'—'} · fecha independiente del producto · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}
                 </p>
               </div>
 
@@ -4501,7 +4515,16 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
   const lastCompleteDate = lastCompleteColombiaDateCC();
 
   const visibleProducts = products
-    .filter(p => !(p.effectiveStartDate || p.createdDate) || (p.effectiveStartDate || p.createdDate) <= date)
+    .filter(p => {
+      const productStart = dateToIso(p.effectiveStartDate || p.createdDate);
+      const productAlreadyExists = !productStart || productStart <= date;
+      const hasHistoricalCampaign = campaigns.some(c =>
+        c.productId === p.id &&
+        !c.archived &&
+        (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date)
+      );
+      return productAlreadyExists || hasHistoricalCampaign;
+    })
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
 
   const expandAll = () => {
@@ -4577,7 +4600,10 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: productAccent.border }}></span>
                   <h3 className="font-black uppercase text-sm" style={{ color: productAccent.text }}>{product.name}</h3>
-                  <StateBadge active={entityActiveOnDate(product, date)} />
+                  <StateBadge active={
+                    entityActiveOnDate(product, date) ||
+                    productCampaigns.some(c => entityActiveOnDate(c, date))
+                  } />
                 </div>
                 <p className="text-[8px] text-slate-400 mt-1">CPA máximo {fmtMoney(product.maxCpa)} · {productRegistered}/{productCampaigns.length} campañas registradas</p>
               </div>
