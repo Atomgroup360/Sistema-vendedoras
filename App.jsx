@@ -1326,6 +1326,7 @@ const PERIODS = [
 
 const META_CSV_ALIASES = {
   adName: ['Nombre del anuncio', 'Ad name', 'Anuncio'],
+  delivery: ['Entrega de anuncios', 'Entrega del anuncio', 'Ad delivery', 'Delivery', 'Estado de entrega'],
   spend: ['Importe gastado (COP)', 'Importe gastado', 'Amount spent (COP)', 'Amount spent', 'Gasto'],
   impressions: ['Impresiones', 'Impressions'],
   clicks: ['Clics en el enlace', 'Link clicks', 'Clics únicos en el enlace'],
@@ -1461,6 +1462,51 @@ function normalizeHeader(value = '') {
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+}
+
+function normalizeMetaDeliveryStatusCC(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_');
+}
+
+function isMetaAdExplicitlyInactiveCC(value = '') {
+  const status = normalizeMetaDeliveryStatusCC(value);
+  if (!status) return false;
+
+  // Solo estados que expresan una desactivación/pausa real.
+  // "pending_process", "learning", "not_delivering", etc. NO se filtran aquí.
+  const exactInactive = new Set([
+    'inactive',
+    'disabled',
+    'off',
+    'paused',
+    'archived',
+    'deleted',
+    'permanently_disabled',
+    'ad_paused',
+    'adset_paused',
+    'ad_set_paused',
+    'campaign_paused',
+    'inactivo',
+    'inactiva',
+    'desactivado',
+    'desactivada',
+    'pausado',
+    'pausada',
+    'apagado',
+    'apagada',
+    'archivado',
+    'archivada',
+    'eliminado',
+    'eliminada'
+  ]);
+
+  return exactInactive.has(status);
 }
 
 function resolveCsvValue(row, aliases) {
@@ -2444,6 +2490,10 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
     const adName = String(resolveCsvValue(row, META_CSV_ALIASES.adName) || '').trim();
     if (!adName) return null;
 
+    const deliveryRaw = String(resolveCsvValue(row, META_CSV_ALIASES.delivery) || '').trim();
+    const deliveryStatus = normalizeMetaDeliveryStatusCC(deliveryRaw);
+    const ignoredFromImport = isMetaAdExplicitlyInactiveCC(deliveryRaw);
+
     const normalizedName = normalizeAdName(adName);
     const spend = toNumber(resolveCsvValue(row, META_CSV_ALIASES.spend));
     const impressions = toNumber(resolveCsvValue(row, META_CSV_ALIASES.impressions));
@@ -2466,6 +2516,9 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
       normalizedName,
       existingAd: existingMap.get(normalizedName) || null,
       reportDate,
+      deliveryRaw,
+      deliveryStatus,
+      ignoredFromImport,
       syntheticZero: false,
       metrics: {
         spend,
@@ -2486,13 +2539,20 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
   // Primero detectamos duplicados REALES del CSV.
   const counts = {};
   parsed.forEach(item => {
+    if (item.ignoredFromImport) return;
     counts[`${item.reportDate}__${item.normalizedName}`] =
       (counts[`${item.reportDate}__${item.normalizedName}`] || 0) + 1;
   });
 
   parsed.forEach(item => {
     const key = `${item.reportDate}__${item.normalizedName}`;
-    item.status = counts[key] > 1 ? 'conflict' : item.existingAd ? 'existing' : 'new';
+    item.status = item.ignoredFromImport
+      ? 'ignored_inactive'
+      : counts[key] > 1
+        ? 'conflict'
+        : item.existingAd
+          ? 'existing'
+          : 'new';
   });
 
   // META puede omitir por completo anuncios ACTIVOS a los que no entregó gasto.
@@ -2507,6 +2567,9 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
     const reportDates = [...new Set(parsed.map(item => item.reportDate).filter(Boolean))];
 
     for (const reportDate of reportDates) {
+      // Incluye también filas ignoradas por estar desactivadas en Meta.
+      // Así un anuncio desactivado que aparece en el CSV jamás reaparece
+      // accidentalmente como zero_fill.
       const namesPresent = new Set(
         parsed
           .filter(item => item.reportDate === reportDate)
@@ -4685,6 +4748,10 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
     const imported = [];
     for (const item of csvPreview) {
+      // Protección crítica: un anuncio marcado como desactivado/pausado
+      // en el CSV de Meta NO se crea y NO genera registro diario.
+      if (item.status === 'ignored_inactive' || item.ignoredFromImport) continue;
+
       let ad = item.existingAd;
       if (!ad) {
         const ref = await addDoc(collection(db, COLLECTIONS.ads), {
@@ -4740,18 +4807,20 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       newAds: csvPreview.filter(x => x.status === 'new').length,
       existingAds: csvPreview.filter(x => x.status === 'existing').length,
       zeroFilledAds: csvPreview.filter(x => x.status === 'zero_fill').length,
+      ignoredInactiveAds: csvPreview.filter(x => x.status === 'ignored_inactive').length,
       registrationTimezone: 'America/Bogota',
       importedAtColombia: colombiaDateTimeStorageCC(),
       importedAt: serverTimestamp()
     });
 
     const zeroFilledCount = imported.filter(x => x.status === 'zero_fill').length;
+    const ignoredInactiveCount = csvPreview.filter(x => x.status === 'ignored_inactive').length;
     const metaRowsCount = imported.length - zeroFilledCount;
     setCsvPreview(null);
     setMessage(
-      zeroFilledCount > 0
-        ? `CSV importado: ${metaRowsCount} anuncio(s) reportados por Meta + ${zeroFilledCount} anuncio(s) activos omitidos por Meta guardados en cero.`
-        : `CSV importado: ${metaRowsCount} anuncio(s) procesados.`
+      `CSV importado: ${metaRowsCount} anuncio(s) procesados` +
+      `${zeroFilledCount > 0 ? ` + ${zeroFilledCount} activo(s) sin entrega guardados en cero` : ''}` +
+      `${ignoredInactiveCount > 0 ? ` · ${ignoredInactiveCount} desactivado(s) en Meta ignorados y NO creados` : ''}.`
     );
     setTimeout(() => setMessage(''), 4000);
   };
@@ -4771,7 +4840,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
     <div className="rounded-2xl p-3 bg-indigo-50/50" style={{border:'2px solid #6366f1'}}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
-        <div><p className="font-black text-xs uppercase text-indigo-800">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0.</p></div>
+        <div><p className="font-black text-xs uppercase text-indigo-800">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Si el CSV marca un anuncio como desactivado/pausado, se ignora y NO se crea en la plataforma. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Si el CSV marca un anuncio como desactivado/pausado, se ignora y NO se crea en la plataforma.</p></div>
         <label className="cursor-pointer bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase flex items-center gap-2"><FileUp size={13}/> Seleccionar CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleCsv(e.target.files?.[0])}/></label>
       </div>
       {csvPreview && <CsvPreview rows={csvPreview} onApply={applyCsv}/>}
@@ -4905,6 +4974,10 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
     const imported = [];
 
     for (const item of csvPreview) {
+      // Protección crítica: un anuncio marcado como desactivado/pausado
+      // en el CSV de Meta NO se crea y NO genera registro diario.
+      if (item.status === 'ignored_inactive' || item.ignoredFromImport) continue;
+
       let ad = item.existingAd;
       if (!ad) {
         const ref = await addDoc(collection(db, COLLECTIONS.ads), {
@@ -4953,7 +5026,11 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
       }, { merge: true });
     }
 
-    setSavedMessage(`CSV importado: ${imported.length} anuncios procesados.`);
+    const ignoredInactiveCount = csvPreview.filter(x => x.status === 'ignored_inactive').length;
+    setSavedMessage(
+      `CSV importado: ${imported.length} anuncio(s) procesados` +
+      `${ignoredInactiveCount > 0 ? ` · ${ignoredInactiveCount} desactivado(s) en Meta ignorados y NO creados` : ''}.`
+    );
     setCsvPreview(null);
     setTimeout(() => setSavedMessage(''), 3000);
   };
@@ -5021,13 +5098,15 @@ function CsvPreview({ rows, onApply }) {
   const existing = rows.filter(r => r.status === 'existing').length;
   const news = rows.filter(r => r.status === 'new').length;
   const zeroFilled = rows.filter(r => r.status === 'zero_fill').length;
+  const ignoredInactive = rows.filter(r => r.status === 'ignored_inactive').length;
   const conflicts = rows.filter(r => r.status === 'conflict').length;
 
   return <div className="space-y-3 rounded-2xl p-3 bg-amber-50/50" style={{border:'2px solid #d97706'}}>
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
       <MiniCard label="Existentes Meta" value={existing} tone="good" />
       <MiniCard label="Nuevos" value={news} />
       <MiniCard label="Activos sin entrega → 0" value={zeroFilled} tone={zeroFilled ? 'default' : 'good'} />
+      <MiniCard label="Desactivados ignorados" value={ignoredInactive} tone={ignoredInactive ? 'default' : 'good'} />
       <MiniCard label="Conflictos" value={conflicts} tone={conflicts ? 'bad' : 'default'} />
     </div>
 
@@ -5037,6 +5116,15 @@ function CsvPreview({ rows, onApply }) {
         <p className="text-[8px] text-blue-600 mt-1">
           El sistema los agregará automáticamente para ese día con gasto, impresiones, clics, compras y demás métricas en 0.
           Esto permite que el día exista en el histórico del anuncio. Los anuncios OFF no se completan con ceros.
+        </p>
+      </div>
+    )}
+
+    {ignoredInactive > 0 && (
+      <div className="rounded-xl border border-slate-300 bg-slate-50 p-3">
+        <p className="text-[9px] font-black uppercase text-slate-700">Desactivados en Meta: {ignoredInactive}</p>
+        <p className="text-[8px] text-slate-600 mt-1">
+          Estas filas se muestran solo para control. Al importar no se crea el anuncio, no se guarda un registro diario y no entra al agregado de campaña.
         </p>
       </div>
     )}
@@ -5051,13 +5139,20 @@ function CsvPreview({ rows, onApply }) {
         <tbody>
           {rows.map((r, i) => <tr
             key={`${r.reportDate}-${r.normalizedName}-${i}`}
-            className={`border-t ${r.status === 'zero_fill' ? 'bg-blue-50/70' : ''}`}
+            className={`border-t ${
+              r.status === 'zero_fill'
+                ? 'bg-blue-50/70'
+                : r.status === 'ignored_inactive'
+                  ? 'bg-slate-100/80 opacity-70'
+                  : ''
+            }`}
           >
             <td className="py-2 font-black">{r.adName}</td>
             <td className={`font-black ${
               r.status === 'conflict' ? 'text-rose-600' :
               r.status === 'new' ? 'text-amber-600' :
               r.status === 'zero_fill' ? 'text-blue-600' :
+              r.status === 'ignored_inactive' ? 'text-slate-500' :
               'text-emerald-600'
             }`}>
               {r.status === 'existing'
@@ -5066,7 +5161,9 @@ function CsvPreview({ rows, onApply }) {
                   ? 'Nuevo anuncio'
                   : r.status === 'zero_fill'
                     ? 'Activo · Meta sin entrega → 0'
-                    : 'Conflicto'}
+                    : r.status === 'ignored_inactive'
+                      ? `Ignorado · desactivado en Meta${r.deliveryRaw ? ` (${r.deliveryRaw})` : ''}`
+                      : 'Conflicto'}
             </td>
             <td>{r.reportDate}</td>
             <td>{fmtMoney(r.metrics.spend)}</td>
@@ -5088,7 +5185,7 @@ function CsvPreview({ rows, onApply }) {
       disabled={conflicts > 0}
       className="bg-zinc-950 text-white px-4 py-2.5 rounded-xl text-[9px] font-black uppercase disabled:opacity-30"
     >
-      Importar y completar activos sin entrega
+      Importar válidos · ignorar desactivados
     </button>
   </div>;
 }
