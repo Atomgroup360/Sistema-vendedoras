@@ -1341,10 +1341,58 @@ const META_CSV_ALIASES = {
   endDate: ['Fin del informe', 'Reporting ends', 'Fecha de fin']
 };
 
+function colombiaPartsCC(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+
+  const map = {};
+  parts.forEach(p => {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  });
+  return map;
+}
+
 function todayColombiaCC() {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  return new Date(utc - 5 * 60 * 60000).toISOString().slice(0, 10);
+  const p = colombiaPartsCC();
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+function colombiaDateTimeLabelCC(date = new Date()) {
+  return new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
+function colombiaDateTimeStorageCC(date = new Date()) {
+  const p = colombiaPartsCC(date);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
+
+function shiftIsoDateCC(isoDate, days) {
+  const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + Number(days || 0), 12, 0, 0));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function lastCompleteColombiaDateCC() {
+  return shiftIsoDateCC(todayColombiaCC(), -1);
 }
 
 function parseDateSafe(value) {
@@ -1616,6 +1664,58 @@ function countEntityActiveDays(entity, asOfDate = todayColombiaCC(), parentEntit
 
 function eligibleCampaignRecords(records, campaign) {
   return (records || []).filter(r => entityActiveOnDate(campaign, r.date));
+}
+
+function campaignRegistrationCoverageCC(campaign, product, dailyCampaigns, throughDate = lastCompleteColombiaDateCC()) {
+  const campaignStart = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate);
+  const productStart = dateToIso(product?.effectiveStartDate || product?.createdDate);
+  const start = [campaignStart, productStart].filter(Boolean).sort().reverse()[0] || '';
+  const end = dateToIso(throughDate);
+
+  if (!start || !end || start > end) {
+    return {
+      startDate: start,
+      throughDate: end,
+      requiredDays: 0,
+      registeredDays: 0,
+      missingDays: 0,
+      missingDates: [],
+      requiredDates: []
+    };
+  }
+
+  const requiredDates = [];
+  let cursor = start;
+  let safety = 0;
+
+  while (cursor && cursor <= end && safety < 5000) {
+    if (
+      entityActiveOnDate(campaign, cursor) &&
+      (!product || entityActiveOnDate(product, cursor))
+    ) {
+      requiredDates.push(cursor);
+    }
+    cursor = shiftIsoDateCC(cursor, 1);
+    safety += 1;
+  }
+
+  const registeredSet = new Set(
+    (dailyCampaigns || [])
+      .filter(r => r.campaignId === campaign?.id && r.date)
+      .map(r => String(r.date))
+  );
+
+  const missingDates = requiredDates.filter(d => !registeredSet.has(d));
+
+  return {
+    startDate: start,
+    throughDate: end,
+    requiredDays: requiredDates.length,
+    registeredDays: requiredDates.length - missingDates.length,
+    missingDays: missingDates.length,
+    missingDates,
+    requiredDates
+  };
 }
 
 function variationExplanation(periodId) {
@@ -2571,6 +2671,7 @@ function CampaignDashboard({
   const [search, setSearch] = useState('');
   const [drawerCampaignId, setDrawerCampaignId] = useState('');
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
+  const [attentionOpen, setAttentionOpen] = useState(false);
 
   const activeCampaignList = activeCampaigns.filter(c => !c.archived);
 
@@ -2728,33 +2829,51 @@ function CampaignDashboard({
         </div>
       </div>
 
-      {/* QUE REQUIERE ATENCION: UNA SOLA VEZ */}
+      {/* QUE REQUIERE ATENCION: DESPLEGABLE */}
       <SectionCard accent="#f59e0b" soft="#fffbeb">
-        <div className="flex items-center justify-between gap-3 mb-4">
+        <button
+          type="button"
+          aria-expanded={attentionOpen}
+          onClick={()=>setAttentionOpen(v=>!v)}
+          className="w-full flex items-center justify-between gap-3 text-left"
+        >
           <div>
-            <h3 className="font-black uppercase text-sm text-amber-800">Qué requiere mi atención hoy</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-black uppercase text-sm text-amber-800">Qué requiere mi atención hoy</h3>
+              <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${
+                attentionRows.length ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+              }`}>
+                {attentionRows.length} señal(es)
+              </span>
+            </div>
             <p className="text-[9px] text-slate-400 mt-1">El último día completo funciona como alerta temprana. La acción operativa mostrada siempre se determina con 3D.</p>
           </div>
-          <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
-        </div>
-        {attentionRows.length===0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> :
-          <div className="space-y-2">{attentionRows.slice(0,12).map(({ad,campaign,product,diag})=>(
-            <button key={ad.id} onClick={()=>openDrawer(campaign.id)} className={`w-full text-left rounded-2xl border p-3 ${diag.priority==='critical'?'bg-rose-50 border-rose-200':diag.priority==='alert'?'bg-orange-50 border-orange-200':'bg-slate-50'}`}>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                <div>
-                  <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
-                  <p className="font-black text-xs mt-1">{diag.finalDiagnosis || diag.diagnosis}</p>
-                  <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
-                  <p className="text-[8px] font-black text-indigo-700 mt-2">DECISIÓN 3D: {diag.operational3dDiagnosis}</p>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="hidden md:inline px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
+            {attentionOpen ? <ChevronUp size={16} className="text-amber-700"/> : <ChevronDown size={16} className="text-amber-700"/>}
+          </div>
+        </button>
+
+        {attentionOpen && <div className="mt-4 pt-4 border-t border-amber-200">
+          {attentionRows.length===0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> :
+            <div className="space-y-2">{attentionRows.slice(0,12).map(({ad,campaign,product,diag})=>(
+              <button key={ad.id} onClick={()=>openDrawer(campaign.id)} className={`w-full text-left rounded-2xl border p-3 ${diag.priority==='critical'?'bg-rose-50 border-rose-200':diag.priority==='alert'?'bg-orange-50 border-orange-200':'bg-slate-50'}`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
+                    <p className="font-black text-xs mt-1">{diag.finalDiagnosis || diag.diagnosis}</p>
+                    <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
+                    <p className="text-[8px] font-black text-indigo-700 mt-2">DECISIÓN 3D: {diag.operational3dDiagnosis}</p>
+                  </div>
+                  <div className="md:text-right">
+                    <p className="text-[8px] uppercase font-black text-slate-400">Acción operativa · 3D</p>
+                    <p className="text-[10px] font-black">{diag.operational3dAction}</p>
+                  </div>
                 </div>
-                <div className="md:text-right">
-                  <p className="text-[8px] uppercase font-black text-slate-400">Acción operativa · 3D</p>
-                  <p className="text-[10px] font-black">{diag.operational3dAction}</p>
-                </div>
-              </div>
-            </button>
-          ))}</div>
-        }
+              </button>
+            ))}</div>
+          }
+        </div>}
       </SectionCard>
 
       {/* KPIs VALIDADO */}
@@ -4199,6 +4318,20 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
   const [date, setDate] = useState(todayColombiaCC());
   const [expandedProducts, setExpandedProducts] = useState({});
   const [expandedCampaigns, setExpandedCampaigns] = useState({});
+  const [colombiaClock, setColombiaClock] = useState(colombiaDateTimeLabelCC());
+
+  useEffect(() => {
+    const refresh = () => {
+      setColombiaClock(colombiaDateTimeLabelCC());
+      const colombiaToday = todayColombiaCC();
+      setDate(current => current > colombiaToday ? colombiaToday : current);
+    };
+    const id = setInterval(refresh, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const colombiaToday = todayColombiaCC();
+  const lastCompleteDate = lastCompleteColombiaDateCC();
 
   const visibleProducts = products
     .filter(p => !(p.effectiveStartDate || p.createdDate) || (p.effectiveStartDate || p.createdDate) <= date)
@@ -4230,11 +4363,15 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
           <div>
             <h3 className="text-sm font-black uppercase text-cyan-800">Registro diario de Meta Ads</h3>
             <p className="text-[9px] text-slate-400 mt-1">Fecha → Productos → Campañas → Anuncios. Cada registro se guarda por fecha y campaña; volver a guardarlo actualiza el mismo documento, nunca crea duplicados.</p>
+            <div className="mt-2 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-cyan-50 border border-cyan-200">
+              <span className="text-[8px] font-black uppercase text-cyan-700">🇨🇴 Hora Colombia · America/Bogota</span>
+              <span className="text-[8px] font-black text-cyan-900">{colombiaClock}</span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 items-end">
             <div>
               <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Fecha</p>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-zinc-950 text-white border border-zinc-800 rounded-xl px-3 py-2 text-xs font-black" />
+              <input type="date" max={colombiaToday} value={date} onChange={e => setDate(e.target.value > colombiaToday ? colombiaToday : e.target.value)} className="bg-zinc-950 text-white border border-zinc-800 rounded-xl px-3 py-2 text-xs font-black" />
             </div>
             <button onClick={expandAll} className="bg-slate-100 text-slate-700 px-3 py-2 rounded-xl text-[9px] font-black uppercase">Expandir todo</button>
             <button onClick={collapseAll} className="bg-slate-100 text-slate-700 px-3 py-2 rounded-xl text-[9px] font-black uppercase">Contraer todo</button>
@@ -4286,6 +4423,12 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                   const campaignOpen = expandedCampaigns[campaign.id] === true;
                   const existing = dailyCampaigns.find(r => r.campaignId === campaign.id && r.date === date);
                   const included = entityActiveOnDate(campaign, date);
+                  const registrationCoverage = campaignRegistrationCoverageCC(
+                    campaign,
+                    product,
+                    dailyCampaigns,
+                    lastCompleteDate
+                  );
                   const campaignAccent = ccVisualAccent(campaign.id || campaign.name, 2);
                   return <div
                     key={campaign.id}
@@ -4306,9 +4449,29 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                           <span className="font-black text-xs uppercase" style={{ color: campaignAccent.text }}>{campaign.name}</span>
                           <StateBadge active={included} />
                           {existing && <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-[8px] font-black uppercase">Registrada</span>}
+                          {registrationCoverage.requiredDays === 0 ? (
+                            <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-500 text-[8px] font-black uppercase">
+                              Sin días completos pendientes
+                            </span>
+                          ) : registrationCoverage.missingDays === 0 ? (
+                            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[8px] font-black uppercase">
+                              Histórico al día · {registrationCoverage.registeredDays}/{registrationCoverage.requiredDays}
+                            </span>
+                          ) : (
+                            <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${
+                              registrationCoverage.missingDays >= 4
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              Faltan {registrationCoverage.missingDays} día(s) por registrar
+                            </span>
+                          )}
                         </div>
                         <p className="text-[8px] text-slate-400 mt-1">
                           {included ? 'Este día participa en diagnósticos.' : 'Este día está OFF y será excluido de diagnósticos aunque exista un registro.'}
+                        </p>
+                        <p className="text-[8px] text-slate-500 mt-1">
+                          Historial completo: {registrationCoverage.registeredDays}/{registrationCoverage.requiredDays} días activos registrados desde {registrationCoverage.startDate || '—'} hasta {registrationCoverage.throughDate || '—'}. HOY no cuenta porque es intradía; días OFF tampoco.
                         </p>
                       </div>
                       {campaignOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
@@ -4372,7 +4535,10 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       ctr: toNumber(campaignForm.ctr), cpc: toNumber(campaignForm.cpc), cpm: toNumber(campaignForm.cpm),
       frequency: toNumber(campaignForm.frequency), landingViews: toNumber(campaignForm.landingViews),
       atc: toNumber(campaignForm.atc), roas: toNumber(campaignForm.roas),
-      source: 'manual', updatedAt: serverTimestamp()
+      source: 'manual',
+      registrationTimezone: 'America/Bogota',
+      updatedAtColombia: colombiaDateTimeStorageCC(),
+      updatedAt: serverTimestamp()
     }, { merge: true });
 
     for (const ad of ads) {
@@ -4385,7 +4551,10 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         spend: toNumber(f.spend), purchases: toNumber(f.purchases), impressions: toNumber(f.impressions), clicks: toNumber(f.clicks),
         ctr: toNumber(f.ctr), cpc: toNumber(f.cpc), cpm: toNumber(f.cpm), frequency: toNumber(f.frequency),
         landingViews: toNumber(f.landingViews), atc: toNumber(f.atc), roas: toNumber(f.roas),
-        source: 'manual', updatedAt: serverTimestamp()
+        source: 'manual',
+        registrationTimezone: 'America/Bogota',
+        updatedAtColombia: colombiaDateTimeStorageCC(),
+        updatedAt: serverTimestamp()
       }, { merge: true });
     }
 
@@ -4432,6 +4601,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         ...item.metrics,
         source: item.syntheticZero ? 'meta_csv_zero_fill' : 'meta_csv',
         metaOmittedNoDelivery: item.syntheticZero === true,
+        registrationTimezone: 'America/Bogota',
+        updatedAtColombia: colombiaDateTimeStorageCC(),
         updatedAt: serverTimestamp()
       }, { merge: true });
       imported.push(item);
@@ -4451,7 +4622,10 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         budget: toNumber(existing?.budget),
         spend: agg.spend, purchases: agg.purchases, ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
         frequency: agg.frequency, landingViews: agg.landingViews, atc: agg.atc, roas: agg.roas,
-        source: 'meta_csv_aggregate', updatedAt: serverTimestamp()
+        source: 'meta_csv_aggregate',
+        registrationTimezone: 'America/Bogota',
+        updatedAtColombia: colombiaDateTimeStorageCC(),
+        updatedAt: serverTimestamp()
       }, { merge: true });
     }
 
@@ -4462,6 +4636,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       newAds: csvPreview.filter(x => x.status === 'new').length,
       existingAds: csvPreview.filter(x => x.status === 'existing').length,
       zeroFilledAds: csvPreview.filter(x => x.status === 'zero_fill').length,
+      registrationTimezone: 'America/Bogota',
+      importedAtColombia: colombiaDateTimeStorageCC(),
       importedAt: serverTimestamp()
     });
 
