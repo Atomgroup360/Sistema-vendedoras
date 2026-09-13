@@ -4599,7 +4599,20 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
             .filter(c => c.productId === product.id && !c.archived && (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date))
             .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
           const isOpen = expandedProducts[product.id] === true;
-          const productRegistered = dailyCampaigns.filter(r => r.date === date && r.productId === product.id).length;
+
+          const productCampaignIds = new Set(productCampaigns.map(c => c.id));
+          const productRegistered = new Set(
+            dailyCampaigns
+              .filter(r =>
+                r.date === date &&
+                r.productId === product.id &&
+                productCampaignIds.has(r.campaignId)
+              )
+              .map(r => r.campaignId)
+          ).size;
+          const productPending = Math.max(0, productCampaigns.length - productRegistered);
+          const productRegistrationComplete =
+            productCampaigns.length > 0 && productPending === 0;
 
           const productAccent = ccVisualAccent(product.id || product.name);
           return <div
@@ -4622,8 +4635,36 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                     entityActiveOnDate(product, date) ||
                     productCampaigns.some(c => entityActiveOnDate(c, date))
                   } />
+
+                  {productCampaigns.length > 0 ? (
+                    <>
+                      <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${
+                        productRegistrationComplete
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        Campañas registradas {productRegistered} de {productCampaigns.length}
+                      </span>
+
+                      {productRegistrationComplete ? (
+                        <span className="px-2 py-1 rounded-full bg-emerald-500 text-white text-[8px] font-black uppercase">
+                          Al día
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-[8px] font-black uppercase">
+                          {productPending} pendiente{productPending === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-500 text-[8px] font-black uppercase">
+                      Sin campañas para esta fecha
+                    </span>
+                  )}
                 </div>
-                <p className="text-[8px] text-slate-400 mt-1">CPA máximo {fmtMoney(product.maxCpa)} · {productRegistered}/{productCampaigns.length} campañas registradas</p>
+                <p className="text-[8px] text-slate-400 mt-1">
+                  CPA máximo {fmtMoney(product.maxCpa)} · seguimiento del registro visible sin desplegar el producto
+                </p>
               </div>
               {isOpen ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
             </button>
