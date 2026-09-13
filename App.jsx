@@ -1750,6 +1750,24 @@ function eligibleCampaignRecords(records, campaign) {
   return (records || []).filter(r => entityActiveOnDate(campaign, r.date));
 }
 
+function previousCampaignBudgetCC(dailyCampaigns, campaignId, targetDate) {
+  const previous = (dailyCampaigns || [])
+    .filter(r =>
+      r.campaignId === campaignId &&
+      r.date &&
+      String(r.date) < String(targetDate || '') &&
+      toNumber(r.budget) > 0
+    )
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+
+  if (!previous) return null;
+  return {
+    budget: toNumber(previous.budget),
+    date: String(previous.date),
+    source: previous.budgetSource || previous.source || 'registered'
+  };
+}
+
 function campaignRegistrationCoverageCC(campaign, product, dailyCampaigns, throughDate = lastCompleteColombiaDateCC()) {
   // La fecha de campaña es independiente y manda para su histórico.
   const start = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate) || '';
@@ -4615,6 +4633,8 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                 productCampaigns.map(campaign => {
                   const campaignOpen = expandedCampaigns[campaign.id] === true;
                   const existing = dailyCampaigns.find(r => r.campaignId === campaign.id && r.date === date);
+                  const previousBudgetRecord = previousCampaignBudgetCC(dailyCampaigns, campaign.id, date);
+                  const existingBudgetValue = toNumber(existing?.budget);
                   const included = entityActiveOnDate(campaign, date);
                   const registrationCoverage = campaignRegistrationCoverageCC(
                     campaign,
@@ -4642,6 +4662,19 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                           <span className="font-black text-xs uppercase" style={{ color: campaignAccent.text }}>{campaign.name}</span>
                           <StateBadge active={included} />
                           {existing && <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-[8px] font-black uppercase">Registrada</span>}
+                          {existingBudgetValue > 0 ? (
+                            <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[8px] font-black uppercase">
+                              Presupuesto día · {fmtMoney(existingBudgetValue)}
+                            </span>
+                          ) : previousBudgetRecord ? (
+                            <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-[8px] font-black uppercase">
+                              Presupuesto previo · {fmtMoney(previousBudgetRecord.budget)}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-500 text-[8px] font-black uppercase">
+                              Sin presupuesto previo
+                            </span>
+                          )}
                           {registrationCoverage.requiredDays === 0 ? (
                             <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-500 text-[8px] font-black uppercase">
                               Sin días completos pendientes
@@ -4699,10 +4732,17 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
   const [csvPreview, setCsvPreview] = useState(null);
   const [message, setMessage] = useState('');
 
+  const previousBudgetRecord = useMemo(
+    () => previousCampaignBudgetCC(dailyCampaigns, campaign.id, date),
+    [dailyCampaigns, campaign.id, date]
+  );
+
   useEffect(() => {
     const cRec = dailyCampaigns.find(r => r.campaignId === campaign.id && r.date === date);
+    const recordedBudget = toNumber(cRec?.budget);
+    const inheritedBudget = toNumber(previousBudgetRecord?.budget);
     setCampaignForm({
-      budget: cRec?.budget ?? '', spend: cRec?.spend ?? '', purchases: cRec?.purchases ?? '',
+      budget: recordedBudget > 0 ? recordedBudget : (inheritedBudget > 0 ? inheritedBudget : ''), spend: cRec?.spend ?? '', purchases: cRec?.purchases ?? '',
       ctr: cRec?.ctr ?? '', cpc: cRec?.cpc ?? '', cpm: cRec?.cpm ?? '', frequency: cRec?.frequency ?? '',
       landingViews: cRec?.landingViews ?? '', atc: cRec?.atc ?? '', roas: cRec?.roas ?? ''
     });
@@ -4718,13 +4758,34 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
     setAdForms(nextAds);
     setEditing(!cRec);
     setCsvPreview(null);
-  }, [date, campaign.id, dailyCampaigns, dailyAds, ads]);
+  }, [date, campaign.id, dailyCampaigns, dailyAds, ads, previousBudgetRecord?.budget, previousBudgetRecord?.date]);
+
+  const recordedBudgetForDay = toNumber(existingCampaignRecord?.budget);
+  const previousBudgetValue = toNumber(previousBudgetRecord?.budget);
+  const currentBudgetValue = toNumber(campaignForm.budget);
+  const hasRecordedBudgetForDay = recordedBudgetForDay > 0;
+  const isInheritedBudget = !hasRecordedBudgetForDay && previousBudgetValue > 0 && currentBudgetValue === previousBudgetValue;
+  const isChangedFromInherited = !hasRecordedBudgetForDay && previousBudgetValue > 0 && currentBudgetValue > 0 && currentBudgetValue !== previousBudgetValue;
+  const isExistingBudgetEdited = hasRecordedBudgetForDay && editing && currentBudgetValue > 0 && currentBudgetValue !== recordedBudgetForDay;
+  const inheritedNeedsConfirmation = !!existingCampaignRecord && !hasRecordedBudgetForDay && isInheritedBudget;
 
   const save = async () => {
     const campaignRecordId = `${date}_${campaign.id}`;
+    const budgetValueToSave = toNumber(campaignForm.budget);
+    const budgetIsInherited = previousBudgetValue > 0 && budgetValueToSave === previousBudgetValue && !hasRecordedBudgetForDay;
+    const budgetSourceToSave = budgetIsInherited
+      ? 'inherited_previous'
+      : (hasRecordedBudgetForDay && budgetValueToSave === recordedBudgetForDay
+          ? (existingCampaignRecord?.budgetSource || 'registered')
+          : 'manual');
+
     await setDoc(doc(db, COLLECTIONS.dailyCampaigns, campaignRecordId), {
       ownerUid, date, productId: product.id, campaignId: campaign.id,
-      budget: toNumber(campaignForm.budget), spend: toNumber(campaignForm.spend), purchases: toNumber(campaignForm.purchases),
+      budget: budgetValueToSave,
+      budgetSource: budgetSourceToSave,
+      budgetInheritedFromDate: budgetIsInherited ? (previousBudgetRecord?.date || null) : null,
+      budgetPreviousValue: previousBudgetValue > 0 ? previousBudgetValue : null,
+      spend: toNumber(campaignForm.spend), purchases: toNumber(campaignForm.purchases),
       ctr: toNumber(campaignForm.ctr), cpc: toNumber(campaignForm.cpc), cpm: toNumber(campaignForm.cpm),
       frequency: toNumber(campaignForm.frequency), landingViews: toNumber(campaignForm.landingViews),
       atc: toNumber(campaignForm.atc), roas: toNumber(campaignForm.roas),
@@ -4757,7 +4818,13 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
     });
 
     setEditing(false);
-    setMessage(existingCampaignRecord ? 'Registro actualizado sin duplicar.' : 'Registro guardado correctamente.');
+    setMessage(
+      budgetIsInherited
+        ? `Registro guardado · presupuesto heredado confirmado en ${fmtMoney(budgetValueToSave)}.`
+        : existingCampaignRecord
+          ? 'Registro actualizado sin duplicar.'
+          : 'Registro guardado correctamente.'
+    );
     setTimeout(() => setMessage(''), 2500);
   };
 
@@ -4814,9 +4881,24 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
     for (const [reportDate, metrics] of Object.entries(byDate)) {
       const agg = aggregateRecords(metrics);
       const existing = dailyCampaigns.find(r => r.campaignId === campaign.id && r.date === reportDate);
+      const previousBudgetForImport = previousCampaignBudgetCC(dailyCampaigns, campaign.id, reportDate);
+      const existingBudgetForImport = toNumber(existing?.budget);
+      const visibleBudgetForSelectedDate = reportDate === date ? toNumber(campaignForm.budget) : 0;
+      const budgetForImport = existingBudgetForImport > 0
+        ? existingBudgetForImport
+        : visibleBudgetForSelectedDate > 0
+          ? visibleBudgetForSelectedDate
+          : toNumber(previousBudgetForImport?.budget);
+      const inheritedImportBudget = existingBudgetForImport <= 0 &&
+        previousBudgetForImport?.budget > 0 &&
+        budgetForImport === toNumber(previousBudgetForImport.budget);
+
       await setDoc(doc(db, COLLECTIONS.dailyCampaigns, `${reportDate}_${campaign.id}`), {
         ownerUid, date: reportDate, productId: product.id, campaignId: campaign.id,
-        budget: toNumber(existing?.budget),
+        budget: budgetForImport,
+        budgetSource: inheritedImportBudget ? 'inherited_previous' : (existing?.budgetSource || 'manual'),
+        budgetInheritedFromDate: inheritedImportBudget ? previousBudgetForImport?.date || null : null,
+        budgetPreviousValue: previousBudgetForImport?.budget || null,
         spend: agg.spend, purchases: agg.purchases, ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
         frequency: agg.frequency, landingViews: agg.landingViews, atc: agg.atc, roas: agg.roas,
         source: 'meta_csv_aggregate',
@@ -4866,7 +4948,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
     <div className="rounded-2xl p-3 bg-indigo-50/50" style={{border:'2px solid #6366f1'}}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
-        <div><p className="font-black text-xs uppercase text-indigo-800">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Si el CSV marca un anuncio como desactivado/pausado, se ignora y NO se crea en la plataforma. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Si el CSV marca un anuncio como desactivado/pausado, se ignora y NO se crea en la plataforma.</p></div>
+        <div><p className="font-black text-xs uppercase text-indigo-800">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Si el CSV marca un anuncio como desactivado/pausado, se ignora y NO se crea en la plataforma.</p></div>
         <label className="cursor-pointer bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase flex items-center gap-2"><FileUp size={13}/> Seleccionar CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleCsv(e.target.files?.[0])}/></label>
       </div>
       {csvPreview && <CsvPreview rows={csvPreview} onApply={applyCsv}/>}
@@ -4874,6 +4956,43 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
     <div className="rounded-2xl p-3 bg-blue-50/40" style={{border:'2px solid #2563eb'}}>
       <p className="font-black text-xs uppercase mb-3 text-blue-800">Métricas generales de campaña</p>
+
+      <div className={`rounded-xl border p-3 mb-3 ${
+        isExistingBudgetEdited || isChangedFromInherited
+          ? 'bg-blue-50 border-blue-200'
+          : hasRecordedBudgetForDay
+            ? 'bg-emerald-50 border-emerald-200'
+            : isInheritedBudget
+              ? 'bg-amber-50 border-amber-200'
+              : 'bg-slate-50 border-slate-200'
+      }`}>
+        {isExistingBudgetEdited ? <>
+          <p className="text-[9px] font-black uppercase text-blue-700">Presupuesto modificado · pendiente de guardar</p>
+          <p className="text-[8px] text-blue-600 mt-1">
+            Registrado para este día: <strong>{fmtMoney(recordedBudgetForDay)}</strong> → nuevo valor: <strong>{fmtMoney(currentBudgetValue)}</strong>.
+          </p>
+        </> : isChangedFromInherited ? <>
+          <p className="text-[9px] font-black uppercase text-blue-700">Presupuesto actualizado para este día</p>
+          <p className="text-[8px] text-blue-600 mt-1">
+            Presupuesto anterior: <strong>{fmtMoney(previousBudgetValue)}</strong> ({previousBudgetRecord?.date || '—'}) → nuevo: <strong>{fmtMoney(currentBudgetValue)}</strong>. Al guardar quedará registrado el cambio.
+          </p>
+        </> : hasRecordedBudgetForDay ? <>
+          <p className="text-[9px] font-black uppercase text-emerald-700">Presupuesto registrado para este día</p>
+          <p className="text-[8px] text-emerald-600 mt-1">
+            Este registro ya tiene <strong>{fmtMoney(recordedBudgetForDay)}</strong> como presupuesto. Si Meta cambió el presupuesto, presiona Editar y actualízalo.
+          </p>
+        </> : isInheritedBudget ? <>
+          <p className="text-[9px] font-black uppercase text-amber-700">Presupuesto heredado del registro anterior</p>
+          <p className="text-[8px] text-amber-700 mt-1">
+            Se precargó <strong>{fmtMoney(previousBudgetValue)}</strong>, último presupuesto registrado el <strong>{previousBudgetRecord?.date || '—'}</strong>. Verifica si continúa igual antes de guardar.
+          </p>
+          {inheritedNeedsConfirmation && <p className="text-[8px] font-black text-amber-800 mt-1">Este día existía sin presupuesto confirmado. Presiona Editar y Guardar para confirmarlo.</p>}
+        </> : <>
+          <p className="text-[9px] font-black uppercase text-slate-600">Sin presupuesto anterior</p>
+          <p className="text-[8px] text-slate-500 mt-1">No encontramos un presupuesto registrado antes de esta fecha. Ingresa el presupuesto de Meta para este día.</p>
+        </>}
+      </div>
+
       <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget disabled={!editing}/>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
         <MiniCard label="CPA calculado" value={fmtCpa(calcCpa(campaignForm.spend, campaignForm.purchases))}/>
