@@ -12,7 +12,7 @@ import {
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
   Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,
   Archive, ArchiveRestore, CircleDollarSign, FileUp, Gauge, RefreshCcw,
-  Settings2, ShieldCheck, TrendingDown
+  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
@@ -2629,6 +2629,830 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
   });
 }
 
+
+// ─── INFORME DETALLADO DE CAMPAÑAS / IA ─────────────────────────────────────
+const REPORT_METRICS_CC = [
+  { key: 'spend', label: 'Gasto', type: 'money', direction: 'neutral' },
+  { key: 'purchases', label: 'Compras', type: 'number', direction: 'higher' },
+  { key: 'cpa', label: 'CPA', type: 'cpa', direction: 'lower' },
+  { key: 'ctr', label: 'CTR', type: 'rate', direction: 'higher' },
+  { key: 'cpc', label: 'CPC', type: 'money', direction: 'lower' },
+  { key: 'cpm', label: 'CPM', type: 'money', direction: 'lower' },
+  { key: 'frequency', label: 'Frecuencia', type: 'number', direction: 'lower' },
+  { key: 'landingViews', label: 'Visitas landing', type: 'number', direction: 'higher' },
+  { key: 'atc', label: 'Añadidos al carrito', type: 'number', direction: 'higher' },
+  { key: 'roas', label: 'ROAS', type: 'roas', direction: 'higher' },
+  { key: 'visitToAtc', label: 'Visita → ATC', type: 'rate', direction: 'higher' },
+  { key: 'visitToPurchase', label: 'Visita → Compra', type: 'rate', direction: 'higher' },
+  { key: 'atcToPurchase', label: 'ATC → Compra', type: 'rate', direction: 'higher' }
+];
+
+function reportWindowCC(records = [], currentSize = 3, previousSize = currentSize, cutoffDate = todayColombiaCC()) {
+  const sorted = [...(records || [])]
+    .filter(r => r?.date && String(r.date) < String(cutoffDate))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  const current = sorted.slice(0, currentSize);
+  const previous = sorted.slice(currentSize, currentSize + previousSize);
+
+  return {
+    current,
+    previous,
+    currentStats: aggregateRecords(current),
+    previousStats: aggregateRecords(previous),
+    currentDates: [...new Set(current.map(r => String(r.date)))].sort(),
+    previousDates: [...new Set(previous.map(r => String(r.date)))].sort()
+  };
+}
+
+function reportWindowLabelCC(dates = []) {
+  if (!dates.length) return 'SIN DATOS';
+  if (dates.length === 1) return dates[0];
+  return `${dates[0]} → ${dates[dates.length - 1]}`;
+}
+
+function reportMetricValueCC(metric, value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
+  if (metric.type === 'money') return fmtMoney(value);
+  if (metric.type === 'cpa') return fmtCpa(value);
+  if (metric.type === 'rate') return fmtRate(value);
+  if (metric.type === 'roas') return `${fmtNum(value, 2)}x`;
+  return fmtNum(value, 2);
+}
+
+function reportDeltaCC(metric, current, previous) {
+  const delta = pctChange(current, previous);
+  if (delta === null) return { value: null, text: '— · SIN BASE COMPARABLE', quality: 'neutral' };
+
+  const abs = Math.abs(delta);
+  const band =
+    abs <= 10 ? 'NORMAL' :
+    abs <= 15 ? 'ATENCIÓN' :
+    abs <= 20 ? 'ALERTA' :
+    'CRÍTICA';
+
+  if (Math.abs(delta) < 0.005 || metric.direction === 'neutral') {
+    return {
+      value: delta,
+      text: `${delta > 0 ? '+' : ''}${fmtNum(delta, 2)}% · ${band}`,
+      quality: 'neutral'
+    };
+  }
+
+  const favorable =
+    metric.direction === 'lower'
+      ? delta < 0
+      : metric.direction === 'higher'
+        ? delta > 0
+        : null;
+
+  return {
+    value: delta,
+    text: `${delta > 0 ? '+' : ''}${fmtNum(delta, 2)}% · ${favorable ? 'FAVORABLE' : 'DESFAVORABLE'} · ${band}`,
+    quality: favorable ? 'good' : 'bad'
+  };
+}
+
+function reportStatsTableCC(title, window) {
+  const lines = [];
+  lines.push(title);
+  lines.push('-'.repeat(Math.max(42, title.length)));
+  lines.push(`Periodo actual: ${reportWindowLabelCC(window.currentDates)} · ${window.currentStats.days} día(s) con registro`);
+  lines.push(`Periodo comparativo: ${reportWindowLabelCC(window.previousDates)} · ${window.previousStats.days} día(s) con registro`);
+  lines.push('');
+  lines.push('MÉTRICA | ACTUAL | ANTERIOR | VARIACIÓN');
+  lines.push('--- | --- | --- | ---');
+
+  for (const metric of REPORT_METRICS_CC) {
+    const current = window.currentStats[metric.key];
+    const previous = window.previousStats[metric.key];
+    const delta = reportDeltaCC(metric, current, previous);
+    lines.push(
+      `${metric.label} | ${reportMetricValueCC(metric, current)} | ${reportMetricValueCC(metric, previous)} | ${delta.text}`
+    );
+  }
+
+  return lines;
+}
+
+function reportMetricDeltasCC(currentStats, previousStats) {
+  return REPORT_METRICS_CC.reduce((acc, metric) => {
+    acc[metric.key] = pctChange(currentStats?.[metric.key], previousStats?.[metric.key]);
+    return acc;
+  }, {});
+}
+
+function reportCausalInsightsCC(currentStats, previousStats, maxCpa) {
+  const delta = reportMetricDeltasCC(currentStats, previousStats);
+  const lines = [];
+  const cpa = currentStats?.cpa;
+  const max = Math.max(1, toNumber(maxCpa));
+
+  if (currentStats?.spend > 0 && currentStats?.purchases <= 0) {
+    lines.push(`• No hubo compras. Se consumieron ${fmtMoney(currentStats.spend)} (${fmtNum((currentStats.spend / max) * 100, 2)}% del CPA máximo) y el CPA NO es calculable.`);
+  } else if (cpa !== null && cpa !== undefined) {
+    lines.push(`• CPA actual ${fmtCpa(cpa)} frente a CPA máximo ${fmtMoney(max)}: ${cpa <= max ? 'DENTRO DEL OBJETIVO' : 'FUERA DEL OBJETIVO'}.`);
+    if (delta.cpa !== null) {
+      lines.push(`• CPA ${delta.cpa <= 0 ? 'mejoró' : 'empeoró'} ${fmtNum(Math.abs(delta.cpa), 2)}% frente al bloque comparable.`);
+    }
+  }
+
+  if (delta.ctr !== null) lines.push(`• CTR ${delta.ctr >= 0 ? 'subió' : 'bajó'} ${fmtNum(Math.abs(delta.ctr), 2)}%.`);
+  if (delta.cpc !== null) lines.push(`• CPC ${delta.cpc <= 0 ? 'mejoró/bajó' : 'subió'} ${fmtNum(Math.abs(delta.cpc), 2)}%.`);
+  if (delta.cpm !== null) lines.push(`• CPM ${delta.cpm <= 0 ? 'bajó' : 'subió'} ${fmtNum(Math.abs(delta.cpm), 2)}%.`);
+  if (delta.frequency !== null) lines.push(`• Frecuencia ${delta.frequency >= 0 ? 'subió' : 'bajó'} ${fmtNum(Math.abs(delta.frequency), 2)}%.`);
+  if (delta.visitToAtc !== null) lines.push(`• Visita→ATC ${delta.visitToAtc >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.visitToAtc), 2)}%.`);
+  if (delta.visitToPurchase !== null) lines.push(`• Visita→Compra ${delta.visitToPurchase >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.visitToPurchase), 2)}%.`);
+  if (delta.atcToPurchase !== null) lines.push(`• ATC→Compra ${delta.atcToPurchase >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.atcToPurchase), 2)}%.`);
+
+  const creative = adVariationDiagnosisFromDelta(delta);
+  const funnel = funnelVariationDiagnosisFromDelta(delta);
+  lines.push(`• Lectura de tendencia creativa: ${creative.diagnosis} → ${creative.action}.`);
+  lines.push(`• Lectura post-clic: ${funnel.diagnosis} → ${funnel.action}.`);
+
+  return lines;
+}
+
+function reportBudgetChangeImpactCC(change, campaignHistory = []) {
+  const rows = [...campaignHistory].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const before = rows.filter(r => String(r.date) < String(change.date)).slice(-3);
+  const after = rows.filter(r => String(r.date) >= String(change.date)).slice(0, 3);
+  const beforeStats = aggregateRecords(before);
+  const afterStats = aggregateRecords(after);
+  const cpaDelta = pctChange(afterStats.cpa, beforeStats.cpa);
+  const beforePurchasesDay = beforeStats.days > 0 ? beforeStats.purchases / beforeStats.days : null;
+  const afterPurchasesDay = afterStats.days > 0 ? afterStats.purchases / afterStats.days : null;
+  const volumeDelta = pctChange(afterPurchasesDay, beforePurchasesDay);
+  const extraSpend = afterStats.spend - beforeStats.spend;
+  const extraPurchases = afterStats.purchases - beforeStats.purchases;
+  const marginalCpa = extraSpend > 0 && extraPurchases > 0 ? extraSpend / extraPurchases : null;
+
+  return {
+    beforeStats,
+    afterStats,
+    beforeDates: before.map(r => r.date),
+    afterDates: after.map(r => r.date),
+    cpaDelta,
+    volumeDelta,
+    marginalCpa
+  };
+}
+
+function reportContributionImpactTextCC(contribution) {
+  if (!contribution || contribution.campaignCpa === null || contribution.campaignCpa === undefined) return 'Sin base suficiente para calcular impacto.';
+  if (contribution.cpaWithout === null || contribution.cpaWithout === undefined) {
+    return 'El CPA del resto no es calculable porque, al excluir este anuncio, no quedarían compras suficientes.';
+  }
+
+  const impact = pctChange(contribution.cpaWithout, contribution.campaignCpa);
+  if (impact === null) return 'Sin base comparable.';
+
+  if (impact > 0) {
+    return `Si se excluyeran matemáticamente sus resultados históricos, el CPA del resto sería ${fmtCpa(contribution.cpaWithout)}, ${fmtNum(Math.abs(impact), 2)}% PEOR. El anuncio está ayudando a la eficiencia.`;
+  }
+  if (impact < 0) {
+    return `Si se excluyeran matemáticamente sus resultados históricos, el CPA del resto sería ${fmtCpa(contribution.cpaWithout)}, ${fmtNum(Math.abs(impact), 2)}% MEJOR. El anuncio está ejerciendo presión negativa sobre la eficiencia.`;
+  }
+  return `El CPA del resto sería prácticamente igual (${fmtCpa(contribution.cpaWithout)}). Impacto neutral.`;
+}
+
+function buildDetailedCampaignReportCC({
+  products = [],
+  campaigns = [],
+  ads = [],
+  dailyCampaigns = [],
+  dailyAds = [],
+  budgetChanges = [],
+  recommendations = [],
+  decisions = [],
+  productId = 'all',
+  campaignId = 'all'
+}) {
+  const today = todayColombiaCC();
+  const lastComplete = lastCompleteColombiaDateCC();
+  const generatedAt = colombiaDateTimeLabelCC();
+
+  let selectedCampaigns = campaigns
+    .filter(c => !c.archived)
+    .filter(c => productId === 'all' || c.productId === productId)
+    .filter(c => campaignId === 'all' || c.id === campaignId)
+    .sort((a, b) => {
+      const pa = products.find(p => p.id === a.productId)?.name || '';
+      const pb = products.find(p => p.id === b.productId)?.name || '';
+      return pa.localeCompare(pb) || String(a.name || '').localeCompare(String(b.name || ''));
+    });
+
+  const selectedProductIds = new Set(selectedCampaigns.map(c => c.productId));
+  const selectedProducts = products.filter(p => selectedProductIds.has(p.id));
+
+  const lines = [];
+  const summary = {
+    products: selectedProducts.length,
+    campaigns: selectedCampaigns.length,
+    campaignsWithData: 0,
+    scalable: 0,
+    maintain: 0,
+    attention: 0,
+    critical: 0,
+    ads: 0,
+    strong: 0,
+    contributes: 0,
+    watch: 0,
+    draining: 0,
+    noDelivery: 0
+  };
+
+  const opportunities = [];
+  const risks = [];
+  const aiCampaignRows = [];
+
+  lines.push('WINNER SYSTEM 360');
+  lines.push('INFORME DETALLADO DE CONTROL DE CAMPAÑAS META ADS');
+  lines.push('='.repeat(78));
+  lines.push(`Generado: ${generatedAt}`);
+  lines.push(`Zona horaria: America/Bogota`);
+  lines.push(`Fecha actual: ${today}`);
+  lines.push(`Último día completo permitido: ${lastComplete}`);
+  lines.push('');
+  lines.push('MODELO DE ANÁLISIS');
+  lines.push('-'.repeat(78));
+  lines.push('• 3D = ventana principal y determinante de la decisión operativa.');
+  lines.push('• 3D anterior = comparación obligatoria para variaciones.');
+  lines.push('• Último día completo = alerta temprana; NO reemplaza la decisión 3D.');
+  lines.push('• 7D = confirmación de tendencia.');
+  lines.push('• 14D = contexto + benchmark.');
+  lines.push('• 30D = contexto histórico de largo plazo.');
+  lines.push('• HOY se excluye completamente de decisiones por ser intradía.');
+  lines.push('• Días OFF se excluyen y nunca se convierten en ceros.');
+  lines.push('• CPA = gasto/compras únicamente cuando compras > 0. Sin compras, CPA = —.');
+  lines.push('• Frecuencia agregada es una aproximación ponderada cuando no existe reach deduplicado.');
+  lines.push('• "CPA del resto sin anuncio" es un contrafactual histórico matemático; NO predice la redistribución futura de Meta.');
+  lines.push('');
+  lines.push(`ALCANCE: ${productId === 'all' ? 'TODOS LOS PRODUCTOS' : (products.find(p => p.id === productId)?.name || productId)}${campaignId !== 'all' ? ` · CAMPAÑA ${campaigns.find(c => c.id === campaignId)?.name || campaignId}` : ''}`);
+  lines.push(`Productos incluidos: ${selectedProducts.length}`);
+  lines.push(`Campañas incluidas: ${selectedCampaigns.length}`);
+  lines.push('');
+
+  for (const product of selectedProducts) {
+    const productCampaigns = selectedCampaigns.filter(c => c.productId === product.id);
+    const maxCpa = Math.max(1, toNumber(product.maxCpa));
+    const benchmark = buildProductBenchmark(product.id, dailyAds, dailyCampaigns, maxCpa, ads, campaigns);
+
+    lines.push('');
+    lines.push('#'.repeat(78));
+    lines.push(`PRODUCTO: ${product.name}`);
+    lines.push('#'.repeat(78));
+    lines.push(`Estado actual: ${product.active === false ? 'INACTIVO' : 'ACTIVO'}`);
+    lines.push(`Fecha operativa producto: ${product.effectiveStartDate || product.createdDate || '—'}`);
+    lines.push(`CPA máximo: ${fmtMoney(maxCpa)}`);
+    lines.push(`Zona de escala fuerte (≤80% CPA máximo): ${fmtMoney(maxCpa * 0.8)}`);
+    lines.push(`Campañas incluidas: ${productCampaigns.length}`);
+    lines.push('');
+    lines.push('BENCHMARK PRODUCTO · 14 DÍAS ACTIVOS COMPLETOS');
+    lines.push(`Estado benchmark: ${benchmark.status}`);
+    lines.push(`Días disponibles: ${benchmark.availableDays} · Rentables: ${benchmark.profitableDays} · Estables: ${benchmark.stableDays} · Muestra usada: ${benchmark.sampleDays}`);
+    lines.push(`CPA benchmark: ${benchmark.sampleDays ? fmtCpa(benchmark.cpa) : '—'}`);
+    lines.push(`CTR benchmark: ${benchmark.sampleDays ? fmtRate(benchmark.ctr) : '—'}`);
+    lines.push(`CPC benchmark: ${benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}`);
+    lines.push(`CPM benchmark: ${benchmark.sampleDays ? fmtMoney(benchmark.cpm) : '—'}`);
+    lines.push(`Frecuencia benchmark: ${benchmark.sampleDays ? fmtNum(benchmark.frequency, 2) : '—'}`);
+    lines.push(`ROAS benchmark: ${benchmark.sampleDays ? `${fmtNum(benchmark.roas, 2)}x` : '—'}`);
+    lines.push(`Visita→Compra benchmark: ${benchmark.sampleDays ? fmtRate(benchmark.visitToPurchase) : '—'}`);
+    lines.push(`Criterio: ${benchmark.criteria}`);
+
+    for (const campaign of productCampaigns) {
+      const campaignHistory = eligibleCampaignRecords(
+        dailyCampaigns.filter(r => r.campaignId === campaign.id),
+        campaign
+      )
+        .filter(r => String(r.date) < today)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+      if (campaignHistory.length) summary.campaignsWithData += 1;
+
+      const lastWindow = reportWindowCC(campaignHistory, 1, 3, today);
+      const w3 = reportWindowCC(campaignHistory, 3, 3, today);
+      const w7 = reportWindowCC(campaignHistory, 7, 7, today);
+      const w14 = reportWindowCC(campaignHistory, 14, 14, today);
+      const w30 = reportWindowCC(campaignHistory, 30, 30, today);
+      const contribution3d = buildCampaignContribution3D(campaign, product, ads, dailyAds);
+
+      const recent14Dates = new Set(w14.currentDates);
+      const campaignAds = ads
+        .filter(a => a.campaignId === campaign.id)
+        .filter(a => {
+          if (a.active !== false) return true;
+          return dailyAds.some(r => r.adId === a.id && recent14Dates.has(String(r.date)));
+        })
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+      const adRows = campaignAds.map(ad => {
+        const records = dailyAds.filter(r => r.adId === ad.id);
+        return {
+          ad,
+          records,
+          diag: diagnoseAd(records, product, ad, '3d', campaign),
+          contribution: contribution3d.byAd[ad.id] || null
+        };
+      });
+
+      const scaleRows = buildScaleHistory(campaignHistory, maxCpa);
+      const campaignDecision = buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows);
+      const coverage = campaignRegistrationCoverageCC(campaign, product, dailyCampaigns, lastComplete);
+      const budgetRows = budgetChanges
+        .filter(b => b.campaignId === campaign.id && (!b.date || String(b.date) < today))
+        .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      const recommendationRows = recommendations
+        .filter(r => r.campaignId === campaign.id)
+        .sort((a, b) => String(b.createdDate || b.appliedDate || '').localeCompare(String(a.createdDate || a.appliedDate || '')));
+      const decisionRows = decisions
+        .filter(d => d.campaignId === campaign.id)
+        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+
+      const latestCampaignRecord = [...campaignHistory].sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] || null;
+      const currentBudget = toNumber(latestCampaignRecord?.budget);
+      const currentBudgetSource = latestCampaignRecord?.budgetSource === 'inherited_previous'
+        ? `Heredado del ${latestCampaignRecord?.budgetInheritedFromDate || 'registro anterior'}`
+        : latestCampaignRecord?.budgetSource || 'Registrado/manual';
+
+      if (campaignDecision.status === 'Escalable') summary.scalable += 1;
+      else if (campaignDecision.status === 'Crítico' || campaignDecision.status.includes('Fuera del objetivo')) summary.critical += 1;
+      else if (campaignDecision.status === 'Atención' || campaignDecision.status.includes('revisar')) summary.attention += 1;
+      else summary.maintain += 1;
+
+      lines.push('');
+      lines.push('='.repeat(78));
+      lines.push(`CAMPAÑA: ${campaign.name}`);
+      lines.push('='.repeat(78));
+      lines.push(`Estado actual: ${campaign.active === false ? 'APAGADA' : 'ACTIVA'}`);
+      lines.push(`Fecha inicio campaña: ${campaign.effectiveStartDate || campaign.createdDate || '—'}`);
+      lines.push(`Días registrados históricos: ${campaignHistory.length}`);
+      lines.push(`Cobertura hasta ${lastComplete}: ${coverage.registeredDays}/${coverage.requiredDays} · pendientes ${coverage.missingDays}`);
+      if (coverage.missingDates?.length) lines.push(`Fechas pendientes: ${coverage.missingDates.join(', ')}`);
+      lines.push('');
+      lines.push('DECISIÓN OPERATIVA · 3D');
+      lines.push(`Estado: ${campaignDecision.status}`);
+      lines.push(`Acción: ${campaignDecision.action}`);
+      lines.push(`Motivo: ${campaignDecision.reason}`);
+      lines.push(`Presupuesto recomendado: ${campaignDecision.recommendedBudget ? fmtMoney(campaignDecision.recommendedBudget) : '—'}`);
+      lines.push(`Lectura CPA 3D: ${campaignDecision.cpaObservation3d?.title || '—'}`);
+      lines.push(`Detalle CPA 3D: ${campaignDecision.cpaObservation3d?.text || '—'}`);
+
+      lines.push('');
+      lines.push('PRESUPUESTO ACTUAL');
+      lines.push(`Presupuesto último cierre: ${currentBudget > 0 ? fmtMoney(currentBudget) : '—'}`);
+      lines.push(`Fecha último cierre: ${latestCampaignRecord?.date || '—'}`);
+      lines.push(`Origen del presupuesto: ${currentBudget > 0 ? currentBudgetSource : '—'}`);
+      if (latestCampaignRecord?.budgetPreviousValue) {
+        lines.push(`Presupuesto anterior conocido: ${fmtMoney(latestCampaignRecord.budgetPreviousValue)}`);
+      }
+
+      lines.push('');
+
+      lines.push(...reportStatsTableCC('ÚLTIMO DÍA COMPLETO · ALERTA TEMPRANA VS 3 DÍAS ANTERIORES', lastWindow));
+      lines.push('');
+      lines.push(...reportStatsTableCC('VENTANA OPERATIVA 3D · DECIDE', w3));
+      lines.push('');
+      lines.push('ANÁLISIS DE CAUSAS · 3D');
+      lines.push(...reportCausalInsightsCC(w3.currentStats, w3.previousStats, maxCpa));
+      lines.push('');
+      lines.push(...reportStatsTableCC('CONTEXTO 7D · CONFIRMA', w7));
+      lines.push('');
+      lines.push(...reportStatsTableCC('CONTEXTO 14D · TENDENCIA / BENCHMARK', w14));
+      lines.push('');
+      lines.push(...reportStatsTableCC('CONTEXTO 30D · HISTÓRICO', w30));
+
+      lines.push('');
+      lines.push('HISTORIAL DE CAMBIOS DE PRESUPUESTO');
+      lines.push('-'.repeat(78));
+      if (!budgetRows.length) {
+        lines.push('Sin cambios de presupuesto detectados todavía.');
+      } else {
+        budgetRows.forEach((change, index) => {
+          const impact = reportBudgetChangeImpactCC(change, campaignHistory);
+          lines.push(`${index + 1}. ${change.date || '—'} · ${fmtMoney(change.previousBudget)} → ${fmtMoney(change.newBudget)} · ${change.changePct >= 0 ? '+' : ''}${fmtNum(change.changePct, 2)}% · ${change.origin === 'recommendation' ? 'RECOMENDACIÓN APLICADA' : 'CAMBIO MANUAL'}`);
+          lines.push(`   Antes (hasta 3 cierres): ${reportWindowLabelCC(impact.beforeDates)} · CPA ${fmtCpa(impact.beforeStats.cpa)} · Compras ${fmtNum(impact.beforeStats.purchases, 2)} · Gasto ${fmtMoney(impact.beforeStats.spend)}`);
+          lines.push(`   Después (hasta 3 cierres): ${reportWindowLabelCC(impact.afterDates)} · CPA ${fmtCpa(impact.afterStats.cpa)} · Compras ${fmtNum(impact.afterStats.purchases, 2)} · Gasto ${fmtMoney(impact.afterStats.spend)}`);
+          lines.push(`   Variación CPA post-cambio: ${impact.cpaDelta === null ? '—' : `${impact.cpaDelta > 0 ? '+' : ''}${fmtNum(impact.cpaDelta, 2)}%`}`);
+          lines.push(`   Variación compras/día: ${impact.volumeDelta === null ? '—' : `${impact.volumeDelta > 0 ? '+' : ''}${fmtNum(impact.volumeDelta, 2)}%`}`);
+          lines.push(`   CPA marginal aproximado: ${impact.marginalCpa === null ? '—' : fmtMoney(impact.marginalCpa)}`);
+        });
+      }
+
+      lines.push('');
+      lines.push('NIVELES HISTÓRICOS DE PRESUPUESTO / ESCALA');
+      lines.push('-'.repeat(78));
+      if (!scaleRows.length) {
+        lines.push('Sin niveles de presupuesto suficientes.');
+      } else {
+        lines.push('PRESUPUESTO | DÍAS | GASTO | COMPRAS | CPA | ROAS | CPA MARGINAL | ESTADO | ACCIÓN');
+        scaleRows.forEach(row => {
+          lines.push(`${fmtMoney(row.budget)} | ${row.days} | ${fmtMoney(row.spend)} | ${fmtNum(row.purchases, 2)} | ${fmtCpa(row.cpa)} | ${row.roas === null || row.roas === undefined ? '—' : `${fmtNum(row.roas, 2)}x`} | ${row.marginalCpa === null ? '—' : fmtMoney(row.marginalCpa)} | ${row.status} | ${row.action}`);
+        });
+      }
+
+      lines.push('');
+      lines.push('DIAGNÓSTICO DETALLADO POR ANUNCIO');
+      lines.push('='.repeat(78));
+
+      for (const { ad, records, diag, contribution } of adRows) {
+        summary.ads += 1;
+        if (contribution?.status === 'Aporta fuertemente') summary.strong += 1;
+        else if (contribution?.status === 'Aporta') summary.contributes += 1;
+        else if (contribution?.status === 'Drena la campaña') summary.draining += 1;
+        else summary.watch += 1;
+        if (diag.metaDelivery3d?.isNoDelivery) summary.noDelivery += 1;
+
+        const eligible = eligibleAdRecords(records, ad, campaign);
+        const adLast = reportWindowCC(eligible, 1, 3, today);
+        const ad3 = reportWindowCC(eligible, 3, 3, today);
+        const ad7 = reportWindowCC(eligible, 7, 7, today);
+        const ad14 = reportWindowCC(eligible, 14, 14, today);
+        const ad30 = reportWindowCC(eligible, 30, 30, today);
+        const spentVsMax = maxCpa > 0 ? (ad3.currentStats.spend / maxCpa) * 100 : null;
+
+        lines.push('');
+        lines.push('-'.repeat(78));
+        lines.push(`ANUNCIO: ${ad.name}`);
+        lines.push('-'.repeat(78));
+        lines.push(`Estado actual: ${ad.active === false ? 'APAGADO' : 'ACTIVO'}`);
+        lines.push(`Fecha inicio anuncio: ${ad.effectiveStartDate || ad.createdDate || '—'}`);
+        lines.push(`Días activos calculados: ${diag.ageDays}`);
+        lines.push(`Confianza por volumen 3D: ${diag.volumeReference?.confidence || '—'} · ${fmtNum(diag.volumeReference?.purchases || 0, 2)} compras`);
+        lines.push('');
+        lines.push('ENTREGA META · 3D');
+        lines.push(`Estado: ${diag.metaDelivery3d?.status || '—'}`);
+        lines.push(`Días omitidos: ${diag.metaDelivery3d?.omittedDays || 0}/${diag.metaDelivery3d?.totalDays || 0}`);
+        lines.push(`Acción: ${diag.metaDelivery3d?.action || '—'}`);
+        lines.push(`Motivo: ${diag.metaDelivery3d?.reason || '—'}`);
+        lines.push('');
+        lines.push('CONTRIBUCIÓN A CAMPAÑA · 3D');
+        lines.push(`Estado: ${contribution?.status || 'Sin lectura'}`);
+        lines.push(`Gasto anuncio: ${contribution ? fmtMoney(contribution.spend) : '—'}`);
+        lines.push(`Compras anuncio: ${contribution ? fmtNum(contribution.purchases, 2) : '—'}`);
+        lines.push(`CPA anuncio: ${contribution ? fmtCpa(contribution.cpa) : '—'}`);
+        lines.push(`Participación gasto campaña: ${contribution ? fmtRate(contribution.spendShare) : '—'}`);
+        lines.push(`Participación compras campaña: ${contribution ? fmtRate(contribution.purchaseShare) : '—'}`);
+        lines.push(`CPA campaña 3D: ${contribution ? fmtCpa(contribution.campaignCpa) : '—'}`);
+        lines.push(`CPA del resto sin este anuncio: ${contribution ? fmtCpa(contribution.cpaWithout) : '—'}`);
+        lines.push(`Impacto histórico: ${reportContributionImpactTextCC(contribution)}`);
+        lines.push(`Causa: ${contribution?.cause || '—'}`);
+        if (ad3.currentStats.purchases <= 0 && ad3.currentStats.spend > 0) {
+          lines.push(`Consumo frente CPA máximo sin compras: ${fmtNum(spentVsMax, 2)}% (${fmtMoney(ad3.currentStats.spend)} / ${fmtMoney(maxCpa)}).`);
+        }
+        lines.push('');
+        lines.push('DECISIÓN OPERATIVA DEL ANUNCIO · 3D');
+        lines.push(`Diagnóstico: ${diag.operational3dDiagnosis}`);
+        lines.push(`Acción: ${diag.operational3dAction}`);
+        lines.push(`Motivo: ${diag.operational3dReason}`);
+        lines.push(`Momentum CPA: ${diag.scaleMomentum}`);
+        lines.push(`Diagnóstico creativo 3D: ${diag.scaleDynamic3d}`);
+        lines.push(`Diagnóstico post-clic 3D: ${diag.scalePost3d}`);
+        lines.push(`CPA máximo: ${fmtMoney(diag.maxCpa)}`);
+        lines.push(`Zona escala fuerte: ${fmtMoney(diag.scaleCpa)}`);
+        lines.push(`Escala permitida: ${diag.canScale ? 'SÍ' : 'NO'}`);
+        if (diag.guardrails) {
+          lines.push(`Guardrail CPA margen: ${diag.guardrails.cpaMargin ? 'PASA' : 'BLOQUEA'}`);
+          lines.push(`Guardrail estabilidad: ${diag.guardrails.stability ? 'PASA' : 'BLOQUEA'}`);
+          lines.push(`Guardrail creativo: ${diag.guardrails.creative ? 'PASA' : 'BLOQUEA'}`);
+          lines.push(`Guardrail post-clic: ${diag.guardrails.postClick ? 'PASA' : 'BLOQUEA'}`);
+        }
+
+        lines.push('');
+        lines.push(...reportStatsTableCC('ANUNCIO · ÚLTIMO DÍA VS 3 ANTERIORES', adLast));
+        lines.push('');
+        lines.push(...reportStatsTableCC('ANUNCIO · 3D VS 3D ANTERIOR', ad3));
+        lines.push('');
+        lines.push(...reportStatsTableCC('ANUNCIO · 7D VS 7D ANTERIOR', ad7));
+        lines.push('');
+        lines.push(...reportStatsTableCC('ANUNCIO · 14D VS 14D ANTERIOR', ad14));
+        lines.push('');
+        lines.push(...reportStatsTableCC('ANUNCIO · 30D VS 30D ANTERIOR', ad30));
+
+        if (contribution?.status === 'Aporta fuertemente') {
+          opportunities.push(`${product.name} / ${campaign.name} / ${ad.name}: ${contribution.cause}`);
+        }
+        if (contribution?.status === 'Drena la campaña') {
+          risks.push(`${product.name} / ${campaign.name} / ${ad.name}: ${contribution.cause}`);
+        } else if (ad3.currentStats.purchases <= 0 && ad3.currentStats.spend >= maxCpa * 0.5) {
+          risks.push(`${product.name} / ${campaign.name} / ${ad.name}: ${fmtNum(spentVsMax, 2)}% del CPA máximo consumido sin compras.`);
+        }
+        if (diag.metaDelivery3d?.isNoDelivery) {
+          risks.push(`${product.name} / ${campaign.name} / ${ad.name}: sin entrega de Meta en ${diag.metaDelivery3d.omittedDays}/${diag.metaDelivery3d.totalDays} día(s) 3D.`);
+        }
+      }
+
+      lines.push('');
+      lines.push('RECOMENDACIONES REGISTRADAS');
+      lines.push('-'.repeat(78));
+      if (!recommendationRows.length) lines.push('Sin recomendaciones almacenadas.');
+      recommendationRows.forEach((r, i) => {
+        lines.push(`${i + 1}. Estado=${r.status || '—'} · Tipo=${r.type || '—'} · Actual=${r.currentBudget ? fmtMoney(r.currentBudget) : '—'} · Recomendado=${r.recommendedBudget ? fmtMoney(r.recommendedBudget) : '—'} · Fecha=${r.createdDate || r.appliedDate || '—'} · Motivo=${r.reason || '—'}`);
+      });
+
+      lines.push('');
+      lines.push('HISTORIAL DE DECISIONES REGISTRADAS');
+      lines.push('-'.repeat(78));
+      if (!decisionRows.length) lines.push('Sin decisiones almacenadas.');
+      decisionRows.forEach((d, i) => {
+        lines.push(`${i + 1}. ${d.date || '—'} · ${d.action || '—'} · ${d.detail || '—'}`);
+      });
+
+      aiCampaignRows.push({
+        product: product.name,
+        campaign: campaign.name,
+        status: campaignDecision.status,
+        action: campaignDecision.action,
+        currentBudget,
+        cpa3d: w3.currentStats.cpa,
+        maxCpa,
+        purchases3d: w3.currentStats.purchases,
+        spend3d: w3.currentStats.spend,
+        ads: adRows.length,
+        draining: adRows.filter(x => x.contribution?.status === 'Drena la campaña').map(x => x.ad.name),
+        strong: adRows.filter(x => x.contribution?.status === 'Aporta fuertemente').map(x => x.ad.name),
+        noDelivery: adRows.filter(x => x.diag.metaDelivery3d?.isNoDelivery).map(x => x.ad.name)
+      });
+    }
+  }
+
+  lines.push('');
+  lines.push('');
+  lines.push('#'.repeat(78));
+  lines.push('RESUMEN EJECUTIVO GLOBAL');
+  lines.push('#'.repeat(78));
+  lines.push(`Productos analizados: ${summary.products}`);
+  lines.push(`Campañas incluidas: ${summary.campaigns}`);
+  lines.push(`Campañas con datos históricos: ${summary.campaignsWithData}`);
+  lines.push(`Campañas escalables: ${summary.scalable}`);
+  lines.push(`Campañas mantener: ${summary.maintain}`);
+  lines.push(`Campañas atención: ${summary.attention}`);
+  lines.push(`Campañas críticas/fuera objetivo: ${summary.critical}`);
+  lines.push('');
+  lines.push(`Anuncios analizados: ${summary.ads}`);
+  lines.push(`Aportan fuertemente: ${summary.strong}`);
+  lines.push(`Aportan: ${summary.contributes}`);
+  lines.push(`Bajo aporte / vigilar: ${summary.watch}`);
+  lines.push(`Drenan campaña: ${summary.draining}`);
+  lines.push(`Sin entrega Meta: ${summary.noDelivery}`);
+  lines.push('');
+  lines.push('PRINCIPALES OPORTUNIDADES');
+  if (!opportunities.length) lines.push('• Sin oportunidades fuertes detectadas con los criterios actuales.');
+  opportunities.slice(0, 20).forEach((x, i) => lines.push(`${i + 1}. ${x}`));
+  lines.push('');
+  lines.push('PRINCIPALES RIESGOS');
+  if (!risks.length) lines.push('• Sin riesgos fuertes detectados con los criterios actuales.');
+  risks.slice(0, 30).forEach((x, i) => lines.push(`${i + 1}. ${x}`));
+
+  lines.push('');
+  lines.push('[AI_INDEX]');
+  lines.push(`report_date=${today}`);
+  lines.push(`timezone=America/Bogota`);
+  lines.push(`decision_window=3D_COMPLETE_ACTIVE_DAYS`);
+  lines.push(`today_excluded=true`);
+  lines.push(`products=${summary.products}`);
+  lines.push(`campaigns=${summary.campaigns}`);
+  lines.push(`campaigns_with_data=${summary.campaignsWithData}`);
+  lines.push(`campaigns_scalable=${summary.scalable}`);
+  lines.push(`campaigns_attention=${summary.attention}`);
+  lines.push(`campaigns_critical=${summary.critical}`);
+  lines.push(`ads=${summary.ads}`);
+  lines.push(`ads_strong_contributors=${summary.strong}`);
+  lines.push(`ads_draining=${summary.draining}`);
+  lines.push(`ads_no_delivery=${summary.noDelivery}`);
+  aiCampaignRows.forEach((row, index) => {
+    const prefix = `campaign_${index + 1}`;
+    lines.push(`${prefix}_product=${row.product}`);
+    lines.push(`${prefix}_name=${row.campaign}`);
+    lines.push(`${prefix}_status=${row.status}`);
+    lines.push(`${prefix}_action=${row.action}`);
+    lines.push(`${prefix}_budget=${row.currentBudget || 0}`);
+    lines.push(`${prefix}_spend_3d=${row.spend3d || 0}`);
+    lines.push(`${prefix}_purchases_3d=${row.purchases3d || 0}`);
+    lines.push(`${prefix}_cpa_3d=${row.cpa3d ?? 'null'}`);
+    lines.push(`${prefix}_max_cpa=${row.maxCpa}`);
+    lines.push(`${prefix}_strong_ads=${row.strong.join('|') || 'NONE'}`);
+    lines.push(`${prefix}_draining_ads=${row.draining.join('|') || 'NONE'}`);
+    lines.push(`${prefix}_no_delivery_ads=${row.noDelivery.join('|') || 'NONE'}`);
+  });
+  lines.push('[/AI_INDEX]');
+  lines.push('');
+  lines.push('FIN DEL INFORME');
+
+  return {
+    text: lines.join('\n'),
+    summary
+  };
+}
+
+function CampaignReportCenter({
+  products,
+  campaigns,
+  ads,
+  dailyCampaigns,
+  dailyAds,
+  budgetChanges,
+  recommendations,
+  decisions
+}) {
+  const [productId, setProductId] = useState('all');
+  const [campaignId, setCampaignId] = useState('all');
+  const [reportText, setReportText] = useState('');
+  const [reportSummary, setReportSummary] = useState(null);
+  const [message, setMessage] = useState('');
+
+  const availableCampaigns = useMemo(
+    () => campaigns
+      .filter(c => !c.archived)
+      .filter(c => productId === 'all' || c.productId === productId)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
+    [campaigns, productId]
+  );
+
+  useEffect(() => {
+    if (campaignId !== 'all' && !availableCampaigns.some(c => c.id === campaignId)) {
+      setCampaignId('all');
+    }
+  }, [availableCampaigns, campaignId]);
+
+  const globalCompleteDates = useMemo(() => {
+    const today = todayColombiaCC();
+    return [...new Set(
+      dailyCampaigns
+        .filter(r => r?.date && String(r.date) < today)
+        .map(r => String(r.date))
+    )].sort((a, b) => b.localeCompare(a)).slice(0, 3).sort();
+  }, [dailyCampaigns]);
+
+  const generateReport = () => {
+    const result = buildDetailedCampaignReportCC({
+      products,
+      campaigns,
+      ads,
+      dailyCampaigns,
+      dailyAds,
+      budgetChanges,
+      recommendations,
+      decisions,
+      productId,
+      campaignId
+    });
+    setReportText(result.text);
+    setReportSummary(result.summary);
+    setMessage(`Informe generado · ${result.summary.campaigns} campaña(s) · ${result.summary.ads} anuncio(s).`);
+  };
+
+  const copyReport = async () => {
+    if (!reportText) return;
+    try {
+      await navigator.clipboard.writeText(reportText);
+      setMessage('Informe copiado al portapapeles. Listo para pegar en una IA.');
+    } catch (error) {
+      const textarea = document.createElement('textarea');
+      textarea.value = reportText;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setMessage('Informe copiado al portapapeles.');
+    }
+  };
+
+  const downloadReport = () => {
+    if (!reportText) return;
+    const productName = productId === 'all'
+      ? 'todos'
+      : normalizeAdName(products.find(p => p.id === productId)?.name || 'producto').replace(/\s+/g, '_');
+    const campaignName = campaignId === 'all'
+      ? 'campanas'
+      : normalizeAdName(campaigns.find(c => c.id === campaignId)?.name || 'campana').replace(/\s+/g, '_');
+    const filename = `informe_meta_ads_${productName}_${campaignName}_${todayColombiaCC()}.txt`;
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setMessage(`TXT descargado: ${filename}`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <SectionCard accent="#7c3aed" soft="#f5f3ff">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <FileText size={20} className="text-violet-700" />
+              <h3 className="text-lg font-black uppercase text-violet-900">Informe diagnóstico detallado</h3>
+            </div>
+            <p className="text-[9px] text-slate-600 mt-2 max-w-3xl">
+              Texto estructurado para lectura humana o procesamiento por IA. La decisión operativa siempre usa los últimos 3 días activos completos anteriores a hoy. Incluye comparación 3D anterior, Último día, 7D, 14D, 30D, presupuesto, escala, benchmark y diagnóstico completo por anuncio.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-violet-200 bg-white p-3 min-w-[260px]">
+            <p className="text-[8px] font-black uppercase text-violet-700">Ventana principal automática</p>
+            <p className="text-sm font-black text-zinc-900 mt-1">{globalCompleteDates.length ? reportWindowLabelCC(globalCompleteDates) : 'Sin datos completos'}</p>
+            <p className="text-[8px] text-slate-500 mt-1">Hoy {todayColombiaCC()} queda excluido.</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+          <div>
+            <p className="text-[8px] font-black uppercase text-slate-500 mb-1">Producto</p>
+            <select
+              value={productId}
+              onChange={e => { setProductId(e.target.value); setCampaignId('all'); }}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+            >
+              <option value="all">Todos los productos</option>
+              {[...products].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''))).map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-[8px] font-black uppercase text-slate-500 mb-1">Campaña</p>
+            <select
+              value={campaignId}
+              onChange={e => setCampaignId(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+            >
+              <option value="all">Todas las campañas</option>
+              {availableCampaigns.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button
+            type="button"
+            onClick={generateReport}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-950 text-white text-[9px] font-black uppercase"
+          >
+            <FileText size={13}/> Generar informe
+          </button>
+          <button
+            type="button"
+            onClick={copyReport}
+            disabled={!reportText}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-[9px] font-black uppercase disabled:opacity-40"
+          >
+            <Copy size={13}/> Copiar para IA
+          </button>
+          <button
+            type="button"
+            onClick={downloadReport}
+            disabled={!reportText}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-black uppercase disabled:opacity-40"
+          >
+            <Download size={13}/> Descargar TXT
+          </button>
+        </div>
+
+        {message && <p className="text-[9px] font-bold text-violet-700 mt-3">{message}</p>}
+      </SectionCard>
+
+      {reportSummary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+          <MiniCard label="Productos" value={reportSummary.products} />
+          <MiniCard label="Campañas" value={reportSummary.campaigns} />
+          <MiniCard label="Escalables" value={reportSummary.scalable} tone="good" />
+          <MiniCard label="Atención" value={reportSummary.attention} />
+          <MiniCard label="Drenan" value={reportSummary.draining} tone={reportSummary.draining ? 'bad' : 'good'} />
+          <MiniCard label="Sin entrega Meta" value={reportSummary.noDelivery} />
+        </div>
+      )}
+
+      {reportText ? (
+        <SectionCard accent="#0f172a" soft="#f8fafc">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <h4 className="text-xs font-black uppercase text-slate-900">Vista previa TXT</h4>
+              <p className="text-[8px] text-slate-500">El contenido mostrado es exactamente el que se copia o descarga.</p>
+            </div>
+            <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
+              {reportText.length.toLocaleString('es-CO')} caracteres
+            </span>
+          </div>
+          <textarea
+            readOnly
+            value={reportText}
+            className="w-full min-h-[650px] rounded-2xl border border-slate-200 bg-white p-4 font-mono text-[10px] leading-relaxed text-slate-700"
+          />
+        </SectionCard>
+      ) : (
+        <EmptyState>Selecciona el alcance y presiona “Generar informe”.</EmptyState>
+      )}
+    </div>
+  );
+}
+
+
 function CampaignControlModule() {
   const { user } = useAuth();
   const ownerUid = user?.uid || null;
@@ -2701,7 +3525,8 @@ function CampaignControlModule() {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { id: 'campaigns', label: 'Ver campañas', icon: Layers },
-    { id: 'register', label: 'Registro diario', icon: CalendarDays }
+    { id: 'register', label: 'Registro diario', icon: CalendarDays },
+    { id: 'reports', label: 'Informe IA', icon: FileText }
   ];
 
   return (
@@ -2754,6 +3579,19 @@ function CampaignControlModule() {
           dailyCampaigns={dailyCampaigns}
           dailyAds={dailyAds}
           recommendations={recommendations}
+        />
+      )}
+
+      {subTab === 'reports' && (
+        <CampaignReportCenter
+          products={products}
+          campaigns={campaigns}
+          ads={ads}
+          dailyCampaigns={dailyCampaigns}
+          dailyAds={dailyAds}
+          budgetChanges={budgetChanges}
+          recommendations={recommendations}
+          decisions={decisions}
         />
       )}
 
