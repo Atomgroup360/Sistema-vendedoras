@@ -3435,9 +3435,19 @@ function CampaignReportCenter({
               <h4 className="text-xs font-black uppercase text-slate-900">Vista previa TXT</h4>
               <p className="text-[8px] text-slate-500">El contenido mostrado es exactamente el que se copia o descarga.</p>
             </div>
-            <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
-              {reportText.length.toLocaleString('es-CO')} caracteres
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={copyReport}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-600 text-white text-[8px] font-black uppercase hover:bg-violet-700 transition"
+                title="Copiar todo el texto del informe"
+              >
+                <Copy size={12}/> Copiar texto
+              </button>
+              <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
+                {reportText.length.toLocaleString('es-CO')} caracteres
+              </span>
+            </div>
           </div>
           <textarea
             readOnly
