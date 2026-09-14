@@ -2832,8 +2832,9 @@ function buildDetailedCampaignReportCC({
   const lastComplete = lastCompleteColombiaDateCC();
   const generatedAt = colombiaDateTimeLabelCC();
 
+  // Apagadas y archivadas conservan histórico en informes.
+  // Solo la eliminación definitiva hace desaparecer la campaña.
   let selectedCampaigns = campaigns
-    .filter(c => !c.archived)
     .filter(c => productId === 'all' || c.productId === productId)
     .filter(c => campaignId === 'all' || c.id === campaignId)
     .sort((a, b) => {
@@ -2984,8 +2985,12 @@ function buildDetailedCampaignReportCC({
       lines.push('='.repeat(78));
       lines.push(`CAMPAÑA: ${campaign.name}`);
       lines.push('='.repeat(78));
-      lines.push(`Estado actual: ${campaign.active === false ? 'APAGADA' : 'ACTIVA'}`);
+      lines.push(`Estado actual: ${campaignCurrentStateLabelCC(campaign)}`);
       lines.push(`Fecha inicio campaña: ${campaign.effectiveStartDate || campaign.createdDate || '—'}`);
+      if (campaign.active === false || campaign.archived) {
+        lines.push(`Fecha efectiva de apagado: ${campaign.deactivatedDate || campaign.archivedDate || campaign.stateChangedDate || '—'}`);
+        lines.push('Histórico: CONSERVADO · la campaña continúa disponible en este informe mientras no sea eliminada definitivamente.');
+      }
       lines.push(`Días registrados históricos: ${campaignHistory.length}`);
       lines.push(`Cobertura hasta ${lastComplete}: ${coverage.registeredDays}/${coverage.requiredDays} · pendientes ${coverage.missingDays}`);
       if (coverage.missingDates?.length) lines.push(`Fechas pendientes: ${coverage.missingDates.join(', ')}`);
@@ -3162,6 +3167,8 @@ function buildDetailedCampaignReportCC({
         product: product.name,
         campaign: campaign.name,
         status: campaignDecision.status,
+        currentState: campaignCurrentStateLabelCC(campaign),
+        deactivatedDate: campaign.deactivatedDate || campaign.archivedDate || campaign.stateChangedDate || null,
         action: campaignDecision.action,
         currentBudget,
         cpa3d: w3.currentStats.cpa,
@@ -3225,6 +3232,8 @@ function buildDetailedCampaignReportCC({
     lines.push(`${prefix}_product=${row.product}`);
     lines.push(`${prefix}_name=${row.campaign}`);
     lines.push(`${prefix}_status=${row.status}`);
+    lines.push(`${prefix}_current_state=${row.currentState}`);
+    lines.push(`${prefix}_deactivated_date=${row.deactivatedDate || 'NONE'}`);
     lines.push(`${prefix}_action=${row.action}`);
     lines.push(`${prefix}_budget=${row.currentBudget || 0}`);
     lines.push(`${prefix}_spend_3d=${row.spend3d || 0}`);
@@ -3263,7 +3272,6 @@ function CampaignReportCenter({
 
   const availableCampaigns = useMemo(
     () => campaigns
-      .filter(c => !c.archived)
       .filter(c => productId === 'all' || c.productId === productId)
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
     [campaigns, productId]
@@ -4829,6 +4837,25 @@ function buildScaleHistory(records, maxCpa) {
 }
 
 
+function terminalStateHistoryCC(history, effectiveDate, active) {
+  const date = dateToIso(effectiveDate);
+  if (!date) return Array.isArray(history) ? history : [];
+
+  const kept = (Array.isArray(history) ? history : [])
+    .filter(event => event?.date && String(event.date) < String(date))
+    .map(event => ({ ...event }));
+
+  kept.push({ date, active: active !== false });
+  return kept.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+}
+
+function campaignCurrentStateLabelCC(campaign) {
+  if (!campaign) return '—';
+  if (campaign.archived) return 'ARCHIVADA / APAGADA';
+  if (campaign.active === false) return 'APAGADA / DESACTIVADA';
+  return 'ACTIVA';
+}
+
 function rebaseInitialStateHistory(history, oldStart, newStart) {
   const rows = Array.isArray(history) ? history.map(x => ({ ...x })) : [];
   if (!rows.length) return [{ date: newStart, active: true }];
@@ -4863,6 +4890,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const [showArchived, setShowArchived] = useState(false);
   const [managerMessage, setManagerMessage] = useState(null);
   const [busyKey, setBusyKey] = useState('');
+  const [campaignOffPicker, setCampaignOffPicker] = useState(null);
   const today = todayColombiaCC();
 
   const showManagerMessage = (type, text) => {
@@ -5109,26 +5137,116 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     }
   };
 
-  const toggleCampaign = async campaign => {
+  const requestCampaignOff = campaign => {
+    const campaignStart = dateToIso(campaign.effectiveStartDate || campaign.createdDate) || today;
+    setCampaignOffPicker({
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      date: today,
+      minDate: campaignStart
+    });
+  };
+
+  const toggleCampaign = async (campaign, requestedOffDate = null) => {
     const campaignAds = ads.filter(a => a.campaignId === campaign.id);
     const batch = writeBatch(db);
+
     if (campaign.active !== false) {
+      const offDate = dateToIso(requestedOffDate || today);
+      const campaignStart = dateToIso(campaign.effectiveStartDate || campaign.createdDate) || today;
+
+      if (!offDate) {
+        showManagerMessage('error', 'Selecciona una fecha válida para apagar la campaña.');
+        return;
+      }
+      if (offDate > today) {
+        showManagerMessage('error', 'La fecha de apagado no puede ser posterior a hoy.');
+        return;
+      }
+      if (offDate < campaignStart) {
+        showManagerMessage('error', `La campaña no puede apagarse antes de su fecha de inicio (${campaignStart}).`);
+        return;
+      }
+
+      if (!window.confirm(
+        `Apagar "${campaign.name}" con fecha efectiva ${offDate}?\n\n` +
+        `Desde esa fecha dejará de aparecer en Registro diario. ` +
+        `Los datos anteriores se conservarán y seguirán disponibles en los informes.`
+      )) return;
+
       const previousAdStates = {};
       campaignAds.forEach(a => { previousAdStates[a.id] = a.active !== false; });
-      batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), { active: false, previousAdStates, stateChangedDate: today, stateHistory: [...(campaign.stateHistory || []), { date: today, active: false }], stateChangedAt: serverTimestamp() });
-      campaignAds.forEach(a => batch.update(doc(db, COLLECTIONS.ads, a.id), { active: false, savedActiveBeforeCampaignOff: a.active !== false, disabledByCampaign: true, stateChangedDate: today, stateHistory: [...(a.stateHistory || []), { date: today, active: false }], stateChangedAt: serverTimestamp() }));
-      await batch.commit(); await addDecision(ownerUid, campaign, null, 'Campaña apagada', 'Todos los anuncios fueron apagados por jerarquía.');
+
+      batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), {
+        active: false,
+        previousAdStates,
+        stateChangedDate: offDate,
+        deactivatedDate: offDate,
+        stateHistory: terminalStateHistoryCC(campaign.stateHistory, offDate, false),
+        stateChangedAt: serverTimestamp()
+      });
+
+      campaignAds.forEach(a => {
+        batch.update(doc(db, COLLECTIONS.ads, a.id), {
+          active: false,
+          savedActiveBeforeCampaignOff: a.active !== false,
+          disabledByCampaign: true,
+          stateChangedDate: offDate,
+          stateHistory: terminalStateHistoryCC(a.stateHistory, offDate, false),
+          stateChangedAt: serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+      await addDecision(
+        ownerUid,
+        campaign,
+        null,
+        'Campaña apagada',
+        `Fecha efectiva de apagado: ${offDate}. Desde esa fecha quedó excluida de Registro diario; histórico anterior conservado.`
+      );
+      setCampaignOffPicker(null);
+      showManagerMessage('success', `"${campaign.name}" apagada con fecha efectiva ${offDate}.`);
     } else {
       const previous = campaign.previousAdStates || {};
-      batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), { active: true, stateChangedDate: today, stateHistory: [...(campaign.stateHistory || []), { date: today, active: true }], stateChangedAt: serverTimestamp() });
-      campaignAds.forEach(a => { const restored = previous[a.id] !== undefined ? previous[a.id] : (a.savedActiveBeforeCampaignOff === true); batch.update(doc(db, COLLECTIONS.ads, a.id), { active: restored, disabledByCampaign: false, stateChangedDate: today, stateHistory: [...(a.stateHistory || []), { date: today, active: restored }], stateChangedAt: serverTimestamp() }); });
-      await batch.commit(); await addDecision(ownerUid, campaign, null, 'Campaña encendida', 'Se restauró el estado individual previo de los anuncios.');
+
+      batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), {
+        active: true,
+        stateChangedDate: today,
+        deactivatedDate: null,
+        stateHistory: [...(campaign.stateHistory || []), { date: today, active: true }],
+        stateChangedAt: serverTimestamp()
+      });
+
+      campaignAds.forEach(a => {
+        const restored = previous[a.id] !== undefined
+          ? previous[a.id]
+          : (a.savedActiveBeforeCampaignOff === true);
+
+        batch.update(doc(db, COLLECTIONS.ads, a.id), {
+          active: restored,
+          disabledByCampaign: false,
+          stateChangedDate: today,
+          stateHistory: [...(a.stateHistory || []), { date: today, active: restored }],
+          stateChangedAt: serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+      await addDecision(
+        ownerUid,
+        campaign,
+        null,
+        'Campaña encendida',
+        `Reactivada el ${today}. Se restauró el estado individual previo de los anuncios.`
+      );
+      showManagerMessage('success', `"${campaign.name}" encendida desde ${today}.`);
     }
   };
   const archiveCampaign = async campaign => {
     if (!window.confirm(`¿Archivar ${campaign.name}? Se conserva todo el histórico.`)) return;
     const campaignAds = ads.filter(a => a.campaignId === campaign.id); const batch = writeBatch(db);
-    batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), { archived: true, active: false, archivedDate: today, stateChangedDate: today, stateHistory: [...(campaign.stateHistory || []), { date: today, active: false }], archivedAt: serverTimestamp() });
+    batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), { archived: true, active: false, archivedDate: today, deactivatedDate: campaign.deactivatedDate || today, stateChangedDate: today, stateHistory: [...(campaign.stateHistory || []), { date: today, active: false }], archivedAt: serverTimestamp() });
     campaignAds.forEach(a => batch.update(doc(db, COLLECTIONS.ads, a.id), { active: false, savedActiveBeforeCampaignOff: a.active !== false, disabledByCampaign: true, stateChangedDate: today, stateHistory: [...(a.stateHistory || []), { date: today, active: false }], stateChangedAt: serverTimestamp() }));
     await batch.commit(); await addDecision(ownerUid, campaign, null, 'Campaña archivada', 'Histórico conservado; excluida del análisis activo.');
   };
@@ -5308,18 +5426,61 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                   </span>
                 </div>
                 <p className="text-[8px] text-slate-400 mt-2">
-                  inicio campaña {campaign.effectiveStartDate||campaign.createdDate||'—'} · fecha independiente del producto · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}
+                  inicio campaña {campaign.effectiveStartDate||campaign.createdDate||'—'} · fecha independiente del producto · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}{campaign.active===false ? ` · apagada desde ${campaign.deactivatedDate||campaign.stateChangedDate||'—'}` : ''}
                 </p>
               </div>
 
               <div className="flex gap-1 flex-wrap">
                 <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
-                {!campaign.archived&&<button onClick={()=>toggleCampaign(campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}>{campaign.active===false?'Encender':'Apagar'}</button>}
+                {!campaign.archived&&<button
+                  onClick={()=>campaign.active===false ? toggleCampaign(campaign) : requestCampaignOff(campaign)}
+                  className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}
+                >{campaign.active===false?'Encender':'Apagar'}</button>}
                 {!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}
                 <button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button>
                 <button type="button" onClick={()=>setExpanded(x=>({...x,[campaign.id]:false}))} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-[8px] font-black uppercase flex items-center gap-1"><ChevronUp size={10}/> Cerrar campaña</button>
               </div>
             </div>
+
+            {campaignOffPicker?.campaignId === campaign.id && campaign.active !== false && !campaign.archived && (
+              <div className="mt-3 rounded-2xl border-2 border-rose-200 bg-rose-50 p-3">
+                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+                  <div>
+                    <p className="text-[9px] font-black uppercase text-rose-700">Fecha efectiva de apagado</p>
+                    <p className="text-[8px] text-rose-600 mt-1">
+                      Desde esta fecha la campaña dejará de aparecer en Registro diario. El histórico anterior seguirá disponible en informes.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div>
+                      <p className="text-[7px] font-black uppercase text-rose-500 mb-1">Apagar desde</p>
+                      <input
+                        type="date"
+                        min={campaignOffPicker.minDate}
+                        max={today}
+                        value={campaignOffPicker.date}
+                        onChange={e=>setCampaignOffPicker(x=>x ? ({...x,date:e.target.value}) : x)}
+                        className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={()=>toggleCampaign(campaign, campaignOffPicker.date)}
+                      className="px-3 py-2 rounded-xl bg-rose-600 text-white text-[8px] font-black uppercase"
+                    >
+                      Confirmar apagado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={()=>setCampaignOffPicker(null)}
+                      className="px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-600 text-[8px] font-black uppercase"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <button
               type="button"
@@ -5387,7 +5548,8 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
       const hasHistoricalCampaign = campaigns.some(c =>
         c.productId === p.id &&
         !c.archived &&
-        (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date)
+        (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
+        entityActiveOnDate(c, date)
       );
       return productAlreadyExists || hasHistoricalCampaign;
     })
@@ -5397,8 +5559,12 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
     const p = {}, c = {};
     visibleProducts.forEach(product => {
       p[product.id] = true;
-      campaigns.filter(x => x.productId === product.id && !x.archived && (!(x.effectiveStartDate || x.createdDate) || (x.effectiveStartDate || x.createdDate) <= date))
-        .forEach(campaign => { c[campaign.id] = true; });
+      campaigns.filter(x =>
+        x.productId === product.id &&
+        !x.archived &&
+        (!(x.effectiveStartDate || x.createdDate) || (x.effectiveStartDate || x.createdDate) <= date) &&
+        entityActiveOnDate(x, date)
+      ).forEach(campaign => { c[campaign.id] = true; });
     });
     setExpandedProducts(p);
     setExpandedCampaigns(c);
@@ -5409,8 +5575,18 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
     setExpandedCampaigns({});
   };
 
-  const registeredCampaigns = dailyCampaigns.filter(r => r.date === date).length;
-  const totalCampaigns = campaigns.filter(c => !c.archived && (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date)).length;
+  const availableCampaignsForDate = campaigns.filter(c =>
+    !c.archived &&
+    (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
+    entityActiveOnDate(c, date)
+  );
+  const availableCampaignIdsForDate = new Set(availableCampaignsForDate.map(c => c.id));
+  const registeredCampaigns = new Set(
+    dailyCampaigns
+      .filter(r => r.date === date && availableCampaignIdsForDate.has(r.campaignId))
+      .map(r => r.campaignId)
+  ).size;
+  const totalCampaigns = availableCampaignsForDate.length;
 
   return (
     <div className="space-y-5">
@@ -5444,7 +5620,12 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
       {visibleProducts.length === 0 ? <EmptyState>No existen productos de Campaign Control para esta fecha.</EmptyState> :
         visibleProducts.map(product => {
           const productCampaigns = campaigns
-            .filter(c => c.productId === product.id && !c.archived && (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date))
+            .filter(c =>
+              c.productId === product.id &&
+              !c.archived &&
+              (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
+              entityActiveOnDate(c, date)
+            )
             .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
           const isOpen = expandedProducts[product.id] === true;
 
