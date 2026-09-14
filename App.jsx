@@ -1335,8 +1335,25 @@ const META_CSV_ALIASES = {
   cpc: ['CPC (Coste por clic en el enlace) (COP)', 'CPC (costo por clic en el enlace)', 'CPC (cost per link click)', 'CPC'],
   cpm: ['CPM (coste por 1000 impresiones) (COP)', 'CPM (costo por 1000 impresiones)', 'CPM (cost per 1,000 impressions)', 'CPM'],
   frequency: ['Frecuencia', 'Frequency'],
-  landingViews: ['Visitas a la página de destino', 'Visitas a la página de destino del sitio web', 'Landing page views', 'Visitas landing'],
-  atc: ['Artículos añadidos al carrito', 'Artículos añadidos al carrito en el sitio web', 'Añadir al carrito', 'Adds to cart', 'ATC'],
+  landingViews: [
+    'Visitas a la página de destino',
+    'Visitas a la página de destino del sitio web',
+    'Visitas de la página de destino',
+    'Visitas de la página de destino del sitio web',
+    'Landing page views',
+    'Website landing page views',
+    'Visitas landing'
+  ],
+  atc: [
+    'Artículos añadidos al carrito',
+    'Artículos añadidos al carrito en el sitio web',
+    'Añadidos al carrito',
+    'Añadidos al carrito en el sitio web',
+    'Añadir al carrito',
+    'Adds to cart',
+    'Website adds to cart',
+    'ATC'
+  ],
   roas: ['ROAS (retorno del gasto publicitario) de compras', 'ROAS (retorno del gasto publicitario) de compras en el sitio web', 'Purchase ROAS', 'ROAS'],
   startDate: ['Inicio del informe', 'Reporting starts', 'Fecha de inicio'],
   endDate: ['Fin del informe', 'Reporting ends', 'Fecha de fin']
@@ -1512,11 +1529,21 @@ function isMetaAdExplicitlyInactiveCC(value = '') {
 function resolveCsvValue(row, aliases) {
   const normalized = {};
   Object.entries(row).forEach(([key, value]) => { normalized[normalizeHeader(key)] = value; });
+
+  // Meta suele exportar dos o más columnas equivalentes.
+  // Elegimos el primer alias que tenga un valor REAL, no simplemente
+  // la primera columna que exista en el CSV.
   for (const alias of aliases) {
     const key = normalizeHeader(alias);
-    if (Object.prototype.hasOwnProperty.call(normalized, key)) return normalized[key];
+    if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
+    const value = normalized[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
   }
   return '';
+}
+
+function hasCsvMetricValueCC(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
 }
 
 function parseCsvText(text) {
@@ -1595,16 +1622,28 @@ function variationBand(value) {
 function aggregateRecords(records = []) {
   if (!records.length) return {
     days: 0, spend: 0, purchases: 0, cpa: null, ctr: null, cpc: null, cpm: null,
-    frequency: null, landingViews: 0, atc: 0, roas: null,
-    visitToAtc: null, visitToPurchase: null, atcToPurchase: null
+    frequency: null, impressions: null, clicks: null, landingViews: null, atc: null, roas: null,
+    clickToLanding: null, visitToAtc: null, visitToPurchase: null, atcToPurchase: null,
+    postClickCoverage: { clicks: false, landingViews: false, atc: false }
   };
 
   const spend = records.reduce((sum, r) => sum + toNumber(r.spend), 0);
   const purchases = records.reduce((sum, r) => sum + toNumber(r.purchases), 0);
-  const landingViews = records.reduce((sum, r) => sum + toNumber(r.landingViews), 0);
-  const atc = records.reduce((sum, r) => sum + toNumber(r.atc), 0);
-  const impressions = records.reduce((sum, r) => sum + toNumber(r.impressions), 0);
-  const clicks = records.reduce((sum, r) => sum + toNumber(r.clicks), 0);
+
+  const hasMetric = (record, key, availabilityKey = null) => {
+    if (availabilityKey && record?.[availabilityKey] === true) return true;
+    return record?.[key] !== null && record?.[key] !== undefined && record?.[key] !== '';
+  };
+
+  const clickRows = records.filter(r => hasMetric(r, 'clicks', 'clicksDataAvailable'));
+  const landingRows = records.filter(r => hasMetric(r, 'landingViews', 'landingViewsDataAvailable'));
+  const atcRows = records.filter(r => hasMetric(r, 'atc', 'atcDataAvailable'));
+  const impressionRows = records.filter(r => hasMetric(r, 'impressions'));
+
+  const clicks = clickRows.length ? clickRows.reduce((sum, r) => sum + toNumber(r.clicks), 0) : null;
+  const landingViews = landingRows.length ? landingRows.reduce((sum, r) => sum + toNumber(r.landingViews), 0) : null;
+  const atc = atcRows.length ? atcRows.reduce((sum, r) => sum + toNumber(r.atc), 0) : null;
+  const impressions = impressionRows.length ? impressionRows.reduce((sum, r) => sum + toNumber(r.impressions), 0) : null;
   const days = new Set(records.map(r => String(r.date || '')).filter(Boolean)).size || records.length;
 
   const weightedPositive = (key, weightKey = 'spend') => {
@@ -1628,7 +1667,7 @@ function aggregateRecords(records = []) {
   // CTR = clics de enlace / impresiones.
   // CPC = gasto / clics.
   // CPM = gasto / impresiones * 1000.
-  const ctr = impressions > 0 ? (clicks / impressions) * 100 : weightedAllowZero('ctr', 'spend');
+  const ctr = impressions > 0 && clicks !== null ? (clicks / impressions) * 100 : weightedAllowZero('ctr', 'spend');
   const cpc = clicks > 0 ? spend / clicks : weightedPositive('cpc', 'spend');
   const cpm = impressions > 0 ? (spend / impressions) * 1000 : weightedPositive('cpm', 'spend');
 
@@ -1649,12 +1688,20 @@ function aggregateRecords(records = []) {
     cpc,
     cpm,
     frequency,
+    impressions,
+    clicks,
     landingViews,
     atc,
     roas,
-    visitToAtc: safeRate(atc, landingViews),
-    visitToPurchase: safeRate(purchases, landingViews),
-    atcToPurchase: safeRate(purchases, atc)
+    clickToLanding: clicks !== null && landingViews !== null ? safeRate(landingViews, clicks) : null,
+    visitToAtc: landingViews !== null && atc !== null ? safeRate(atc, landingViews) : null,
+    visitToPurchase: landingViews !== null ? safeRate(purchases, landingViews) : null,
+    atcToPurchase: atc !== null ? safeRate(purchases, atc) : null,
+    postClickCoverage: {
+      clicks: clickRows.length > 0,
+      landingViews: landingRows.length > 0,
+      atc: atcRows.length > 0
+    }
   };
 }
 
@@ -1842,16 +1889,180 @@ function adVariationDiagnosisFromDelta(delta) {
   return { diagnosis: 'Estable', action: 'Mantener', tone: 'normal' };
 }
 
-function funnelVariationDiagnosisFromDelta(delta) {
-  const vta = Number(delta?.visitToAtc) || 0;
-  const vtp = Number(delta?.visitToPurchase) || 0;
-  const atp = Number(delta?.atcToPurchase) || 0;
-  if (vta <= -20 && vtp <= -20) return { diagnosis: 'Tráfico post-clic deteriorado', action: 'Apagar/reemplazar si CPA no es rentable', tone: 'critical' };
-  if (vta <= -15 && vtp <= -15) return { diagnosis: 'Calidad de tráfico cayendo', action: 'Revisar creativo y coherencia anuncio→landing', tone: 'alert' };
-  if (vta > -10 && vtp <= -15 && atp <= -15) return { diagnosis: 'Fuga al cierre', action: 'Revisar formulario/oferta', tone: 'alert' };
-  if (vta <= -10 && vtp > -10) return { diagnosis: 'Menor intención inicial', action: 'Preparar variaciones creativas', tone: 'attention' };
-  if (Math.abs(vta) <= 10 && Math.abs(vtp) <= 10 && Math.abs(atp) <= 10) return { diagnosis: 'Post-clic estable', action: 'Mantener', tone: 'normal' };
-  return { diagnosis: 'Post-clic en observación', action: 'Monitorear', tone: 'attention' };
+function postClickDataQualityCC(stats) {
+  const clicksAvailable = stats?.postClickCoverage?.clicks === true || (stats?.clicks !== null && stats?.clicks !== undefined);
+  const landingAvailable = stats?.postClickCoverage?.landingViews === true || (stats?.landingViews !== null && stats?.landingViews !== undefined);
+  const atcAvailable = stats?.postClickCoverage?.atc === true || (stats?.atc !== null && stats?.atc !== undefined);
+
+  const clicks = clicksAvailable ? toNumber(stats?.clicks) : null;
+  const landing = landingAvailable ? toNumber(stats?.landingViews) : null;
+  const atc = atcAvailable ? toNumber(stats?.atc) : null;
+  const purchases = toNumber(stats?.purchases);
+  const spend = toNumber(stats?.spend);
+
+  if (purchases > 0 && (!landingAvailable || landing <= 0)) {
+    return {
+      level: 'missing',
+      evaluable: false,
+      label: 'DATOS POST-CLIC FALTANTES',
+      reason: `Hay ${fmtNum(purchases, 2)} compra(s), pero Visitas landing está en 0/ausente. Ese 0 no se considera un dato real del embudo.`,
+      action: 'Reimportar el CSV original con Visitas landing y ATC.'
+    };
+  }
+
+  if (purchases > 0 && (!atcAvailable || atc <= 0)) {
+    return {
+      level: 'partial',
+      evaluable: true,
+      label: 'ATC FALTANTE / TRACKING INCOMPLETO',
+      reason: `Hay ${fmtNum(purchases, 2)} compra(s), pero ATC está en 0/ausente. Visita→Compra sí puede analizarse; ATC→Compra no es confiable.`,
+      action: 'Reimportar CSV o revisar el evento AddToCart.'
+    };
+  }
+
+  if (spend > 0 && clicks !== null && clicks > 0 && (!landingAvailable || landing <= 0)) {
+    return {
+      level: 'missing',
+      evaluable: false,
+      label: 'VISITAS LANDING FALTANTES',
+      reason: `Hay ${fmtNum(clicks, 2)} clic(s) de enlace y gasto, pero no hay Visitas landing registradas.`,
+      action: 'Reimportar CSV con Visitas a la página de destino.'
+    };
+  }
+
+  if (!landingAvailable && !atcAvailable) {
+    return {
+      level: 'missing',
+      evaluable: false,
+      label: 'SIN DATOS POST-CLIC',
+      reason: 'El registro no contiene Visitas landing ni ATC.',
+      action: 'Importar/reimportar un CSV de Meta que incluya esas columnas.'
+    };
+  }
+
+  if (landingAvailable && landing === 0 && purchases === 0 && spend === 0) {
+    return {
+      level: 'no_delivery',
+      evaluable: false,
+      label: 'SIN ENTREGA / SIN MUESTRA',
+      reason: 'No hubo tráfico suficiente para formar un embudo post-clic.',
+      action: 'No evaluar post-clic todavía.'
+    };
+  }
+
+  const notes = [];
+  if (!clicksAvailable) notes.push('Clic→Landing no disponible');
+  if (!atcAvailable) notes.push('ATC→Compra no disponible');
+
+  return {
+    level: notes.length ? 'partial' : 'complete',
+    evaluable: true,
+    label: notes.length ? 'DATOS PARCIALES' : 'DATOS COMPLETOS',
+    reason: notes.length ? notes.join(' · ') : 'Clics, visitas landing y ATC disponibles.',
+    action: notes.length ? 'Analizar solo las etapas disponibles.' : 'Embudo disponible para diagnóstico.'
+  };
+}
+
+function funnelVariationDiagnosisFromDelta(delta, currentStats = null, previousStats = null) {
+  const quality = postClickDataQualityCC(currentStats);
+
+  if (!quality.evaluable) {
+    return {
+      diagnosis: quality.label,
+      action: quality.action,
+      tone: quality.level === 'missing' ? 'alert' : 'attention',
+      evaluable: false,
+      dataQuality: quality
+    };
+  }
+
+  const ctl = delta?.clickToLanding;
+  const vta = delta?.visitToAtc;
+  const vtp = delta?.visitToPurchase;
+  const atp = delta?.atcToPurchase;
+  const available = [ctl, vta, vtp, atp].filter(v => v !== null && v !== undefined);
+
+  if (!available.length) {
+    return {
+      diagnosis: 'Sin base comparable',
+      action: quality.level === 'partial'
+        ? quality.action
+        : 'Acumular un periodo anterior para medir tendencia',
+      tone: 'attention',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  const le = (value, threshold) => value !== null && value !== undefined && value <= threshold;
+
+  if (le(ctl, -20)) {
+    return {
+      diagnosis: 'Fuga clic → landing',
+      action: 'Revisar velocidad, carga, enlace y experiencia de la landing',
+      tone: 'critical',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  if (le(vta, -20) && le(vtp, -20)) {
+    return {
+      diagnosis: 'Tráfico post-clic deteriorado',
+      action: 'Revisar creativo→landing y calidad del tráfico',
+      tone: 'critical',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  if (le(vta, -15) && le(vtp, -15)) {
+    return {
+      diagnosis: 'Calidad de tráfico cayendo',
+      action: 'Revisar creativo y coherencia anuncio→landing',
+      tone: 'alert',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  if (!le(vta, -10) && le(vtp, -15) && le(atp, -15)) {
+    return {
+      diagnosis: 'Fuga al cierre',
+      action: 'Revisar formulario, confianza, oferta y fricción de compra',
+      tone: 'alert',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  if (le(vta, -10) && !le(vtp, -10)) {
+    return {
+      diagnosis: 'Menor intención inicial',
+      action: 'Revisar coherencia anuncio→producto/oferta',
+      tone: 'attention',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  if (available.every(v => Math.abs(v) <= 10)) {
+    return {
+      diagnosis: quality.level === 'partial' ? 'Post-clic estable · datos parciales' : 'Post-clic estable',
+      action: quality.level === 'partial' ? quality.action : 'Mantener',
+      tone: 'normal',
+      evaluable: true,
+      dataQuality: quality
+    };
+  }
+
+  return {
+    diagnosis: 'Post-clic en observación',
+    action: quality.level === 'partial' ? quality.action : 'Monitorear',
+    tone: 'attention',
+    evaluable: true,
+    dataQuality: quality
+  };
 }
 
 
@@ -2060,11 +2271,12 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   const delta = {
     cpa: pctChange(c.cpa, p.cpa), ctr: pctChange(c.ctr, p.ctr), cpc: pctChange(c.cpc, p.cpc),
     cpm: pctChange(c.cpm, p.cpm), frequency: pctChange(c.frequency, p.frequency),
+    clickToLanding: pctChange(c.clickToLanding, p.clickToLanding),
     visitToAtc: pctChange(c.visitToAtc, p.visitToAtc), visitToPurchase: pctChange(c.visitToPurchase, p.visitToPurchase),
     atcToPurchase: pctChange(c.atcToPurchase, p.atcToPurchase)
   };
   const dynamic = adVariationDiagnosisFromDelta(delta);
-  const post = funnelVariationDiagnosisFromDelta(delta);
+  const post = funnelVariationDiagnosisFromDelta(delta, c, p);
 
   // GUARDRAILS DE ESCALADO: SIEMPRE 3D.
   // El selector Último día / 7D / 14D / 30D sirve para explorar diagnóstico,
@@ -2080,19 +2292,28 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     cpc: pctChange(scale3d.cpc, scalePrev3d.cpc),
     cpm: pctChange(scale3d.cpm, scalePrev3d.cpm),
     frequency: pctChange(scale3d.frequency, scalePrev3d.frequency),
+    clickToLanding: pctChange(scale3d.clickToLanding, scalePrev3d.clickToLanding),
     visitToAtc: pctChange(scale3d.visitToAtc, scalePrev3d.visitToAtc),
     visitToPurchase: pctChange(scale3d.visitToPurchase, scalePrev3d.visitToPurchase),
     atcToPurchase: pctChange(scale3d.atcToPurchase, scalePrev3d.atcToPurchase)
   };
 
   const scaleDynamic3d = adVariationDiagnosisFromDelta(scaleDelta3d);
-  const scalePost3d = funnelVariationDiagnosisFromDelta(scaleDelta3d);
+  const scalePost3d = funnelVariationDiagnosisFromDelta(scaleDelta3d, scale3d, scalePrev3d);
+
+  const postClickCritical3d = [
+    'Fuga clic → landing',
+    'Tráfico post-clic deteriorado',
+    'Calidad de tráfico cayendo',
+    'Fuga al cierre'
+  ].includes(scalePost3d.diagnosis);
+  const postClickIntegrityMissing3d = scalePost3d.dataQuality?.level === 'missing';
 
   const guardrails = {
     cpaMargin: scale3d.cpa > 0 && scale3d.cpa <= scaleCpa,
     stability: scaleDelta3d.cpa === null || scaleDelta3d.cpa <= 15,
     creative: !['Fatiga probable', 'Fatiga confirmada'].includes(scaleDynamic3d.diagnosis),
-    postClick: !['Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo', 'Fuga al cierre'].includes(scalePost3d.diagnosis)
+    postClick: !postClickCritical3d && !postClickIntegrityMissing3d
   };
 
   // Volumen = referencia de confianza. NUNCA bloquea una escala.
@@ -2143,12 +2364,17 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
       operational3dAction = 'No escalar · optimizar';
       operational3dPriority = 'critical';
       operational3dReason = cpaObservation3d.text;
+    } else if (scalePost3d.dataQuality?.level === 'missing') {
+      operational3dDiagnosis = 'Datos post-clic incompletos · 3D';
+      operational3dAction = 'Reimportar CSV / corregir tracking';
+      operational3dPriority = 'alert';
+      operational3dReason = scalePost3d.dataQuality?.reason || 'Faltan datos del embudo post-clic.';
     } else if (scale3d.cpa > maxCpa && scaleDynamic3d.diagnosis === 'Fatiga confirmada') {
       operational3dDiagnosis = 'Anuncio deteriorado y no rentable';
       operational3dAction = 'Apagar / reemplazar';
       operational3dPriority = 'critical';
       operational3dReason = 'CPA 3D fuera de objetivo + fatiga confirmada en la ventana 3D.';
-    } else if (scale3d.cpa > maxCpa && ['Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo'].includes(scalePost3d.diagnosis)) {
+    } else if (scale3d.cpa > maxCpa && ['Fuga clic → landing', 'Tráfico post-clic deteriorado', 'Calidad de tráfico cayendo'].includes(scalePost3d.diagnosis)) {
       operational3dDiagnosis = 'Tráfico de baja calidad 3D';
       operational3dAction = 'No escalar · reemplazar / optimizar';
       operational3dPriority = 'critical';
@@ -2203,7 +2429,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   if (c.days > 0) {
     if (c.cpa > maxCpa && dynamic.diagnosis === 'Fatiga confirmada') {
       finalDiagnosis = 'Anuncio deteriorado y no rentable'; action = 'Apagar / reemplazar'; priority = 'critical'; reason = 'CPA fuera de objetivo + fatiga confirmada en CTR/CPC/frecuencia.';
-    } else if (c.cpa > maxCpa && post.diagnosis === 'Tráfico post-clic deteriorado') {
+    } else if (c.cpa > maxCpa && ['Fuga clic → landing', 'Tráfico post-clic deteriorado'].includes(post.diagnosis)) {
       finalDiagnosis = 'Tráfico de baja calidad'; action = 'Apagar / reemplazar creativo'; priority = 'critical'; reason = 'CPA fuera de objetivo y el embudo post-clic también se deteriora.';
     } else if (c.cpa <= maxCpa && dynamic.diagnosis === 'Fatiga temprana') {
       finalDiagnosis = 'Rentable con fatiga temprana'; action = 'Mantener y preparar creativos'; priority = 'alert'; reason = 'Todavía rentable, pero CTR/CPC/frecuencia empiezan a deteriorarse.';
@@ -2238,6 +2464,8 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     scalePost3d: scalePost3d.diagnosis,
     dynamicDiagnosis: dynamic.diagnosis, dynamicAction: dynamic.action,
     postDiagnosis: post.diagnosis, postAction: post.action, dynamicTone: dynamic.tone, postTone: post.tone,
+    postDataQuality: post.dataQuality || postClickDataQualityCC(c),
+    scalePostDataQuality3d: scalePost3d.dataQuality || postClickDataQualityCC(scale3d),
     maxCpa, scaleCpa, ageDays
   };
 }
@@ -2305,7 +2533,7 @@ function buildCampaignContribution3D(campaign, product, allAds = [], dailyAds = 
       atcToPurchase: pctChange(ad3d.atcToPurchase, prevAd3d.atcToPurchase)
     };
     const dynamic3d = adVariationDiagnosisFromDelta(delta3d);
-    const post3d = funnelVariationDiagnosisFromDelta(delta3d);
+    const post3d = funnelVariationDiagnosisFromDelta(delta3d, ad3d, prevAd3d);
 
     let status = 'Bajo aporte / vigilar';
     let tone = 'alert';
@@ -2510,16 +2738,27 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
 
     const normalizedName = normalizeAdName(adName);
     const spend = toNumber(resolveCsvValue(row, META_CSV_ALIASES.spend));
-    const impressions = toNumber(resolveCsvValue(row, META_CSV_ALIASES.impressions));
-    const clicks = toNumber(resolveCsvValue(row, META_CSV_ALIASES.clicks));
-    const purchases = toNumber(resolveCsvValue(row, META_CSV_ALIASES.purchases));
-    const ctrRaw = toNumber(resolveCsvValue(row, META_CSV_ALIASES.ctr));
-    const cpcRaw = toNumber(resolveCsvValue(row, META_CSV_ALIASES.cpc));
-    const cpmRaw = toNumber(resolveCsvValue(row, META_CSV_ALIASES.cpm));
-    const frequency = toNumber(resolveCsvValue(row, META_CSV_ALIASES.frequency));
-    const landingViews = toNumber(resolveCsvValue(row, META_CSV_ALIASES.landingViews));
-    const atc = toNumber(resolveCsvValue(row, META_CSV_ALIASES.atc));
-    const roas = toNumber(resolveCsvValue(row, META_CSV_ALIASES.roas));
+    const impressionsRaw = resolveCsvValue(row, META_CSV_ALIASES.impressions);
+    const clicksRaw = resolveCsvValue(row, META_CSV_ALIASES.clicks);
+    const purchasesRaw = resolveCsvValue(row, META_CSV_ALIASES.purchases);
+    const ctrValueRaw = resolveCsvValue(row, META_CSV_ALIASES.ctr);
+    const cpcValueRaw = resolveCsvValue(row, META_CSV_ALIASES.cpc);
+    const cpmValueRaw = resolveCsvValue(row, META_CSV_ALIASES.cpm);
+    const frequencyRaw = resolveCsvValue(row, META_CSV_ALIASES.frequency);
+    const landingViewsRaw = resolveCsvValue(row, META_CSV_ALIASES.landingViews);
+    const atcRaw = resolveCsvValue(row, META_CSV_ALIASES.atc);
+    const roasRaw = resolveCsvValue(row, META_CSV_ALIASES.roas);
+
+    const impressions = toNumber(impressionsRaw);
+    const clicks = toNumber(clicksRaw);
+    const purchases = toNumber(purchasesRaw);
+    const ctrRaw = toNumber(ctrValueRaw);
+    const cpcRaw = toNumber(cpcValueRaw);
+    const cpmRaw = toNumber(cpmValueRaw);
+    const frequency = toNumber(frequencyRaw);
+    const landingViews = toNumber(landingViewsRaw);
+    const atc = toNumber(atcRaw);
+    const roas = toNumber(roasRaw);
     const reportDate =
       dateToIso(resolveCsvValue(row, META_CSV_ALIASES.endDate)) ||
       dateToIso(resolveCsvValue(row, META_CSV_ALIASES.startDate)) ||
@@ -2545,7 +2784,10 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
         frequency,
         landingViews,
         atc,
-        roas
+        roas,
+        clicksDataAvailable: hasCsvMetricValueCC(clicksRaw),
+        landingViewsDataAvailable: hasCsvMetricValueCC(landingViewsRaw),
+        atcDataAvailable: hasCsvMetricValueCC(atcRaw)
       }
     };
   }).filter(Boolean);
@@ -2615,7 +2857,10 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
             frequency: 0,
             landingViews: 0,
             atc: 0,
-            roas: 0
+            roas: 0,
+            clicksDataAvailable: true,
+            landingViewsDataAvailable: true,
+            atcDataAvailable: true
           }
         });
       }
@@ -2639,7 +2884,9 @@ const REPORT_METRICS_CC = [
   { key: 'cpc', label: 'CPC', type: 'money', direction: 'lower' },
   { key: 'cpm', label: 'CPM', type: 'money', direction: 'lower' },
   { key: 'frequency', label: 'Frecuencia', type: 'number', direction: 'lower' },
+  { key: 'clicks', label: 'Clics de enlace', type: 'number', direction: 'higher' },
   { key: 'landingViews', label: 'Visitas landing', type: 'number', direction: 'higher' },
+  { key: 'clickToLanding', label: 'Clic → Landing', type: 'rate', direction: 'higher' },
   { key: 'atc', label: 'Añadidos al carrito', type: 'number', direction: 'higher' },
   { key: 'roas', label: 'ROAS', type: 'roas', direction: 'higher' },
   { key: 'visitToAtc', label: 'Visita → ATC', type: 'rate', direction: 'higher' },
@@ -2761,13 +3008,15 @@ function reportCausalInsightsCC(currentStats, previousStats, maxCpa) {
   if (delta.cpc !== null) lines.push(`• CPC ${delta.cpc <= 0 ? 'mejoró/bajó' : 'subió'} ${fmtNum(Math.abs(delta.cpc), 2)}%.`);
   if (delta.cpm !== null) lines.push(`• CPM ${delta.cpm <= 0 ? 'bajó' : 'subió'} ${fmtNum(Math.abs(delta.cpm), 2)}%.`);
   if (delta.frequency !== null) lines.push(`• Frecuencia ${delta.frequency >= 0 ? 'subió' : 'bajó'} ${fmtNum(Math.abs(delta.frequency), 2)}%.`);
+  if (delta.clickToLanding !== null) lines.push(`• Clic→Landing ${delta.clickToLanding >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.clickToLanding), 2)}%.`);
   if (delta.visitToAtc !== null) lines.push(`• Visita→ATC ${delta.visitToAtc >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.visitToAtc), 2)}%.`);
   if (delta.visitToPurchase !== null) lines.push(`• Visita→Compra ${delta.visitToPurchase >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.visitToPurchase), 2)}%.`);
   if (delta.atcToPurchase !== null) lines.push(`• ATC→Compra ${delta.atcToPurchase >= 0 ? 'mejoró' : 'cayó'} ${fmtNum(Math.abs(delta.atcToPurchase), 2)}%.`);
 
   const creative = adVariationDiagnosisFromDelta(delta);
-  const funnel = funnelVariationDiagnosisFromDelta(delta);
+  const funnel = funnelVariationDiagnosisFromDelta(delta, currentStats, previousStats);
   lines.push(`• Lectura de tendencia creativa: ${creative.diagnosis} → ${creative.action}.`);
+  lines.push(`• Calidad de datos post-clic: ${funnel.dataQuality?.label || '—'}${funnel.dataQuality?.reason ? ` · ${funnel.dataQuality.reason}` : ''}.`);
   lines.push(`• Lectura post-clic: ${funnel.diagnosis} → ${funnel.action}.`);
 
   return lines;
@@ -4488,11 +4737,22 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#7c3aed' }}>
         <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#ddd6fe' }}><h4 className="text-xs font-black uppercase text-violet-800">Embudo post-clic dinámico por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+        <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
+          <p className="text-[8px] font-black uppercase text-violet-800">Embudo corregido</p>
+          <p className="text-[8px] text-violet-700 mt-1">
+            Clic→Landing = Visitas landing / Clics de enlace · Visita→ATC = ATC / Visitas · Visita→Compra = Compras / Visitas · ATC→Compra = Compras / ATC.
+            Si hay compras pero Visitas/ATC están en 0, el sistema lo marca como dato faltante: ya no presenta ese 0 como un embudo real ni como “estable”.
+          </p>
+        </div>
+        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1680px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
+          const q = diag.postDataQuality || postClickDataQualityCC(diag.stats);
+          const landingMissing = q.level === 'missing' && diag.stats.purchases > 0 && toNumber(diag.stats.landingViews) <= 0;
+          const atcMissing = (q.level === 'missing' || q.label?.includes('ATC FALTANTE')) && diag.stats.purchases > 0 && toNumber(diag.stats.atc) <= 0;
+          return <tr
           key={ad.id}
           className="border-b-4 border-white"
           style={{ backgroundColor: ccVisualAccent(ad.id || ad.name, 1).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name, 1).border}` }}
-        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 1).text }}>{ad.name}</td><td>{fmtNum(diag.stats.landingViews, 2)}</td><td>{fmtNum(diag.stats.atc, 2)}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtRate(diag.stats.visitToAtc)}</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtRate(diag.stats.visitToPurchase)}</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtRate(diag.stats.atcToPurchase)}</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black">{diag.postAction}</td></tr>)}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
+        ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name, 1).text }}>{ad.name}</td><td>{diag.stats.clicks === null ? '—' : fmtNum(diag.stats.clicks, 2)}</td><td className={landingMissing?'font-black text-rose-600':''}>{landingMissing ? '— FALTANTE' : (diag.stats.landingViews === null ? '—' : fmtNum(diag.stats.landingViews, 2))}</td><td className={atcMissing?'font-black text-rose-600':''}>{atcMissing ? '— FALTANTE' : (diag.stats.atc === null ? '—' : fmtNum(diag.stats.atc, 2))}</td><td>{fmtNum(diag.stats.purchases, 2)}</td><td className="font-black">{fmtRate(diag.stats.clickToLanding)}</td><td><Delta metric="clickToLanding" value={diag.delta.clickToLanding}/></td><td className="font-black">{fmtRate(diag.stats.visitToAtc)}</td><td><Delta metric="visitToAtc" value={diag.delta.visitToAtc}/></td><td className="font-black">{fmtRate(diag.stats.visitToPurchase)}</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className="font-black">{fmtRate(diag.stats.atcToPurchase)}</td><td><Delta metric="atcToPurchase" value={diag.delta.atcToPurchase}/></td><td><span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${q.level === 'missing' ? 'bg-rose-100 text-rose-700' : q.level === 'partial' ? 'bg-amber-100 text-amber-700' : q.level === 'no_delivery' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}>{q.label}</span><p className="text-[7px] text-slate-500 mt-1 max-w-[220px]">{q.reason}</p></td><td className={`font-black ${toneText(diag.postTone)}`}>{diag.postDiagnosis}</td><td className="font-black max-w-[220px]">{diag.postAction}</td></tr>})}</tbody></table></div> : <EmptyState>Sin datos post-clic disponibles.</EmptyState>}
       </div>
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#059669' }}>
@@ -4705,7 +4965,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="rounded-2xl p-3 bg-slate-50" style={{border:'2px solid #475569'}}><h4 className="text-xs font-black uppercase mb-2 text-slate-700">Cómo se dispara cada diagnóstico</h4><div className="space-y-2 text-[9px] text-slate-600"><p><strong>Fatiga:</strong> CPA ↑ + CTR ↓ + CPC ↑ + frecuencia ↑.</p><p><strong>Subasta cara:</strong> CPM ↑ mientras CTR/CVR permanecen estables.</p><p><strong>Problema post-clic:</strong> CPA ↑ con CTR/CPC estables y conversión post-clic ↓.</p><p><strong>Fuga al cierre:</strong> intención inicial sana pero ATC→Compra y Visita→Compra caen.</p></div></div>
+        <div className="rounded-2xl p-3 bg-slate-50" style={{border:'2px solid #475569'}}><h4 className="text-xs font-black uppercase mb-2 text-slate-700">Cómo se dispara cada diagnóstico</h4><div className="space-y-2 text-[9px] text-slate-600"><p><strong>Fatiga:</strong> CPA ↑ + CTR ↓ + CPC ↑ + frecuencia ↑.</p><p><strong>Subasta cara:</strong> CPM ↑ mientras CTR/CVR permanecen estables.</p><p><strong>Fuga clic→landing:</strong> Clic→Landing cae con datos válidos; revisar carga, enlace y experiencia de la landing.</p><p><strong>Problema post-clic:</strong> CPA ↑ con CTR/CPC estables y conversión post-clic ↓.</p><p><strong>Fuga al cierre:</strong> intención inicial sana pero ATC→Compra y Visita→Compra caen.</p><p><strong>Datos faltantes:</strong> compras con Landing/ATC en 0 se marcan como tracking/importación incompleta y nunca como “Post-clic estable”.</p></div></div>
         <div className="rounded-2xl p-3 bg-violet-50" style={{border:'2px solid #7c3aed'}}><h4 className="text-xs font-black uppercase mb-2 text-violet-800">Matriz de diagnóstico por combinación de métricas</h4><div className="space-y-2 text-[9px] text-slate-600"><p>CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ → <strong>Fatiga / saturación</strong></p><p>CPM ↑ + CTR estable + CVR estable → <strong>Subasta más cara</strong></p><p>CTR estable + CPC estable + CVR ↓ → <strong>Landing/oferta/cierre</strong></p><p>V→ATC ↓ + V→Compra ↓ → <strong>Calidad de tráfico deteriorada</strong></p></div></div>
       </div>
 
@@ -5813,6 +6073,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
     const inheritedBudget = toNumber(previousBudgetRecord?.budget);
     setCampaignForm({
       budget: recordedBudget > 0 ? recordedBudget : (inheritedBudget > 0 ? inheritedBudget : ''), spend: cRec?.spend ?? '', purchases: cRec?.purchases ?? '',
+      impressions: cRec?.impressions ?? '', clicks: cRec?.clicks ?? '',
       ctr: cRec?.ctr ?? '', cpc: cRec?.cpc ?? '', cpm: cRec?.cpm ?? '', frequency: cRec?.frequency ?? '',
       landingViews: cRec?.landingViews ?? '', atc: cRec?.atc ?? '', roas: cRec?.roas ?? ''
     });
@@ -5856,6 +6117,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       budgetInheritedFromDate: budgetIsInherited ? (previousBudgetRecord?.date || null) : null,
       budgetPreviousValue: previousBudgetValue > 0 ? previousBudgetValue : null,
       spend: toNumber(campaignForm.spend), purchases: toNumber(campaignForm.purchases),
+      impressions: toNumber(campaignForm.impressions), clicks: toNumber(campaignForm.clicks),
       ctr: toNumber(campaignForm.ctr), cpc: toNumber(campaignForm.cpc), cpm: toNumber(campaignForm.cpm),
       frequency: toNumber(campaignForm.frequency), landingViews: toNumber(campaignForm.landingViews),
       atc: toNumber(campaignForm.atc), roas: toNumber(campaignForm.roas),
@@ -5969,7 +6231,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         budgetSource: inheritedImportBudget ? 'inherited_previous' : (existing?.budgetSource || 'manual'),
         budgetInheritedFromDate: inheritedImportBudget ? previousBudgetForImport?.date || null : null,
         budgetPreviousValue: previousBudgetForImport?.budget || null,
-        spend: agg.spend, purchases: agg.purchases, ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
+        spend: agg.spend, purchases: agg.purchases, impressions: agg.impressions, clicks: agg.clicks,
+        ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
         frequency: agg.frequency, landingViews: agg.landingViews, atc: agg.atc, roas: agg.roas,
         source: 'meta_csv_aggregate',
         registrationTimezone: 'America/Bogota',
@@ -6113,7 +6376,7 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
   const [date, setDate] = useState(todayColombiaCC());
   const [productId, setProductId] = useState('');
   const [campaignId, setCampaignId] = useState('');
-  const [campaignForm, setCampaignForm] = useState({ budget: '', spend: '', purchases: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '' });
+  const [campaignForm, setCampaignForm] = useState({ budget: '', spend: '', purchases: '', impressions: '', clicks: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '' });
   const [adForms, setAdForms] = useState({});
   const [savedMessage, setSavedMessage] = useState('');
   const [csvPreview, setCsvPreview] = useState(null);
@@ -6130,7 +6393,7 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
 
   useEffect(() => {
     if (!campaignId) {
-      setCampaignForm({ budget: '', spend: '', purchases: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '' });
+      setCampaignForm({ budget: '', spend: '', purchases: '', impressions: '', clicks: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '' });
       setAdForms({});
       return;
     }
@@ -6235,7 +6498,8 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
       await setDoc(doc(db, COLLECTIONS.dailyCampaigns, `${reportDate}_${campaignId}`), {
         ownerUid, date: reportDate, productId, campaignId,
         budget: toNumber(existing?.budget),
-        spend: agg.spend, purchases: agg.purchases, ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
+        spend: agg.spend, purchases: agg.purchases, impressions: agg.impressions, clicks: agg.clicks,
+        ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
         frequency: agg.frequency, landingViews: agg.landingViews, atc: agg.atc, roas: agg.roas,
         source: 'meta_csv_aggregate', updatedAt: serverTimestamp()
       }, { merge: true });
@@ -6300,7 +6564,9 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
 function MetricForm({ form, setForm, includeBudget = false, disabled = false }) {
   const fields = [
     ...(includeBudget ? [['budget', 'Presupuesto']] : []),
-    ['spend', 'Gasto'], ['purchases', 'Compras'], ['ctr', 'CTR %'], ['cpc', 'CPC'], ['cpm', 'CPM'], ['frequency', 'Frecuencia'], ['landingViews', 'Landing'], ['atc', 'ATC'], ['roas', 'ROAS']
+    ['spend', 'Gasto'], ['purchases', 'Compras'], ['impressions', 'Impresiones'], ['clicks', 'Clics enlace'],
+    ['ctr', 'CTR %'], ['cpc', 'CPC'], ['cpm', 'CPM'], ['frequency', 'Frecuencia'],
+    ['landingViews', 'Visitas landing'], ['atc', 'ATC'], ['roas', 'ROAS']
   ];
   const update = (key, value) => {
     if (disabled) return;
@@ -6344,11 +6610,20 @@ function CsvPreview({ rows, onApply }) {
       </div>
     )}
 
+    {rows.some(r => r.status !== 'ignored_inactive' && r.metrics.purchases > 0 && (!r.metrics.landingViewsDataAvailable || r.metrics.landingViews <= 0)) && (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
+        <p className="text-[9px] font-black uppercase text-rose-700">Advertencia · faltan datos post-clic en el CSV</p>
+        <p className="text-[8px] text-rose-600 mt-1">
+          Hay filas con compras pero sin Visitas landing. Se importarán las métricas disponibles, pero el embudo quedará marcado como incompleto y NO como estable.
+        </p>
+      </div>
+    )}
+
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] text-[10px]">
         <thead>
           <tr className="text-left text-[8px] uppercase text-slate-400">
-            <th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>Landing</th><th>ATC</th><th>ROAS</th>
+            <th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>Clics</th><th>Landing</th><th>C→Landing</th><th>ATC</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>ROAS</th>
           </tr>
         </thead>
         <tbody>
@@ -6383,12 +6658,18 @@ function CsvPreview({ rows, onApply }) {
             <td>{r.reportDate}</td>
             <td>{fmtMoney(r.metrics.spend)}</td>
             <td>{fmtNum(r.metrics.purchases, 2)}</td>
+            <td>{r.metrics.clicksDataAvailable ? fmtNum(r.metrics.clicks, 2) : '—'}</td>
+            <td className={r.metrics.purchases > 0 && (!r.metrics.landingViewsDataAvailable || r.metrics.landingViews <= 0) ? 'font-black text-rose-600' : ''}>
+              {r.metrics.landingViewsDataAvailable ? fmtNum(r.metrics.landingViews, 2) : '—'}
+            </td>
+            <td>{r.metrics.clicksDataAvailable && r.metrics.landingViewsDataAvailable ? fmtRate(safeRate(r.metrics.landingViews, r.metrics.clicks)) : '—'}</td>
+            <td className={r.metrics.purchases > 0 && (!r.metrics.atcDataAvailable || r.metrics.atc <= 0) ? 'font-black text-rose-600' : ''}>
+              {r.metrics.atcDataAvailable ? fmtNum(r.metrics.atc, 2) : '—'}
+            </td>
             <td>{fmtNum(r.metrics.ctr, 2)}%</td>
             <td>{fmtMoney(r.metrics.cpc)}</td>
             <td>{fmtMoney(r.metrics.cpm)}</td>
             <td>{fmtNum(r.metrics.frequency, 2)}</td>
-            <td>{fmtNum(r.metrics.landingViews, 2)}</td>
-            <td>{fmtNum(r.metrics.atc, 2)}</td>
             <td>{fmtNum(r.metrics.roas, 2)}</td>
           </tr>)}
         </tbody>
