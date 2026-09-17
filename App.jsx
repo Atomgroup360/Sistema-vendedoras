@@ -2952,6 +2952,12 @@ function periodLabelCC(periodId) {
   return String(periodId || '3d').toUpperCase();
 }
 
+function periodCardLabelCC(periodId, previous = false) {
+  if (periodId === 'last') return previous ? '3D PREV.' : '1D';
+  const label = String(periodId || '3d').toUpperCase();
+  return previous ? `${label} PREV.` : label;
+}
+
 function readingDiagForPeriodCC(diag, periodId = '3d') {
   const current = diag?.stats || {};
   const previous = diag?.previous || {};
@@ -6023,43 +6029,51 @@ function readingActionClassesCC(tone) {
   };
 }
 
-function QuickMetricCC({ label, value, previousValue = null, delta, metric, sub, periodLabel = '3D' }) {
+function QuickMetricCC({
+  label,
+  value,
+  previousValue = null,
+  delta,
+  metric,
+  sub,
+  periodLabel = '3D',
+  previousPeriodLabel = null
+}) {
   const hasPrevious = previousValue !== null && previousValue !== undefined && previousValue !== '—';
+  const prevLabel = previousPeriodLabel || periodLabel;
 
   return (
-    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 p-3 sm:p-4">
+    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 sm:px-3.5 sm:py-3.5">
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0">
-          <p className="text-[8px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">{label}</p>
-          <p className="text-[7px] font-black uppercase tracking-wide text-slate-300 mt-1 whitespace-nowrap">
+          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">{label}</p>
+          <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-300 mt-0.5 whitespace-nowrap">
             Actual · {periodLabel}
           </p>
         </div>
 
-        <span className="shrink-0 text-[8px] leading-none whitespace-nowrap">
+        <span className="shrink-0 text-[7px] leading-none whitespace-nowrap">
           <Delta metric={metric} value={delta}/>
         </span>
       </div>
 
-      <div className="mt-3 min-h-[34px] sm:min-h-[40px] flex items-center">
-        <p className="max-w-full text-lg sm:text-xl 2xl:text-2xl font-black leading-none tracking-tight tabular-nums text-zinc-900 whitespace-nowrap">
+      <div className="mt-2.5 min-h-[28px] flex items-center min-w-0 overflow-hidden">
+        <p className="max-w-full text-[17px] sm:text-[18px] 2xl:text-[19px] font-black leading-none tracking-[-0.02em] tabular-nums text-zinc-900 whitespace-nowrap">
           {value}
         </p>
       </div>
 
-      <div className="mt-3 pt-2.5 border-t border-slate-200/80">
-        <div className="flex flex-col gap-1">
-          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">
-            Anterior · {periodLabel}
-          </p>
-          <p className="text-[11px] sm:text-xs font-black tabular-nums text-slate-600 whitespace-nowrap">
-            {hasPrevious ? previousValue : 'Sin dato comparable'}
-          </p>
-        </div>
+      <div className="mt-2.5 pt-2 border-t border-slate-200/80 min-w-0">
+        <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">
+          Anterior · {prevLabel}
+        </p>
+        <p className="text-[10px] sm:text-[11px] font-black tabular-nums text-slate-600 mt-1 whitespace-nowrap overflow-hidden text-ellipsis">
+          {hasPrevious ? previousValue : 'Sin dato comparable'}
+        </p>
       </div>
 
       {sub ? (
-        <p className="text-[8px] text-slate-500 mt-2.5 leading-snug min-h-[20px]">
+        <p className="text-[7px] text-slate-500 mt-2 leading-snug min-h-[18px]">
           {sub}
         </p>
       ) : null}
@@ -6469,21 +6483,19 @@ function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
   }
 
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[7px] font-black uppercase text-slate-400 whitespace-nowrap">{label}</p>
-      </div>
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5">
+      <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">{label}</p>
 
-      <p className="text-sm sm:text-[15px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 whitespace-nowrap">
+      <p className="text-[12px] sm:text-[13px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 whitespace-nowrap overflow-hidden text-ellipsis">
         {value}
       </p>
 
-      <div className="mt-2 pt-2 border-t border-slate-100">
-        <p className={`text-[9px] font-black tabular-nums whitespace-nowrap ${tone}`}>
+      <div className="mt-2 pt-1.5 border-t border-slate-100">
+        <p className={`text-[8px] font-black tabular-nums whitespace-nowrap ${tone}`}>
           {hasDelta ? `${delta > 0 ? '+' : ''}${fmtNum(delta, 1)}%` : '—'}
         </p>
-        <p className="text-[7px] font-bold text-slate-400 mt-0.5 leading-tight">
-          {hasDelta ? 'vs promedio histórico' : 'Sin comparación'}
+        <p className="text-[6.5px] font-bold text-slate-400 mt-0.5 leading-tight">
+          {hasDelta ? 'vs histórico' : 'Sin comparación'}
         </p>
       </div>
     </div>
@@ -6573,18 +6585,18 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
                 <div className="grid grid-cols-2 gap-2 sm:min-w-[190px]">
                   <div className="rounded-xl bg-white/80 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Gasto histórico</p>
-                    <p className="text-[11px] font-black tabular-nums whitespace-nowrap mt-1">{fmtMoney(row.stats.spend)}</p>
+                    <p className="text-[10px] font-black tabular-nums whitespace-nowrap mt-1">{fmtMoney(row.stats.spend)}</p>
                   </div>
                   <div className="rounded-xl bg-white/80 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Compras</p>
-                    <p className="text-[11px] font-black tabular-nums whitespace-nowrap mt-1">{fmtNum(row.stats.purchases, 0)}</p>
+                    <p className="text-[10px] font-black tabular-nums whitespace-nowrap mt-1">{fmtNum(row.stats.purchases, 0)}</p>
                   </div>
                 </div>
               </div>
 
               <p className="text-[9px] sm:text-[10px] text-slate-700 mt-3 leading-relaxed">{row.summary}</p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-3 gap-2.5 mt-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
                 <WeekdayMetricMiniCC label="CPA" value={fmtCpa(row.stats.cpa)} delta={row.signals.cpa.delta} lowerIsBetter />
                 <WeekdayMetricMiniCC label="CVR" value={fmtRate(row.stats.visitToPurchase)} delta={row.signals.cvr.delta} />
                 <WeekdayMetricMiniCC label="CPC" value={fmtMoneyOrDashCC(row.stats.cpc)} delta={row.signals.cpc.delta} lowerIsBetter />
@@ -6609,6 +6621,8 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
 function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d' }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const periodLabel = periodLabelCC(analysisPeriod);
+  const periodCardLabel = periodCardLabelCC(analysisPeriod, false);
+  const previousPeriodCardLabel = periodCardLabelCC(analysisPeriod, true);
   const { currentStats: campaign3d, previousStats: campaignPrev3d } = splitPeriodRecords(campaignHistory, analysisPeriod);
   const campaignDelta = {
     cpa: pctChange(campaign3d.cpa, campaignPrev3d.cpa),
@@ -6718,12 +6732,12 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           </div>
 
           {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
-          <div className="grid grid-cols-1 min-[460px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-3 mt-5">
-            <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodLabel}/>
-            <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodLabel}/>
-            <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodLabel}/>
-            <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic" periodLabel={periodLabel}/>
-            <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra" periodLabel={periodLabel}/>
+          <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-5 gap-2.5 sm:gap-3 mt-5">
+            <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+            <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+            <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+            <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+            <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
           </div>
 
           {/* Lectura ejecutiva */}
@@ -6857,12 +6871,12 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               </div>
 
               {/* Métricas principales */}
-              <div className="grid grid-cols-1 min-[460px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-3 mt-5">
-                <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodLabel}/>
-                <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpc)} · ${periodLabel}` : periodLabel} periodLabel={periodLabel}/>
-                <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `Bench. ${fmtRate(benchmark.ctr)} · ${periodLabel}` : periodLabel} periodLabel={periodLabel}/>
-                <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpm)} · ${periodLabel}` : periodLabel} periodLabel={periodLabel}/>
-                <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={`Visita → compra · ${periodLabel}`} periodLabel={periodLabel}/>
+              <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-5 gap-2.5 sm:gap-3 mt-5">
+                <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+                <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpc)} · ${periodLabel}` : periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+                <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `Bench. ${fmtRate(benchmark.ctr)} · ${periodLabel}` : periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+                <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpm)} · ${periodLabel}` : periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+                <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={`Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
               </div>
 
               {/* Diagnóstico relacional */}
