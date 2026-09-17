@@ -1115,25 +1115,25 @@ function VistaDashboard({ configs, months }) {
         </div>
 
         {/* EMBUDO */}
-        <div className="space-y-2"><SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />{openSections.embudo && (<Card><div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4"><div><Label>Pedidos Registrados</Label><p className="text-xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[8px]">{fmtN(stats.grossUnits)} unidades</p></div><div><Label>Guías Despachadas</Label><p className="text-xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div><div><Label>Devoluciones Est.</Label><p className="text-xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div><div><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px]">IER {fmtDec(stats.ierGlobal, 2)}%</p></div></div><div className="p-3 bg-slate-50 rounded-xl"><p className="text-[8px] font-black uppercase mb-2">📦 Unidades físicas</p><div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs"><div><span className="text-[8px] text-slate-500">Registradas:</span> <span className="font-black ml-1">{fmtN(stats.unitsRegistradas)}</span></div><div><span className="text-[8px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div><div><span className="text-[8px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div><div><span className="text-[8px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div><div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados, 1)}%</span></div></div></div></Card>)}</div>
+        <div className="space-y-2"><SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />{openSections.embudo && (<Card><div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4"><div><Label>Pedidos Registrados</Label><p className="text-xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[8px]">{fmtN(stats.grossUnits)} unidades</p></div><div><Label>Guías Despachadas</Label><p className="text-xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div><div><Label>Devoluciones Est.</Label><p className="text-xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div><div><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px]">IER {fmtDec(stats.ierGlobal, 2)}%</p></div></div><div className="p-3 bg-slate-50 rounded-xl"><p className="text-[8px] font-black uppercase mb-2">📦 Unidades físicas</p><div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 text-xs"><div><span className="text-[8px] text-slate-500">Registradas:</span> <span className="font-black ml-1">{fmtN(stats.unitsRegistradas)}</span></div><div><span className="text-[8px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div><div><span className="text-[8px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div><div><span className="text-[8px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div><div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados, 1)}%</span></div></div></div></Card>)}</div>
 
         {/* COSTOS */}
         <div className="space-y-2"><SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />{openSections.costos && (<Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-2 md:gap-4 px-4 py-3 border-b border-slate-50 last:border-0"><div className="w-6 h-6 md:w-8 md:h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={12} /></div><div className="flex-1"><p className="text-[11px] md:text-xs font-black">{item.label}</p><p className="text-[7px] md:text-[9px] text-slate-400">{item.note}</p></div><p className="font-black font-mono text-xs md:text-sm">{fmt(item.value)}</p></div>))}<div className="flex items-center gap-2 md:gap-4 px-4 py-3 bg-slate-900 text-white"><div className="flex-1"><p className="text-[11px] md:text-xs font-black uppercase">Total Costos</p></div><p className="font-black font-mono text-sm md:text-lg text-rose-400">{fmt(totalCostos)}</p></div></Card>)}</div>
 
         {/* RANKING */}
-        <div className="space-y-2"><SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />{openSections.ranking && (<div className="overflow-x-auto"><table className="w-full text-left border-collapse text-xs md:text-sm"><thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500"><tr><th className="p-2 rounded-l-xl">#</th><th className="p-2">Vendedora</th><th className="p-2 text-right">Pedidos</th><th className="p-2 text-right">Recaudo Neto</th><th className="p-2 text-right">Utilidad</th><th className="p-2 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.rankingVendedoras?.map((v,idx) => (<tr key={v.vendedora} className="hover:bg-slate-50"><td className="p-2 font-black text-emerald-600">{idx+1}</td><td className="p-2 font-bold uppercase">{v.vendedora}</td><td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td><td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td><td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td><td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio,2)}%</td></tr>))}</tbody></table></div>)}</div>
+        <div className="space-y-2"><SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />{openSections.ranking && (<div className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-xs md:text-sm"><thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500"><tr><th className="p-2 rounded-l-xl">#</th><th className="p-2">Vendedora</th><th className="p-2 text-right">Pedidos</th><th className="p-2 text-right">Recaudo Neto</th><th className="p-2 text-right">Utilidad</th><th className="p-2 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.rankingVendedoras?.map((v,idx) => (<tr key={v.vendedora} className="hover:bg-slate-50"><td className="p-2 font-black text-emerald-600">{idx+1}</td><td className="p-2 font-bold uppercase">{v.vendedora}</td><td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td><td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td><td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td><td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio,2)}%</td></tr>))}</tbody></table></div>)}</div>
 
         {/* PROYECCIÓN */}
         <div className="space-y-2"><SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />{openSections.proyeccion && (<div className="flex flex-col md:grid md:grid-cols-2 gap-4"><Card dark className="space-y-3"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs"><div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div><div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div><div><p className="text-[8px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[8px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div></div></Card><div className={`rounded-2xl p-4 text-white shadow-xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><div><p className="text-[8px] font-black opacity-60">Proyección 30 Días</p><p className="text-[8px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-2xl md:text-4xl font-black">{fmt(proyeccion30)}</p><div className="bg-white/20 px-3 py-2 rounded-xl mt-2"><p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div><div className="flex justify-between text-[8px] font-black opacity-60 mt-3"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal, 2)}%</span></div></div>{targetProfit > 0 && (<Card className="col-span-2"><div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div></Card>)}</div>)}</div>
 
         {/* PRODUCTOS EN REVISIÓN */}
-        <div className="space-y-2"><button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500"><div className="flex items-center gap-1.5 md:gap-2"><AlertTriangle size={14} className="text-red-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-red-700">🚨 PRODUCTOS EN REVISIÓN ({productosEnRevision.length})</span></div>{openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.productosRevision && (<Card className="overflow-hidden p-0">{productosEnRevision.length === 0 ? <div className="p-6 text-center text-green-600 flex items-center justify-center gap-2"><CheckCircle2 size={20} /><span className="font-black text-sm">✅ No hay productos en revisión en este período</span></div> : (<div className="overflow-x-auto"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Meta Mensual</th><th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3">⚠️ Alertas</th></tr></thead><tbody className="divide-y divide-slate-100">{productosEnRevision.map(p => { const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0; const alertas = []; if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida'); if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`); if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`); if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto'); if (p.pedidos === 0) alertas.push('⚠️ sin pedidos'); if (!p.isActive) alertas.push('🔴 PRODUCTO DESACTIVADO'); return (<tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : ''}`}><td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-gray-500' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td><td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td><td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td><td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a,i) => <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : 'bg-red-100 text-red-600'}`}>{a}</span>)}</div></td></tr>); })}</tbody></table>{productosEnRevision.some(p => !p.isActive) && (<div className="p-3 bg-gray-100 text-[8px] font-black text-gray-600 flex items-center gap-2 border-t"><Info size={12} /><span>📌 Los productos tachados están DESACTIVADOS. Su historial se muestra solo para referencia, pero ya no requieren acción.</span></div>)}</div>)}</Card>)}</div>
+        <div className="space-y-2"><button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500"><div className="flex items-center gap-1.5 md:gap-2"><AlertTriangle size={14} className="text-red-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-red-700">🚨 PRODUCTOS EN REVISIÓN ({productosEnRevision.length})</span></div>{openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.productosRevision && (<Card className="overflow-hidden p-0">{productosEnRevision.length === 0 ? <div className="p-6 text-center text-green-600 flex items-center justify-center gap-2"><CheckCircle2 size={20} /><span className="font-black text-sm">✅ No hay productos en revisión en este período</span></div> : (<div className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Meta Mensual</th><th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3">⚠️ Alertas</th></tr></thead><tbody className="divide-y divide-slate-100">{productosEnRevision.map(p => { const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0; const alertas = []; if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida'); if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`); if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`); if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto'); if (p.pedidos === 0) alertas.push('⚠️ sin pedidos'); if (!p.isActive) alertas.push('🔴 PRODUCTO DESACTIVADO'); return (<tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : ''}`}><td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-gray-500' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td><td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td><td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td><td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a,i) => <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : 'bg-red-100 text-red-600'}`}>{a}</span>)}</div></td></tr>); })}</tbody></table>{productosEnRevision.some(p => !p.isActive) && (<div className="p-3 bg-gray-100 text-[8px] font-black text-gray-600 flex items-center gap-2 border-t"><Info size={12} /><span>📌 Los productos tachados están DESACTIVADOS. Su historial se muestra solo para referencia, pero ya no requieren acción.</span></div>)}</div>)}</Card>)}</div>
 
         {/* ANÁLISIS TEMPORAL POR PRODUCTO */}
-        <div className="space-y-2"><SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />{openSections.analisisProductos && (<div className="overflow-x-auto"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500"><tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Fecha creación</th><th className="p-2">Fecha desactivación</th><th className="p-2">Días activos</th><th className="p-2">Estado</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.detalleProductos.map(p => { const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000*60*60*24)) + 1; const isActive = p.activo !== false; return (<tr key={p.configId} className="hover:bg-slate-50"><td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaCreacion ? parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td><td className="p-2">{!isActive ? <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><PowerOff size={10} /> INACTIVO</span> : <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Power size={10} /> ACTIVO</span>}</td></tr>); })}</tbody></table></div>)}</div>
+        <div className="space-y-2"><SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />{openSections.analisisProductos && (<div className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500"><tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Fecha creación</th><th className="p-2">Fecha desactivación</th><th className="p-2">Días activos</th><th className="p-2">Estado</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.detalleProductos.map(p => { const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000*60*60*24)) + 1; const isActive = p.activo !== false; return (<tr key={p.configId} className="hover:bg-slate-50"><td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaCreacion ? parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td><td className="p-2">{!isActive ? <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><PowerOff size={10} /> INACTIVO</span> : <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Power size={10} /> ACTIVO</span>}</td></tr>); })}</tbody></table></div>)}</div>
 
         {/* COMPARATIVA ENTRE VENDEDORAS */}
-        <div className="space-y-2"><button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"><div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>{openSections.comparativaVendedoras ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.comparativaVendedoras && (<Card className="overflow-x-auto"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-indigo-50 text-[7px] md:text-[8px] font-black uppercase text-indigo-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3 text-right">Inversión Ads</th><th className="p-2 md:p-3 text-right">CPA Promedio</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Facturación Real</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{selectedVendors.length === 0 ? (<tr><td colSpan="8" className="p-4 text-center text-slate-400">Selecciona al menos una vendedora en los filtros para ver la comparativa.</td></tr>) : selectedVendors.map(vendor => { const vendorRecords = filteredRecords.filter(r => { const c = configs.find(x => x.id === r.configId); return c && c.vendedora === vendor; }); const vendorStats = calcularStats(vendorRecords, configs); const activeDaysV = new Set(vendorRecords.filter(r => !r.restDay).map(r => r.date)).size; const proy30 = activeDaysV > 0 ? (vendorStats.net / activeDaysV) * 30 : 0; return (<tr key={vendor} className="hover:bg-indigo-50/50"><td className="p-2 md:p-3 font-black uppercase text-indigo-700">{vendor}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.totalAds)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.cpaReal)}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${vendorStats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(vendorStats.net)}</td><td className="p-2 md:p-3 text-right font-mono font-black">{fmt(proy30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.realRev)}</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.ierGlobal, 1)}%</td></tr>); })}</tbody></table>{selectedVendors.length > 0 && (<div className="p-3 bg-indigo-50 text-[8px] font-black text-indigo-600 flex justify-between"><span>Período: {filter.startDate} al {filter.endDate}</span><span>Registros analizados: {filteredRecords.length}</span></div>)}</Card>)}</div>
+        <div className="space-y-2"><button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"><div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>{openSections.comparativaVendedoras ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.comparativaVendedoras && (<Card className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-indigo-50 text-[7px] md:text-[8px] font-black uppercase text-indigo-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3 text-right">Inversión Ads</th><th className="p-2 md:p-3 text-right">CPA Promedio</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Facturación Real</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{selectedVendors.length === 0 ? (<tr><td colSpan="8" className="p-4 text-center text-slate-400">Selecciona al menos una vendedora en los filtros para ver la comparativa.</td></tr>) : selectedVendors.map(vendor => { const vendorRecords = filteredRecords.filter(r => { const c = configs.find(x => x.id === r.configId); return c && c.vendedora === vendor; }); const vendorStats = calcularStats(vendorRecords, configs); const activeDaysV = new Set(vendorRecords.filter(r => !r.restDay).map(r => r.date)).size; const proy30 = activeDaysV > 0 ? (vendorStats.net / activeDaysV) * 30 : 0; return (<tr key={vendor} className="hover:bg-indigo-50/50"><td className="p-2 md:p-3 font-black uppercase text-indigo-700">{vendor}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.totalAds)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.cpaReal)}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${vendorStats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(vendorStats.net)}</td><td className="p-2 md:p-3 text-right font-mono font-black">{fmt(proy30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.realRev)}</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.ierGlobal, 1)}%</td></tr>); })}</tbody></table>{selectedVendors.length > 0 && (<div className="p-3 bg-indigo-50 text-[8px] font-black text-indigo-600 flex justify-between"><span>Período: {filter.startDate} al {filter.endDate}</span><span>Registros analizados: {filteredRecords.length}</span></div>)}</Card>)}</div>
       </>)}
     </div>
   );
@@ -3200,19 +3200,47 @@ function buildCampaignContribution3D(campaign, product, allAds = [], dailyAds = 
 }
 
 function StateBadge({ active, archived = false }) {
-  if (archived) return <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-500 text-[9px] font-black uppercase">Archivada</span>;
+  const cls = 'inline-flex max-w-full px-2 py-1 rounded-full text-[8px] sm:text-[9px] leading-tight font-black uppercase text-center';
+  if (archived) return <span className={`${cls} bg-slate-200 text-slate-500`}>Archivada</span>;
   return active
-    ? <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">Activa</span>
-    : <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-600 text-[9px] font-black uppercase">Apagada</span>;
+    ? <span className={`${cls} bg-emerald-100 text-emerald-700`}>Activa</span>
+    : <span className={`${cls} bg-rose-100 text-rose-600`}>Apagada</span>;
 }
 
 function MiniCard({ label, value, sub, tone = 'default' }) {
-  const toneClass = tone === 'good' ? 'bg-emerald-50 border-emerald-100' : tone === 'bad' ? 'bg-rose-50 border-rose-100' : 'bg-white border-slate-100';
+  const toneClass =
+    tone === 'good'
+      ? 'bg-emerald-50 border-emerald-100'
+      : tone === 'bad'
+        ? 'bg-rose-50 border-rose-100'
+        : 'bg-white border-slate-100';
+
   return (
-    <div className={`rounded-2xl border p-3 ${toneClass}`}>
-      <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">{label}</p>
-      <p className="text-lg font-black text-zinc-900 mt-1">{value}</p>
-      {sub && <p className="text-[8px] font-semibold text-slate-400 mt-1">{sub}</p>}
+    <div className={`min-w-0 overflow-hidden rounded-2xl border px-2.5 py-3 sm:px-3 ${toneClass}`}>
+      <p
+        className="min-w-0 text-[7px] sm:text-[8px] font-black uppercase tracking-wide leading-tight text-slate-400"
+        style={{ overflowWrap: 'anywhere' }}
+      >
+        {label}
+      </p>
+
+      <div className="min-w-0 mt-1.5 overflow-hidden">
+        <div
+          className="max-w-full font-black leading-none tracking-[-0.01em] tabular-nums text-zinc-900 whitespace-nowrap overflow-hidden text-ellipsis"
+          style={{ fontSize: 'clamp(12px, 0.95vw, 16px)' }}
+        >
+          {value}
+        </div>
+      </div>
+
+      {sub ? (
+        <p
+          className="min-w-0 text-[7px] font-semibold leading-snug text-slate-400 mt-1.5"
+          style={{ overflowWrap: 'anywhere' }}
+        >
+          {sub}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -4322,7 +4350,7 @@ function CampaignReportCenter({
       </SectionCard>
 
       {reportSummary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6 gap-2.5">
           <MiniCard label="Productos" value={reportSummary.products} />
           <MiniCard label="Campañas" value={reportSummary.campaigns} />
           <MiniCard label="Escalables" value={reportSummary.scalable} tone="good" />
@@ -4459,7 +4487,7 @@ function CampaignControlModule() {
         </div>
         <div className="max-w-full overflow-x-auto pb-1 xl:pb-0">
           <div className="flex w-max min-w-full xl:min-w-0 bg-zinc-950 p-1 rounded-2xl">
-            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-3 md:px-4 py-2.5 rounded-xl text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}</button>)}
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-2.5 sm:px-3 md:px-4 py-2.5 rounded-xl text-[8px] sm:text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}</button>)}
           </div>
         </div>
       </div>
@@ -4809,7 +4837,7 @@ function CampaignDashboard({
       </SectionCard>
 
       {/* KPIs VALIDADO */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6 gap-2.5 sm:gap-3">
         <MiniCard label="Productos activos" value={activeProducts.length} />
         <MiniCard label="Escalables" value={scalableCount} tone={scalableCount?'good':'default'} />
         <MiniCard label="Mantener" value={maintainCount} />
@@ -4824,7 +4852,7 @@ function CampaignDashboard({
             <p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p>
             <p className="text-[8px] text-slate-500 mt-1">Solo informativo. Estos datos NO participan en diagnósticos, alertas, fatiga, guardrails ni decisiones de escala.</p>
           </div>
-          <div className="grid grid-cols-4 gap-2 min-w-full lg:min-w-[440px]">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-full lg:min-w-[440px]">
             <MiniCard label="Gasto hoy" value={fmtMoney(provisionalToday.spend)} />
             <MiniCard label="Compras hoy" value={fmtNum(provisionalToday.purchases, 2)} />
             <MiniCard label="CPA provisional" value={provisionalToday.purchases > 0 ? fmtMoney(provisionalToday.cpa) : '—'} />
@@ -4848,7 +4876,7 @@ function CampaignDashboard({
 
       {/* TABLA PRINCIPAL DE CAMPAÑAS - CLIC ABRE DRAWER */}
       <SectionCard className="p-0 overflow-hidden" accent="#6366f1" soft="#eef2ff">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overscroll-x-contain">
           <table className="w-full min-w-[1350px] text-[10px]">
             <thead className="bg-slate-50">
               <tr className="text-left uppercase text-[8px] text-slate-400">
@@ -4903,7 +4931,7 @@ function CampaignDashboard({
       {drawerCampaign && (
         <>
           <div className="fixed inset-0 bg-black/35 z-[80]" onClick={()=>setDrawerCampaignId('')}></div>
-          <aside className="fixed right-0 top-0 w-[730px] max-w-[96vw] h-screen bg-white shadow-2xl z-[90] overflow-y-auto p-4 md:p-6">
+          <aside className="fixed right-0 top-0 w-full sm:w-[730px] sm:max-w-[96vw] h-screen bg-white shadow-2xl z-[90] overflow-y-auto p-3 sm:p-4 md:p-6">
             <button onClick={()=>setDrawerCampaignId('')} className="absolute right-4 top-4 w-9 h-9 rounded-xl bg-slate-100 font-black">✕</button>
 
             <div className="pr-12">
@@ -5005,7 +5033,15 @@ function toneBadge(tone) {
 }
 
 function GuardrailPill({ ok, label }) {
-  return <span className={`inline-flex px-2 py-1 rounded-full text-[8px] font-black uppercase ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>{ok ? '✓' : '✕'} {label}</span>;
+  return (
+    <span
+      className={`inline-flex max-w-full items-center px-2 py-1 rounded-full text-[7px] sm:text-[8px] leading-tight font-black uppercase text-center ${
+        ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'
+      }`}
+    >
+      {ok ? '✓' : '✕'} {label}
+    </span>
+  );
 }
 
 function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allAds = [], allCampaigns = []) {
@@ -6131,8 +6167,8 @@ function CampaignChangeSafetyCardCC({ safety, currentBudget = null }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:w-[430px] gap-2">
           <div className={`rounded-xl border p-3 ${safety.canScaleNow ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-            <p className="text-[7px] font-black uppercase text-slate-500">Escalamiento de presupuesto</p>
-            <p className={`text-[10px] font-black mt-1 ${safety.canScaleNow ? 'text-emerald-700' : 'text-amber-700'}`}>
+            <p className="text-[7px] font-black uppercase leading-tight text-slate-500" style={{ overflowWrap: 'anywhere' }}>Escalamiento de presupuesto</p>
+            <p className={`text-[9px] sm:text-[10px] font-black leading-tight mt-1 ${safety.canScaleNow ? 'text-emerald-700' : 'text-amber-700'}`}>
               {safety.canScaleNow ? 'DISPONIBLE' : `ESPERAR ${fmtHoursRemainingCC(safety.scaleRemainingHours)}`}
             </p>
             <p className="text-[7px] text-slate-500 mt-1.5">
@@ -6142,8 +6178,8 @@ function CampaignChangeSafetyCardCC({ safety, currentBudget = null }) {
           </div>
 
           <div className={`rounded-xl border p-3 ${safety.canStructuralNow ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-            <p className="text-[7px] font-black uppercase text-slate-500">Apagar/encender anuncios y otros cambios</p>
-            <p className={`text-[10px] font-black mt-1 ${safety.canStructuralNow ? 'text-emerald-700' : 'text-rose-700'}`}>
+            <p className="text-[7px] font-black uppercase leading-tight text-slate-500" style={{ overflowWrap: 'anywhere' }}>Apagar/encender anuncios y otros cambios</p>
+            <p className={`text-[9px] sm:text-[10px] font-black leading-tight mt-1 ${safety.canStructuralNow ? 'text-emerald-700' : 'text-rose-700'}`}>
               {safety.canStructuralNow ? 'MARGEN SEGURO' : `ESPERAR ${fmtHoursRemainingCC(safety.structuralRemainingHours)}`}
             </p>
             <p className="text-[7px] text-slate-500 mt-1.5">Regla interna: 48 h entre cambios estructurales.</p>
@@ -6761,7 +6797,10 @@ function QuickMetricCC({
 
       {healthStatus ? (
         <div className="mt-2 min-w-0">
-          <span className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[6px] font-black uppercase leading-tight ${toneBadge(healthStatus.combinedTone || healthStatus.tone || 'neutral')}`}>
+          <span
+            className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[6px] font-black uppercase leading-tight text-center ${toneBadge(healthStatus.combinedTone || healthStatus.tone || 'neutral')}`}
+            style={{ overflowWrap: 'anywhere' }}
+          >
             {healthStatus.combinedLabel || healthStatus.level}
           </span>
         </div>
@@ -7190,7 +7229,7 @@ function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
 
   return (
     <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5">
-      <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">{label}</p>
+      <p className="text-[6.5px] font-black uppercase tracking-wide leading-tight text-slate-400" style={{ overflowWrap: 'anywhere' }}>{label}</p>
 
       <p className="text-[12px] sm:text-[13px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 whitespace-nowrap overflow-hidden text-ellipsis">
         {value}
@@ -7709,7 +7748,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     <p className="text-[8px] font-black uppercase text-slate-500">Contribución {periodLabel} · lo que aporta / drena</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(contributionTone)}`}>{analysisContribution?.status || 'Sin lectura'}</p>
                     <p className="text-[9px] text-slate-600 mt-2">{analysisContribution?.cause || 'Sin diagnóstico de contribución.'}</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
+                    <div className="grid grid-cols-2 min-[1500px]:grid-cols-3 gap-2.5 mt-3">
                       <MiniCard label="Gasto campaña" value={fmtRate(analysisContribution?.spendShare)} />
                       <MiniCard label="Compras campaña" value={fmtRate(analysisContribution?.purchaseShare)} />
                       <MiniCard label="CPA anuncio" value={fmtCpa(analysisContribution?.cpa)} />
@@ -8050,7 +8089,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#2563eb' }}>
         <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#bfdbfe' }}><h4 className="text-xs font-black uppercase text-blue-800">Variaciones dinámicas por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
           key={ad.id}
           className="border-b-4 border-white"
           style={{ backgroundColor: ccVisualAccent(ad.id || ad.name).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name).border}` }}
@@ -8084,7 +8123,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         </div>
 
         {adRows.filter(({diag}) => diag.hookHold?.isVideo).length ? (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overscroll-x-contain">
             <table className="w-full min-w-[1500px] text-left text-[10px] border-separate border-spacing-y-1">
               <thead><tr className="text-[8px] font-black uppercase text-slate-400">
                 <th className="py-2">Video</th><th>Hook</th><th>Nivel Hook</th><th>Δ Hook</th><th>Hold</th><th>Nivel Hold</th><th>Δ Hold</th><th>Muestra</th><th>Diagnóstico creativo</th><th>Variación recomendada</th>
@@ -8119,7 +8158,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             Si hay compras pero Visitas/ATC están en 0, el sistema lo marca como dato faltante: ya no presenta ese 0 como un embudo real ni como “estable”.
           </p>
         </div>
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1680px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
+        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1680px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
           const q = diag.postDataQuality || postClickDataQualityCC(diag.stats);
           const landingMissing = q.level === 'missing' && diag.stats.purchases > 0 && toNumber(diag.stats.landingViews) <= 0;
           const atcMissing = (q.level === 'missing' || q.label?.includes('ATC FALTANTE')) && diag.stats.purchases > 0 && toNumber(diag.stats.atc) <= 0;
@@ -8149,7 +8188,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         </div>
 
         {adRows.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-5 gap-2 mb-3">
             {[
               ['Aporta fuerte', adRows.filter(x => x.contribution?.status === 'Aporta fuertemente').length, 'bg-emerald-50 text-emerald-700 border-emerald-200'],
               ['Aporta', adRows.filter(x => x.contribution?.status === 'Aporta').length, 'bg-blue-50 text-blue-700 border-blue-200'],
@@ -8157,14 +8196,14 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
               ['Drena campaña', adRows.filter(x => x.contribution?.status === 'Drena la campaña').length, 'bg-rose-50 text-rose-700 border-rose-200'],
               ['Sin entrega Meta', adRows.filter(x => x.diag.metaDelivery3d?.isNoDelivery).length, 'bg-cyan-50 text-cyan-700 border-cyan-200']
             ].map(([label, value, cls]) => (
-              <div key={label} className={`rounded-xl border p-2.5 ${cls}`}>
-                <p className="text-[8px] font-black uppercase">{label}</p>
-                <p className="text-lg font-black mt-1">{value}</p>
+              <div key={label} className={`min-w-0 rounded-xl border p-2.5 ${cls}`}>
+                <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight" style={{ overflowWrap: 'anywhere' }}>{label}</p>
+                <p className="text-sm sm:text-base font-black tabular-nums mt-1 whitespace-nowrap">{value}</p>
               </div>
             ))}
           </div>
         )}
-        {adRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1950px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
+        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1950px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
           const contributionClass =
             contribution?.tone === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
             contribution?.tone === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -8205,7 +8244,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                   <span className={`inline-block px-2 py-1 rounded-full border text-[8px] font-black uppercase ${contributionClass}`}>
                     {contribution.status}
                   </span>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[8px]">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 mt-2 text-[7px] sm:text-[8px]">
                     <span className="text-slate-500">Gasto campaña</span>
                     <span className="font-black">{fmtNum(contribution.spendShare, 2)}%</span>
                     <span className="text-slate-500">Compras campaña</span>
@@ -8252,12 +8291,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50/40 shadow-sm" style={{border:'2px solid #0891b2'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-cyan-800">Historial de cambios de presupuesto</h4>
-        {budgetRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
+        {budgetRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'2px solid #059669'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+        {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'2px solid #6366f1'}}>
@@ -8284,44 +8323,44 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
         <div className="rounded-2xl bg-white p-3 md:p-4" style={{border:'1px solid #fbcfe8'}}>
           <p className="text-[9px] font-black uppercase text-pink-700 mb-3">Calidad de la muestra</p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3">
             <div className="rounded-xl bg-slate-50 p-3 min-h-[82px] flex flex-col justify-between">
-              <p className="text-[9px] font-bold text-slate-500 leading-tight">Días activos en ventana</p>
-              <p className="text-lg font-black text-slate-900">{benchmark.availableDays}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 leading-tight">Días activos en ventana</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 whitespace-nowrap">{benchmark.availableDays}</p>
             </div>
             <div className="rounded-xl bg-amber-50 p-3 min-h-[82px] flex flex-col justify-between" style={{border:'1px solid #fde68a'}}>
-              <p className="text-[9px] font-bold text-amber-700 leading-tight">Días rentables</p>
-              <p className="text-lg font-black text-amber-800">{benchmark.profitableDays}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-amber-700 leading-tight">Días rentables</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-amber-800 whitespace-nowrap">{benchmark.profitableDays}</p>
             </div>
             <div className="rounded-xl bg-blue-50 p-3 min-h-[82px] flex flex-col justify-between" style={{border:'1px solid #bfdbfe'}}>
-              <p className="text-[9px] font-bold text-blue-700 leading-tight">Días con rendimiento estable</p>
-              <p className="text-lg font-black text-blue-800">{benchmark.stableDays}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-blue-700 leading-tight">Días con rendimiento estable</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-blue-800 whitespace-nowrap">{benchmark.stableDays}</p>
             </div>
             <div className="rounded-xl bg-emerald-50 p-3 min-h-[82px] flex flex-col justify-between" style={{border:'1px solid #a7f3d0'}}>
-              <p className="text-[9px] font-bold text-emerald-700 leading-tight">Muestra usada</p>
-              <p className="text-lg font-black text-emerald-800">{benchmark.sampleDays}</p>
+              <p className="text-[8px] sm:text-[9px] font-bold text-emerald-700 leading-tight">Muestra usada</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-emerald-800 whitespace-nowrap">{benchmark.sampleDays}</p>
             </div>
           </div>
         </div>
 
         <div className="rounded-2xl bg-white p-3 md:p-4 mt-3" style={{border:'1px solid #fbcfe8'}}>
           <p className="text-[9px] font-black uppercase text-pink-700 mb-3">Rendimiento benchmark</p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3">
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CPA ponderado</p>
-              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtCpa(benchmark.cpa) : '—'}</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 whitespace-nowrap overflow-hidden text-ellipsis">{benchmark.sampleDays ? fmtCpa(benchmark.cpa) : '—'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CTR</p>
-              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? `${fmtNum(benchmark.ctr,2)}%` : '—'}</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 whitespace-nowrap">{benchmark.sampleDays ? `${fmtNum(benchmark.ctr,2)}%` : '—'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CPC</p>
-              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 whitespace-nowrap overflow-hidden text-ellipsis">{benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">Visita → Compra</p>
-              <p className="text-base md:text-lg font-black text-slate-900 mt-2">{benchmark.sampleDays ? fmtRate(benchmark.visitToPurchase) : '—'}</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 whitespace-nowrap">{benchmark.sampleDays ? fmtRate(benchmark.visitToPurchase) : '—'}</p>
             </div>
           </div>
         </div>
@@ -10005,7 +10044,25 @@ function MetricForm({ form, setForm, includeBudget = false, disabled = false }) 
     if (disabled) return;
     setForm(prev => ({ ...(prev || {}), [key]: value }));
   };
-  return <div className="grid grid-cols-2 md:grid-cols-5 gap-2">{fields.map(([key, label]) => <div key={key}><p className="text-[8px] font-black uppercase text-slate-400 mb-1">{label}</p><input disabled={disabled} type="number" step="any" value={form?.[key] ?? ''} onChange={e => update(key, e.target.value)} className="w-full bg-slate-50 border border-transparent focus:border-emerald-300 rounded-xl px-2.5 py-2 text-xs font-bold outline-none disabled:opacity-60 disabled:bg-slate-100" /></div>)}</div>;
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
+      {fields.map(([key, label]) => (
+        <div key={key} className="min-w-0">
+          <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight text-slate-400 mb-1" style={{ overflowWrap: 'anywhere' }}>
+            {label}
+          </p>
+          <input
+            disabled={disabled}
+            type="number"
+            step="any"
+            value={form?.[key] ?? ''}
+            onChange={e => update(key, e.target.value)}
+            className="w-full min-w-0 bg-slate-50 border border-transparent focus:border-emerald-300 rounded-xl px-2.5 py-2 text-[11px] sm:text-xs font-bold outline-none disabled:opacity-60 disabled:bg-slate-100"
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CsvPreview({ rows, onApply }) {
@@ -10016,7 +10073,7 @@ function CsvPreview({ rows, onApply }) {
   const conflicts = rows.filter(r => r.status === 'conflict').length;
 
   return <div className="space-y-3 rounded-2xl p-3 bg-amber-50/50" style={{border:'2px solid #d97706'}}>
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
       <MiniCard label="Existentes Meta" value={existing} tone="good" />
       <MiniCard label="Nuevos" value={news} />
       <MiniCard label="Activos sin entrega → 0" value={zeroFilled} tone={zeroFilled ? 'default' : 'good'} />
@@ -10052,7 +10109,7 @@ function CsvPreview({ rows, onApply }) {
       </div>
     )}
 
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto overscroll-x-contain">
       <table className="w-full min-w-[900px] text-[10px]">
         <thead>
           <tr className="text-left text-[8px] uppercase text-slate-400">
