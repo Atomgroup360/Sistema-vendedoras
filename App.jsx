@@ -3934,6 +3934,32 @@ function buildDetailedCampaignReportCC({
         });
       }
 
+      const reportScaleStatus = buildCurrentScaleStatusCC(
+        campaignHistory,
+        scaleRows,
+        maxCpa,
+        budgetRows,
+        buildCampaignChangeSafetyCC(campaign, budgetRows, decisionRows, Date.now())
+      );
+
+      lines.push('');
+      lines.push('DIAGNÓSTICO CAUSAL DE ESCALA');
+      lines.push('-'.repeat(78));
+      if (reportScaleStatus?.scaleDiagnosis) {
+        lines.push(`Estado: ${reportScaleStatus.scaleDiagnosis.status}`);
+        lines.push(`Confianza: ${reportScaleStatus.scaleDiagnosis.confidence}`);
+        lines.push(`Lectura: ${reportScaleStatus.scaleDiagnosis.summary}`);
+        lines.push(`Evidencia: ${reportScaleStatus.scaleDiagnosis.evidence}`);
+        lines.push(`Acción / siguiente paso: ${reportScaleStatus.scaleDiagnosis.recommendedAction}`);
+        lines.push(`Reducción habilitada: ${reportScaleStatus.scaleDiagnosis.shouldReduceBudget ? 'SÍ' : 'NO'}`);
+        lines.push(`3D confirma deterioro: ${reportScaleStatus.scaleDiagnosis.threeDayConfirms ? 'SÍ' : 'NO'}`);
+        lines.push(`Señal de recuperación último día: ${reportScaleStatus.scaleDiagnosis.recoverySignal ? 'SÍ' : 'NO'}`);
+        lines.push(`Ventana de seguridad activa: ${reportScaleStatus.scaleDiagnosis.safetyBlocked ? 'SÍ' : 'NO'}`);
+        lines.push('Nota: relación temporal/operativa; no demuestra causalidad absoluta.');
+      } else {
+        lines.push('Sin diagnóstico causal de escala disponible.');
+      }
+
       lines.push('');
       lines.push('NIVELES HISTÓRICOS DE PRESUPUESTO / ESCALA');
       lines.push('-'.repeat(78));
@@ -6824,7 +6850,7 @@ function QuickMetricCC({
   );
 }
 
-function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], maxCpa, periodLabel = '3D') {
+function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], maxCpa, periodLabel = '3D', currentScaleStatus = null) {
   const max = Math.max(1, toNumber(maxCpa));
   const campaignMetricStatus = metricSetDiagnosisCC(campaign3d, campaignPrev3d, max);
   const delta = {
@@ -6931,9 +6957,19 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
   else if (cpmBad && cpcBad && ctrStableOrBetter && cvrStable) campaignLayer = 'Distribución / costo del tráfico';
   else if (cvrBad && (ctrBad || cpmBad)) campaignLayer = 'Mixto';
 
+  const scaleDiagnosis = currentScaleStatus?.scaleDiagnosis || null;
+  if (scaleDiagnosis?.isPrimarySuspect) {
+    campaignLayer = 'Escalamiento / presupuesto';
+    resultSimple += ` El último escalamiento aparece como sospechoso principal porque el rendimiento era más saludable antes del aumento y perdió eficiencia después.`;
+  }
+
   let action = 'Mantener y seguir midiendo.';
   if (pauseRows.length > 0) {
     action = `Pausar ${pauseRows.length} anuncio(s) que ya cumplen criterio de protección de presupuesto y conservar activos los anuncios sanos.`;
+  } else if (scaleDiagnosis?.shouldReduceBudget) {
+    action = scaleDiagnosis.recommendedAction;
+  } else if (scaleDiagnosis?.isPrimarySuspect) {
+    action = scaleDiagnosis.recommendedAction;
   } else if (scope.includes('GENERALIZADO') && campaignLayer === 'Post-clic') {
     action = 'No apagar anuncios en bloque. Revisar primero factores comunes después del clic: página, oferta, checkout, disponibilidad o calidad general del tráfico.';
   } else if (scope === 'DETERIORO CONCENTRADO' || scope === 'PROBLEMA AISLADO') {
@@ -6978,6 +7014,7 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
     layerSpend,
     delta,
     metricStatus: campaignMetricStatus,
+    scaleDiagnosis,
     action,
     topProblems,
     rulesNote: 'Alcance generalizado/concentrado se define con reglas operativas internas basadas principalmente en % de gasto afectado y cantidad de anuncios; no es un benchmark oficial de Meta.'
@@ -7363,7 +7400,798 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
   );
 }
 
-function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null }) {
+
+
+function buildScaleChangeImpactDiagnosisCC(
+  campaignHistory = [],
+  budgetChanges = [],
+  maxCpa,
+  currentBudget = null,
+  currentScaleStatus = null,
+  changeSafety = null
+) {
+  const max = Math.max(1, toNumber(maxCpa));
+  const current = toNumber(currentBudget);
+
+  const increases = (budgetChanges || [])
+    .filter(change =>
+      toNumber(change?.newBudget) > toNumber(change?.previousBudget) &&
+      toNumber(change?.previousBudget) > 0
+    )
+    .sort((a, b) => {
+      const aMs = changeEventTimeMsCC(a) || new Date(`${a?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
+      const bMs = changeEventTimeMsCC(b) || new Date(`${b?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
+      return bMs - aMs;
+    });
+
+  if (!increases.length) {
+    return {
+      status: 'SIN ESCALAMIENTO COMPARABLE',
+      tone: 'neutral',
+      isPrimarySuspect: false,
+      shouldReduceBudget: false,
+      threeDayConfirms: false,
+      recoverySignal: false,
+      confidence: 'SIN MUESTRA',
+      change: null,
+      beforeStats: null,
+      afterStats: null,
+      summary: 'No existe un aumento de presupuesto registrado con suficiente información para relacionarlo con el rendimiento.',
+      evidence: 'Sin escalamiento registrado comparable.',
+      recommendedBudget: null,
+      recommendedAction: 'Mantener lectura normal de campaña y seguir acumulando historial.'
+    };
+  }
+
+  const matchingCurrent =
+    increases.find(change => current > 0 && Math.abs(toNumber(change.newBudget) - current) < 0.01) ||
+    increases[0];
+
+  const impact = reportBudgetChangeImpactCC(matchingCurrent, campaignHistory);
+  const before = impact.beforeStats || {};
+  const after = impact.afterStats || {};
+
+  const cpaDelta = impact.cpaDelta;
+  const cvrDelta = pctChange(after.visitToPurchase, before.visitToPurchase);
+  const ctrDelta = pctChange(after.ctr, before.ctr);
+  const cpcDelta = pctChange(after.cpc, before.cpc);
+  const cpmDelta = pctChange(after.cpm, before.cpm);
+
+  const beforeCpa = before.cpa;
+  const afterCpa = after.cpa;
+
+  const beforeRentable =
+    beforeCpa !== null &&
+    beforeCpa !== undefined &&
+    toNumber(beforeCpa) > 0 &&
+    toNumber(beforeCpa) <= max;
+
+  const beforeStrong =
+    beforeRentable &&
+    toNumber(beforeCpa) <= max * 0.8;
+
+  const afterNearLimit =
+    afterCpa !== null &&
+    afterCpa !== undefined &&
+    toNumber(afterCpa) >= max * 0.8;
+
+  const afterOutside =
+    afterCpa !== null &&
+    afterCpa !== undefined &&
+    toNumber(afterCpa) > max;
+
+  const cpaDeteriorated =
+    cpaDelta !== null &&
+    cpaDelta >= 15;
+
+  const cpaDeterioratedSevere =
+    cpaDelta !== null &&
+    cpaDelta >= 30;
+
+  const marginalBad =
+    impact.marginalCpa !== null &&
+    impact.marginalCpa !== undefined &&
+    toNumber(impact.marginalCpa) > max;
+
+  const currentScaleBad = ['ESCALA INEFICIENTE', 'SOBREESCALADO'].includes(currentScaleStatus?.status);
+  const currentScaleLimit = currentScaleStatus?.status === 'ESCALA · LÍMITE RENTABLE';
+
+  const beforeDays = toNumber(before.days);
+  const afterDays = toNumber(after.days);
+  const enoughBeforeAfterSample = beforeDays >= 2 && afterDays >= 2;
+
+  const confidence =
+    beforeDays >= 3 && afterDays >= 3 ? 'ALTA' :
+    enoughBeforeAfterSample ? 'MEDIA' :
+    'BAJA';
+
+  // ── CONFIRMACIÓN OPERATIVA 3D ──────────────────────────────
+  // El historial de escala puede levantar sospecha, pero bajar presupuesto
+  // exige que la ventana operativa 3D también confirme deterioro.
+  const { currentStats: threeDayStats, previousStats: threeDayPrevious } =
+    splitPeriodRecords(campaignHistory, '3d');
+
+  const threeDayCpaDelta = pctChange(threeDayStats.cpa, threeDayPrevious.cpa);
+
+  const threeDayHasFullWindow = toNumber(threeDayStats.days) >= 3;
+  const threeDayNoPurchaseDamage =
+    toNumber(threeDayStats.purchases) <= 0 &&
+    toNumber(threeDayStats.spend) >= max;
+
+  const threeDayCpaOutside =
+    threeDayStats.cpa !== null &&
+    threeDayStats.cpa !== undefined &&
+    toNumber(threeDayStats.cpa) > max;
+
+  const threeDayNearLimitAndWorsening =
+    threeDayStats.cpa !== null &&
+    threeDayStats.cpa !== undefined &&
+    toNumber(threeDayStats.cpa) >= max * 0.9 &&
+    threeDayCpaDelta !== null &&
+    threeDayCpaDelta >= 15;
+
+  const threeDayConfirms =
+    threeDayHasFullWindow &&
+    (
+      threeDayNoPurchaseDamage ||
+      threeDayCpaOutside ||
+      (currentScaleBad && threeDayNearLimitAndWorsening)
+    );
+
+  // ── ÚLTIMO DÍA COMPLETO = FRENO DE SEGURIDAD ───────────────
+  // Puede frenar una reducción, pero nunca autorizarla por sí solo.
+  const { currentStats: lastCompleteStats, previousStats: lastCompletePrevious } =
+    splitPeriodRecords(campaignHistory, 'last');
+
+  const lastCpaDelta = pctChange(lastCompleteStats.cpa, lastCompletePrevious.cpa);
+  const lastCvrDelta = pctChange(
+    lastCompleteStats.visitToPurchase,
+    lastCompletePrevious.visitToPurchase
+  );
+  const lastCpcDelta = pctChange(lastCompleteStats.cpc, lastCompletePrevious.cpc);
+
+  const recoveryByCpa =
+    toNumber(lastCompleteStats.purchases) > 0 &&
+    lastCompleteStats.cpa !== null &&
+    lastCompleteStats.cpa !== undefined &&
+    toNumber(lastCompleteStats.cpa) <= max;
+
+  const recoveryByCpaTrend =
+    toNumber(lastCompleteStats.purchases) > 0 &&
+    lastCpaDelta !== null &&
+    lastCpaDelta <= -20 &&
+    lastCompleteStats.cpa !== null &&
+    lastCompleteStats.cpa !== undefined &&
+    toNumber(lastCompleteStats.cpa) <= max * 1.15;
+
+  const recoveryByConversion =
+    toNumber(lastCompleteStats.purchases) > 0 &&
+    lastCvrDelta !== null &&
+    lastCvrDelta >= 20 &&
+    (lastCpcDelta === null || lastCpcDelta <= 10);
+
+  const recoverySignal =
+    recoveryByCpa ||
+    recoveryByCpaTrend ||
+    recoveryByConversion;
+
+  const metricDeterioration = [];
+  if (cpaDelta !== null && cpaDelta > 0) metricDeterioration.push(`CPA +${fmtNum(cpaDelta, 1)}%`);
+  if (cpcDelta !== null && cpcDelta > 10) metricDeterioration.push(`CPC +${fmtNum(cpcDelta, 1)}%`);
+  if (cpmDelta !== null && cpmDelta > 10) metricDeterioration.push(`CPM +${fmtNum(cpmDelta, 1)}%`);
+  if (cvrDelta !== null && cvrDelta < -10) metricDeterioration.push(`CVR ${fmtNum(cvrDelta, 1)}%`);
+  if (ctrDelta !== null && ctrDelta < -10) metricDeterioration.push(`CTR ${fmtNum(ctrDelta, 1)}%`);
+
+  const isPrimarySuspect =
+    beforeRentable &&
+    (
+      (cpaDeteriorated && (afterNearLimit || currentScaleLimit || currentScaleBad)) ||
+      marginalBad ||
+      (beforeStrong && afterOutside)
+    );
+
+  const isWatch =
+    beforeRentable &&
+    !isPrimarySuspect &&
+    cpaDelta !== null &&
+    cpaDelta >= 8;
+
+  const absorbed =
+    beforeRentable &&
+    !isPrimarySuspect &&
+    !isWatch &&
+    (
+      afterCpa === null ||
+      afterCpa === undefined ||
+      toNumber(afterCpa) <= max * 0.8
+    );
+
+  const previousBudget = toNumber(matchingCurrent.previousBudget);
+  const profitableCeiling = toNumber(currentScaleStatus?.profitableCeilingBudget);
+
+  let recommendedBudget = previousBudget > 0 ? previousBudget : null;
+  if (
+    profitableCeiling > 0 &&
+    current > 0 &&
+    profitableCeiling < current &&
+    (recommendedBudget === null || profitableCeiling < recommendedBudget)
+  ) {
+    recommendedBudget = profitableCeiling;
+  }
+
+  const safetyBlocked =
+    changeSafety?.active &&
+    changeSafety?.canStructuralNow === false;
+
+  const safetyWait =
+    safetyBlocked
+      ? fmtHoursRemainingCC(changeSafety.structuralRemainingHours)
+      : null;
+
+  // ── REGLA ESTRICTA PARA REDUCIR PRESUPUESTO ────────────────
+  // REDUCIR solo si:
+  // 1) hubo escalamiento;
+  // 2) antes era rentable;
+  // 3) el nivel actual ya es INEFICIENTE o SOBREESCALADO;
+  // 4) el 3D confirma deterioro;
+  // 5) hay muestra mínima antes/después;
+  // 6) el último día NO muestra recuperación;
+  // 7) la ventana de seguridad ya terminó.
+  const reductionConditionsMetBeforeSafety =
+    beforeRentable &&
+    currentScaleBad &&
+    threeDayConfirms &&
+    enoughBeforeAfterSample &&
+    !recoverySignal;
+
+  const shouldReduceBudget =
+    reductionConditionsMetBeforeSafety &&
+    !safetyBlocked;
+
+  const reductionWaitingSafety =
+    reductionConditionsMetBeforeSafety &&
+    safetyBlocked;
+
+  const deteriorationText = metricDeterioration.length
+    ? metricDeterioration.join(' · ')
+    : 'el CPA perdió margen después del aumento';
+
+  const summary =
+    `Antes de subir de ${fmtMoney(previousBudget)} a ${fmtMoney(matchingCurrent.newBudget)}, ` +
+    `la campaña operaba con CPA ${fmtCpa(beforeCpa)}${beforeStrong ? ' y buen margen' : ' dentro del objetivo'}. ` +
+    `Después del escalamiento, el CPA pasó a ${fmtCpa(afterCpa)}. ` +
+    `El cambio coincide temporalmente con el deterioro (${deteriorationText}).`;
+
+  const evidence =
+    `Antes ${reportWindowLabelCC(impact.beforeDates)} · después ${reportWindowLabelCC(impact.afterDates)} · ` +
+    `CPA ${fmtCpa(beforeCpa)} → ${fmtCpa(afterCpa)}` +
+    `${impact.marginalCpa !== null ? ` · CPA marginal ${fmtMoney(impact.marginalCpa)}` : ''} · ` +
+    `3D actual ${fmtCpa(threeDayStats.cpa)}${threeDayCpaDelta !== null ? ` (${threeDayCpaDelta > 0 ? '+' : ''}${fmtNum(threeDayCpaDelta, 1)}%)` : ''}.`;
+
+  // 1) LÍMITE RENTABLE: nunca bajar solo por estar cerca del límite.
+  if (currentScaleLimit && isPrimarySuspect) {
+    return {
+      status: 'LÍMITE RENTABLE · MANTENER / NO ESCALAR MÁS',
+      tone: 'attention',
+      isPrimarySuspect: true,
+      shouldReduceBudget: false,
+      threeDayConfirms,
+      recoverySignal,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked,
+      safetyWait,
+      summary,
+      evidence,
+      recommendedAction:
+        'Mantener el presupuesto actual y detener nuevos escalalamientos. Estar cerca del límite rentable NO es suficiente para bajar presupuesto. Solo reducir si el nivel pasa a ineficiente/sobreescalado y el 3D confirma el deterioro.'
+    };
+  }
+
+  // 2) REDUCCIÓN YA HABILITADA: todas las condiciones se cumplieron.
+  if (shouldReduceBudget) {
+    return {
+      status: 'REDUCIR PRESUPUESTO',
+      tone: 'critical',
+      isPrimarySuspect: true,
+      shouldReduceBudget: true,
+      threeDayConfirms: true,
+      recoverySignal: false,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked: false,
+      safetyWait: null,
+      summary:
+        `${summary} El nuevo nivel ya está clasificado como ${currentScaleStatus?.status?.toLowerCase()}, el 3D confirma la pérdida de eficiencia y el último día completo no muestra recuperación suficiente.`,
+      evidence,
+      recommendedAction:
+        recommendedBudget
+          ? `REDUCIR hacia ${fmtMoney(recommendedBudget)}, correspondiente al nivel previo/último nivel rentable confirmado. Después del cambio, iniciar una nueva ventana de estabilización y volver a evaluar 3D.`
+          : 'REDUCIR hacia el último nivel de presupuesto que haya demostrado rentabilidad. Después del cambio, iniciar una nueva ventana de estabilización y volver a evaluar 3D.'
+    };
+  }
+
+  // 3) TODO CONFIRMA, PERO FALTA CUMPLIR LAS 48H.
+  if (reductionWaitingSafety) {
+    return {
+      status: 'REDUCCIÓN PENDIENTE · ESPERAR VENTANA DE SEGURIDAD',
+      tone: 'alert',
+      isPrimarySuspect: true,
+      shouldReduceBudget: false,
+      threeDayConfirms: true,
+      recoverySignal: false,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked: true,
+      safetyWait,
+      summary:
+        `${summary} El nivel actual ya es ineficiente/sobreescalado y el 3D confirma el deterioro, pero todavía está activa la ventana interna de seguridad.`,
+      evidence,
+      recommendedAction:
+        `NO cambiar todavía. Faltan ${safetyWait} para completar la ventana de seguridad. Al cumplirse, reevaluar el 3D; si sigue deteriorado y no aparece recuperación, reducir${recommendedBudget ? ` hacia ${fmtMoney(recommendedBudget)}` : ' al último nivel rentable'}.`
+    };
+  }
+
+  // 4) NIVEL MALO, PERO 3D AÚN NO CONFIRMA.
+  if (currentScaleBad && isPrimarySuspect && !threeDayConfirms) {
+    return {
+      status: 'INEFICIENCIA HISTÓRICA · 3D AÚN NO CONFIRMA',
+      tone: 'attention',
+      isPrimarySuspect: true,
+      shouldReduceBudget: false,
+      threeDayConfirms: false,
+      recoverySignal,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked,
+      safetyWait,
+      summary:
+        `${summary} El historial del nivel es negativo, pero la ventana operativa 3D todavía no confirma suficiente deterioro para ordenar una reducción.`,
+      evidence,
+      recommendedAction:
+        'No escalar más. Mantener el presupuesto mientras se completa/actualiza el 3D. Bajar ahora sería una reacción prematura.'
+    };
+  }
+
+  // 5) 3D MALO, PERO ÚLTIMO DÍA EMPIEZA A RECUPERAR.
+  if (currentScaleBad && isPrimarySuspect && threeDayConfirms && recoverySignal) {
+    return {
+      status: 'NO REDUCIR TODAVÍA · HAY RECUPERACIÓN',
+      tone: 'attention',
+      isPrimarySuspect: true,
+      shouldReduceBudget: false,
+      threeDayConfirms: true,
+      recoverySignal: true,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked,
+      safetyWait,
+      summary:
+        `${summary} El 3D sigue deteriorado, pero el último día completo muestra una recuperación suficiente para frenar la reducción inmediata.`,
+      evidence,
+      recommendedAction:
+        'Mantener y vigilar el siguiente día completo. Si la recuperación desaparece y el 3D continúa fuera de eficiencia después de la ventana de seguridad, volver a evaluar la reducción.'
+    };
+  }
+
+  // 6) MUESTRA antes/después insuficiente.
+  if (currentScaleBad && isPrimarySuspect && !enoughBeforeAfterSample) {
+    return {
+      status: 'ESCALAMIENTO SOSPECHOSO · MUESTRA INSUFICIENTE',
+      tone: 'attention',
+      isPrimarySuspect: true,
+      shouldReduceBudget: false,
+      threeDayConfirms,
+      recoverySignal,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked,
+      safetyWait,
+      summary:
+        `${summary} Aún no hay al menos dos días comparables antes y después del cambio.`,
+      evidence,
+      recommendedAction:
+        'No escalar más y no bajar todavía. Esperar muestra suficiente para evitar atribuir el deterioro a ruido de corto plazo.'
+    };
+  }
+
+  if (isWatch) {
+    return {
+      status: 'ESCALAMIENTO EN OBSERVACIÓN',
+      tone: 'attention',
+      isPrimarySuspect: false,
+      shouldReduceBudget: false,
+      threeDayConfirms,
+      recoverySignal,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked,
+      safetyWait,
+      summary:
+        `Después del aumento de ${fmtMoney(previousBudget)} a ${fmtMoney(matchingCurrent.newBudget)}, el CPA empeoró ${fmtNum(Math.abs(cpaDelta), 1)}%, ` +
+        `pero todavía no hay evidencia suficiente para atribuir el deterioro principalmente al escalamiento.`,
+      evidence:
+        `CPA ${fmtCpa(beforeCpa)} → ${fmtCpa(afterCpa)} · confianza ${confidence.toLowerCase()}.`,
+      recommendedAction:
+        'Mantener el nivel y no volver a escalar hasta que el 3D vuelva a mostrar margen claro.'
+    };
+  }
+
+  if (absorbed) {
+    return {
+      status: 'ESCALAMIENTO ABSORBIDO',
+      tone: 'good',
+      isPrimarySuspect: false,
+      shouldReduceBudget: false,
+      threeDayConfirms,
+      recoverySignal,
+      confidence,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: after,
+      cpaDelta,
+      cvrDelta,
+      ctrDelta,
+      cpcDelta,
+      cpmDelta,
+      marginalCpa: impact.marginalCpa,
+      recommendedBudget,
+      safetyBlocked,
+      safetyWait,
+      summary:
+        `El aumento de ${fmtMoney(previousBudget)} a ${fmtMoney(matchingCurrent.newBudget)} no muestra un deterioro suficiente para señalarlo como problema principal. ` +
+        `El nivel posterior continúa con margen rentable.`,
+      evidence:
+        `CPA ${fmtCpa(beforeCpa)} → ${fmtCpa(afterCpa)}.`,
+      recommendedAction:
+        'Mantener. Solo volver a escalar si el 3D actual, margen de seguridad y guardrails vuelven a autorizarlo.'
+    };
+  }
+
+  return {
+    status: isPrimarySuspect ? 'ESCALAMIENTO · SOSPECHOSO PRINCIPAL' : 'RELACIÓN CON ESCALAMIENTO NO CONCLUYENTE',
+    tone: isPrimarySuspect ? 'alert' : 'neutral',
+    isPrimarySuspect,
+    shouldReduceBudget: false,
+    threeDayConfirms,
+    recoverySignal,
+    confidence,
+    change: matchingCurrent,
+    beforeStats: before,
+    afterStats: after,
+    cpaDelta,
+    cvrDelta,
+    ctrDelta,
+    cpcDelta,
+    cpmDelta,
+    marginalCpa: impact.marginalCpa,
+    recommendedBudget,
+    safetyBlocked,
+    safetyWait,
+    summary:
+      isPrimarySuspect
+        ? `${summary} El escalamiento es el principal factor temporal a vigilar, pero todavía no se cumplen todas las condiciones estrictas para bajar presupuesto.`
+        : 'Existe un cambio de presupuesto registrado, pero la comparación antes/después no permite señalarlo como causa principal del resultado actual.',
+    evidence,
+    recommendedAction:
+      isPrimarySuspect
+        ? 'Detener nuevos escalalamientos y mantener observación. Reducir únicamente si el nivel queda ineficiente/sobreescalado, el 3D lo confirma, no hay recuperación y termina la ventana de seguridad.'
+        : 'No reducir presupuesto únicamente por correlación. Mantener el diagnóstico completo de campaña y anuncios.'
+  };
+}
+
+function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa, budgetChanges = [], changeSafety = null) {
+  const max = Math.max(1, toNumber(maxCpa));
+  const historyWithBudget = (campaignHistory || [])
+    .filter(r => toNumber(r?.budget) > 0)
+    .sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')));
+
+  const latest = historyWithBudget[historyWithBudget.length - 1] || null;
+  const currentBudget = toNumber(latest?.budget);
+
+  if (!latest || currentBudget <= 0) {
+    return {
+      status: 'SIN HISTORIAL SUFICIENTE',
+      tone: 'neutral',
+      currentBudget: null,
+      cpa: null,
+      marginalCpa: null,
+      days: 0,
+      purchases: 0,
+      profitableCeilingBudget: null,
+      profitableCeilingCpa: null,
+      summary: 'Todavía no existe un nivel de presupuesto histórico suficiente para clasificar la escala actual.',
+      action: 'Seguir registrando días completos antes de usar el historial de escala como referencia.'
+    };
+  }
+
+  const rows = [...(scaleRows || [])].sort((a, b) => toNumber(a.budget) - toNumber(b.budget));
+  const currentRow =
+    rows.find(r => Math.abs(toNumber(r.budget) - currentBudget) < 0.01) ||
+    null;
+
+  const profitableRows = rows.filter(r =>
+    toNumber(r.cpa) > 0 &&
+    toNumber(r.cpa) <= max &&
+    !(r.marginalCpa !== null && r.marginalCpa !== undefined && toNumber(r.marginalCpa) > max)
+  );
+
+  const profitableCeiling = [...profitableRows]
+    .sort((a, b) => toNumber(b.budget) - toNumber(a.budget))[0] || null;
+
+  const previousLevel = [...rows]
+    .filter(r => toNumber(r.budget) < currentBudget)
+    .sort((a, b) => toNumber(b.budget) - toNumber(a.budget))[0] || null;
+
+  const withScaleDiagnosis = statusObj => {
+    const scaleDiagnosis = buildScaleChangeImpactDiagnosisCC(
+      campaignHistory,
+      budgetChanges,
+      max,
+      currentBudget,
+      statusObj,
+      changeSafety
+    );
+    return { ...statusObj, scaleDiagnosis };
+  };
+
+  if (!currentRow) {
+    return withScaleDiagnosis({
+      status: 'ESCALA EN OBSERVACIÓN',
+      tone: 'neutral',
+      currentBudget,
+      cpa: null,
+      marginalCpa: null,
+      days: 0,
+      purchases: 0,
+      profitableCeilingBudget: profitableCeiling?.budget || null,
+      profitableCeilingCpa: profitableCeiling?.cpa || null,
+      summary: `El presupuesto actual es ${fmtMoney(currentBudget)}, pero todavía no existe suficiente historial agrupado en este nivel para clasificar su rentabilidad.`,
+      action: 'Mantener observación. La decisión operativa sigue dependiendo de 3D y sus guardrails.'
+    });
+  }
+
+  const base = {
+    currentBudget,
+    cpa: currentRow.cpa,
+    marginalCpa: currentRow.marginalCpa,
+    days: currentRow.days,
+    purchases: currentRow.purchases,
+    profitableCeilingBudget: profitableCeiling?.budget || null,
+    profitableCeilingCpa: profitableCeiling?.cpa || null,
+    previousBudget: previousLevel?.budget || null,
+    previousCpa: previousLevel?.cpa || null
+  };
+
+  if (currentRow.status === 'Escala ineficiente') {
+    return withScaleDiagnosis({
+      ...base,
+      status: 'ESCALA INEFICIENTE',
+      tone: 'critical',
+      summary:
+        `El presupuesto actual de ${fmtMoney(currentBudget)} presenta un CPA marginal de ${fmtCpa(currentRow.marginalCpa)}, ` +
+        `por encima del CPA máximo de ${fmtMoney(max)}. El gasto adicional de este nivel está perdiendo eficiencia.`,
+      action:
+        profitableCeiling
+          ? `No continuar escalando. El último nivel rentable observado es ${fmtMoney(profitableCeiling.budget)}, pero la reducción solo se habilita si el diagnóstico causal cumple todas las condiciones estrictas.`
+          : 'No continuar escalando. Bajar presupuesto requiere confirmación 3D, ausencia de recuperación y ventana de seguridad cumplida.'
+    });
+  }
+
+  if (currentRow.status === 'Sobreescalado') {
+    return withScaleDiagnosis({
+      ...base,
+      status: 'SOBREESCALADO',
+      tone: 'critical',
+      summary:
+        `En ${fmtMoney(currentBudget)}, el CPA histórico ponderado del nivel es ${fmtCpa(currentRow.cpa)}, ` +
+        `por encima del máximo de ${fmtMoney(max)}.`,
+      action:
+        profitableCeiling
+          ? `El último nivel rentable observado es ${fmtMoney(profitableCeiling.budget)} con CPA ${fmtCpa(profitableCeiling.cpa)}. No aumentar presupuesto. La plataforma solo recomendará retroceder cuando 3D confirme, no haya recuperación y se cumpla la ventana de seguridad.`
+          : 'No aumentar presupuesto. La reducción solo se habilita con confirmación 3D, sin recuperación y fuera de la ventana de seguridad.'
+    });
+  }
+
+  if (currentRow.status === 'Límite rentable') {
+    return withScaleDiagnosis({
+      ...base,
+      status: 'ESCALA · LÍMITE RENTABLE',
+      tone: 'attention',
+      summary:
+        `El presupuesto actual de ${fmtMoney(currentBudget)} sigue siendo rentable, pero el CPA histórico del nivel (${fmtCpa(currentRow.cpa)}) ` +
+        `ya está cerca del máximo de ${fmtMoney(max)}.`,
+      action:
+        'Mantener este nivel. No aumentar presupuesto solo por historial; una nueva escala requiere que el 3D y todos los guardrails vuelvan a mostrar margen.'
+    });
+  }
+
+  if (currentRow.status === 'Rentable') {
+    return withScaleDiagnosis({
+      ...base,
+      status: 'ESCALA RENTABLE',
+      tone: 'good',
+      summary:
+        `El nivel actual de ${fmtMoney(currentBudget)} mantiene un CPA histórico ponderado de ${fmtCpa(currentRow.cpa)}, ` +
+        `con margen frente al máximo de ${fmtMoney(max)}.`,
+      action:
+        'El historial permite considerar este nivel saludable. Una nueva escala solo corresponde si el 3D actual también autoriza escalar.'
+    });
+  }
+
+  return withScaleDiagnosis({
+    ...base,
+    status: 'ESCALA EN OBSERVACIÓN',
+    tone: 'neutral',
+    summary:
+      `El presupuesto actual es ${fmtMoney(currentBudget)}. El historial de este nivel todavía no permite clasificarlo con suficiente claridad.`,
+    action:
+      'Mantener el presupuesto y seguir acumulando datos completos. No usar esta tarjeta por sí sola para subir o bajar inversión.'
+  });
+}
+
+function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
+  if (!scaleStatus) return null;
+
+  const tone = scaleStatus.tone || 'neutral';
+
+  const valueBox = (label, value, sub = null) => (
+    <div className="min-w-0 rounded-xl border border-white/80 bg-white/75 px-2.5 py-2.5">
+      <p className="text-[6.5px] sm:text-[7px] font-black uppercase leading-tight text-slate-400" style={{ overflowWrap: 'anywhere' }}>
+        {label}
+      </p>
+      <p
+        className="mt-1.5 font-black leading-none tabular-nums text-zinc-900 whitespace-nowrap overflow-hidden text-ellipsis"
+        style={{ fontSize: 'clamp(10px, 0.9vw, 14px)' }}
+      >
+        {value}
+      </p>
+      {sub ? <p className="text-[6.5px] text-slate-500 mt-1 leading-tight">{sub}</p> : null}
+    </div>
+  );
+
+  return (
+    <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(tone)}`}>
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.85fr)] gap-4 xl:items-start">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[8px] font-black uppercase tracking-wide text-slate-500">Estado actual de escala</p>
+            <span className={`max-w-full px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase leading-tight ${toneBadge(tone)}`}>
+              {scaleStatus.status}
+            </span>
+          </div>
+
+          <p className="text-[10px] sm:text-[11px] font-black text-zinc-900 mt-2 leading-relaxed">
+            {scaleStatus.summary}
+          </p>
+
+          <p className="text-[8px] sm:text-[9px] text-slate-600 mt-2 leading-relaxed">
+            <strong>Qué hacer:</strong> {scaleStatus.action}
+          </p>
+
+          {scaleStatus.scaleDiagnosis ? (
+            <div className={`mt-3 rounded-xl border p-3 ${toneBg(scaleStatus.scaleDiagnosis.tone || 'neutral')}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-[7px] font-black uppercase text-slate-500">Relación con último escalamiento</p>
+                <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${toneBadge(scaleStatus.scaleDiagnosis.tone || 'neutral')}`}>
+                  {scaleStatus.scaleDiagnosis.status}
+                </span>
+              </div>
+              <p className="text-[8px] sm:text-[9px] font-bold text-zinc-800 mt-2 leading-relaxed">
+                {scaleStatus.scaleDiagnosis.summary}
+              </p>
+              <p className="text-[7px] text-slate-500 mt-1.5 leading-relaxed">
+                <strong>Evidencia:</strong> {scaleStatus.scaleDiagnosis.evidence}
+              </p>
+              <p className="text-[8px] text-slate-700 mt-2 leading-relaxed">
+                <strong>{scaleStatus.scaleDiagnosis.shouldReduceBudget ? 'ACCIÓN:' : 'Qué hacer:'}</strong> {scaleStatus.scaleDiagnosis.recommendedAction}
+              </p>
+              <p className="text-[6.5px] text-slate-400 mt-2">
+                Confianza {scaleStatus.scaleDiagnosis.confidence}. Es una relación temporal/operativa, no una prueba causal absoluta.
+              </p>
+            </div>
+          ) : null}
+
+          <p className="text-[7px] text-slate-400 mt-2 leading-relaxed">
+            Lectura histórica del nivel de presupuesto. No reemplaza la decisión 3D ni los guardrails de escala.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {valueBox(
+            'Presupuesto actual',
+            scaleStatus.currentBudget ? fmtMoney(scaleStatus.currentBudget) : '—',
+            scaleStatus.days ? `${scaleStatus.days} día(s) en este nivel` : null
+          )}
+          {valueBox(
+            'CPA histórico del nivel',
+            scaleStatus.cpa !== null && scaleStatus.cpa !== undefined ? fmtCpa(scaleStatus.cpa) : '—',
+            `CPA máximo ${fmtMoney(maxCpa)}`
+          )}
+          {valueBox(
+            'CPA marginal',
+            scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
+              ? fmtMoney(scaleStatus.marginalCpa)
+              : '—',
+            'Costo de las compras adicionales al subir de nivel'
+          )}
+          {valueBox(
+            'Último nivel rentable',
+            scaleStatus.profitableCeilingBudget ? fmtMoney(scaleStatus.profitableCeilingBudget) : '—',
+            scaleStatus.profitableCeilingCpa
+              ? `CPA ${fmtCpa(scaleStatus.profitableCeilingCpa)}`
+              : 'Sin nivel rentable confirmado'
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const periodLabel = periodLabelCC(analysisPeriod);
   const periodCardLabel = periodCardLabelCC(analysisPeriod, false);
@@ -7417,7 +8245,14 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
     return acc;
   }, {});
 
-  const campaignOverview = buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows.map(r => ({ ...r, contribution: r.analysisContribution })), maxCpa, periodLabel);
+  const campaignOverview = buildCampaignLayerDiagnosticCC(
+    campaign3d,
+    campaignPrev3d,
+    rows.map(r => ({ ...r, contribution: r.analysisContribution })),
+    maxCpa,
+    periodLabel,
+    currentScaleStatus
+  );
 
   const campaignTone =
     campaignOverview.resultTone === 'critical' ? 'critical' :
@@ -7491,6 +8326,11 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpc}/>
             <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cvr}/>
           </div>
+
+          <CurrentScaleStatusCardCC
+            scaleStatus={currentScaleStatus}
+            maxCpa={maxCpa}
+          />
 
           {/* Lectura ejecutiva */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-4">
@@ -7878,6 +8718,10 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     () => buildCampaignChangeSafetyCC(campaign, budgetChanges, decisions, safetyNowMs),
     [campaign, budgetChanges, decisions, safetyNowMs]
   );
+  const currentScaleStatus = useMemo(
+    () => buildCurrentScaleStatusCC(campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety),
+    [campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety]
+  );
   const benchmark = useMemo(
     () => buildProductBenchmark(product?.id, dailyAds, dailyCampaigns, product?.maxCpa, allAds || ads, allCampaigns || [campaign]),
     [product?.id, product?.maxCpa, dailyAds, dailyCampaigns, allAds, allCampaigns, ads, campaign]
@@ -7984,6 +8828,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           benchmark={benchmark}
           analysisPeriod={monitorPeriod}
           changeSafety={changeSafety}
+          currentScaleStatus={currentScaleStatus}
         />
       )}
 
