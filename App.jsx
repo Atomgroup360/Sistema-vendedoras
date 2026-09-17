@@ -4205,19 +4205,23 @@ function CampaignControlModule() {
   ];
 
   return (
-    <div className="space-y-5 anim-fade">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-zinc-950"><Activity size={20} /></div>
-            <div>
-              <h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">LECTURA DE CAMPAÑAS</h2>
-              <p className="text-[9px] md:text-[10px] text-slate-400 font-black uppercase tracking-widest">Diagnóstico Meta Ads · 3D decide · entiende qué pasa en segundos</p>
+    <div className="space-y-5 anim-fade min-w-0">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <div className="shrink-0 w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-zinc-950"><Activity size={20} /></div>
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900 break-words">LECTURA DE CAMPAÑAS</h2>
+              <p className="text-[8px] sm:text-[9px] md:text-[10px] text-slate-400 font-black uppercase tracking-wider sm:tracking-widest leading-relaxed">
+                Diagnóstico Meta Ads · 3D decide · entiende qué pasa en segundos
+              </p>
             </div>
           </div>
         </div>
-        <div className="flex bg-zinc-950 p-1 rounded-2xl overflow-x-auto">
-          {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}</button>)}
+        <div className="max-w-full overflow-x-auto pb-1 xl:pb-0">
+          <div className="flex w-max min-w-full xl:min-w-0 bg-zinc-950 p-1 rounded-2xl">
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-3 md:px-4 py-2.5 rounded-xl text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}</button>)}
+          </div>
         </div>
       </div>
 
@@ -4645,7 +4649,7 @@ function CampaignDashboard({
           <h3 className="font-black uppercase text-sm text-orange-800">Prioridades de acción hoy</h3>
           <span className="text-[8px] text-slate-400 font-black uppercase">Lo más importante primero</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           {campaignRows.filter(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
             <button key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className={`text-left rounded-2xl border p-3 ${r.state==='Crítico'?'bg-rose-50 border-rose-200':r.state==='Alerta'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'}`}>
               <p className="font-black text-xs">{r.state==='Crítico'?'🔴':r.state==='Alerta'?'🟠':'🟢'} {r.product?.name} — {r.campaign.name}</p>
@@ -5790,15 +5794,31 @@ function readingActionClassesCC(tone) {
   };
 }
 
-function QuickMetricCC({ label, value, delta, metric, sub }) {
+function QuickMetricCC({ label, value, previousValue = null, delta, metric, sub }) {
+  const hasPrevious = previousValue !== null && previousValue !== undefined && previousValue !== '—';
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
-      <p className="text-[7px] font-black uppercase tracking-wider text-slate-400">{label}</p>
-      <div className="flex items-end gap-2 mt-1">
-        <p className="text-sm font-black text-zinc-900">{value}</p>
-        <span className="text-[8px] mb-0.5"><Delta metric={metric} value={delta}/></span>
+    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 p-3 sm:p-3.5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+        <span className="shrink-0 text-[8px] leading-none"><Delta metric={metric} value={delta}/></span>
       </div>
-      {sub ? <p className="text-[7px] text-slate-400 mt-1">{sub}</p> : null}
+
+      <p className="text-base sm:text-lg font-black leading-none text-zinc-900 break-words mt-2">{value}</p>
+
+      {hasPrevious ? (
+        <div className="mt-2 rounded-lg border border-slate-200/80 bg-white/80 px-2 py-1.5">
+          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Anterior → Actual</p>
+          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            <span className="text-[9px] font-bold text-slate-500 truncate">{previousValue}</span>
+            <span className="text-[9px] font-black text-slate-300">→</span>
+            <span className="text-[9px] font-black text-zinc-800 truncate">{value}</span>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[7px] text-slate-400 mt-2">Sin período anterior comparable</p>
+      )}
+
+      {sub ? <p className="text-[8px] text-slate-500 mt-2 leading-tight">{sub}</p> : null}
     </div>
   );
 }
@@ -5961,6 +5981,367 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
   };
 }
 
+
+const WEEKDAYS_CC = [
+  { id: 1, label: 'Lunes', short: 'Lun' },
+  { id: 2, label: 'Martes', short: 'Mar' },
+  { id: 3, label: 'Miércoles', short: 'Mié' },
+  { id: 4, label: 'Jueves', short: 'Jue' },
+  { id: 5, label: 'Viernes', short: 'Vie' },
+  { id: 6, label: 'Sábado', short: 'Sáb' },
+  { id: 0, label: 'Domingo', short: 'Dom' }
+];
+
+function weekdayIndexFromIsoCC(date) {
+  const raw = String(date || '');
+  const parts = raw.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(x => !Number.isFinite(x))) return null;
+  return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])).getUTCDay();
+}
+
+function weekdayConfidenceCC(sampleDays) {
+  const n = toNumber(sampleDays);
+  if (n >= 5) return { label: 'ALTA', tone: 'good', text: '5 o más ocurrencias históricas de este día.' };
+  if (n >= 3) return { label: 'MEDIA', tone: 'normal', text: '3–4 ocurrencias históricas de este día.' };
+  if (n >= 2) return { label: 'BAJA', tone: 'attention', text: 'Solo 2 ocurrencias históricas; interpretar con prudencia.' };
+  return { label: 'INSUFICIENTE', tone: 'neutral', text: 'Se necesita al menos otra ocurrencia para hablar de patrón.' };
+}
+
+function weekdayMetricSignalCC(current, baseline, lowerIsBetter = false, threshold = 5) {
+  if (
+    current === null || current === undefined ||
+    baseline === null || baseline === undefined ||
+    !Number.isFinite(Number(current)) ||
+    !Number.isFinite(Number(baseline)) ||
+    Number(baseline) === 0
+  ) return { delta: null, signal: 'neutral' };
+
+  const delta = pctChange(current, baseline);
+  if (delta === null) return { delta: null, signal: 'neutral' };
+
+  if (lowerIsBetter) {
+    if (delta <= -threshold) return { delta, signal: 'good' };
+    if (delta >= threshold) return { delta, signal: 'bad' };
+    return { delta, signal: 'neutral' };
+  }
+
+  if (delta >= threshold) return { delta, signal: 'good' };
+  if (delta <= -threshold) return { delta, signal: 'bad' };
+  return { delta, signal: 'neutral' };
+}
+
+function weekdayPlainSummaryCC(row, baseline, isBest, isWorst) {
+  if (!row || row.sampleDays <= 0) return 'No existen registros completos para este día de la semana.';
+  if (row.sampleDays < 2) return `Solo hay ${row.sampleDays} ${row.label.toLowerCase()} registrado. Todavía no existe muestra suficiente para hablar de un patrón.`;
+
+  const cpaDelta = row.signals.cpa.delta;
+  const cvrDelta = row.signals.cvr.delta;
+  const cpcDelta = row.signals.cpc.delta;
+  const ctrDelta = row.signals.ctr.delta;
+  const cpmDelta = row.signals.cpm.delta;
+
+  const pieces = [];
+
+  if (row.stats.purchases <= 0 && row.stats.spend > 0) {
+    pieces.push(`Históricamente ha consumido ${fmtMoney(row.stats.spend)} sin registrar compras.`);
+  } else if (cpaDelta !== null) {
+    if (cpaDelta <= -5) pieces.push(`El CPA es ${fmtNum(Math.abs(cpaDelta), 1)}% mejor que el promedio histórico de la campaña.`);
+    else if (cpaDelta >= 5) pieces.push(`El CPA es ${fmtNum(Math.abs(cpaDelta), 1)}% peor que el promedio histórico de la campaña.`);
+    else pieces.push('El CPA se mueve cerca del promedio histórico de la campaña.');
+  }
+
+  if (cvrDelta !== null && Math.abs(cvrDelta) >= 8) {
+    pieces.push(`El CVR está ${cvrDelta > 0 ? `${fmtNum(cvrDelta, 1)}% por encima` : `${fmtNum(Math.abs(cvrDelta), 1)}% por debajo`} del promedio.`);
+  } else if (ctrDelta !== null && Math.abs(ctrDelta) >= 8) {
+    pieces.push(`El CTR está ${ctrDelta > 0 ? `${fmtNum(ctrDelta, 1)}% por encima` : `${fmtNum(Math.abs(ctrDelta), 1)}% por debajo`} del promedio.`);
+  } else if (cpcDelta !== null && Math.abs(cpcDelta) >= 8) {
+    pieces.push(`El CPC está ${cpcDelta < 0 ? `${fmtNum(Math.abs(cpcDelta), 1)}% más barato` : `${fmtNum(cpcDelta, 1)}% más caro`} que el promedio.`);
+  } else if (cpmDelta !== null && Math.abs(cpmDelta) >= 10) {
+    pieces.push(`El CPM está ${cpmDelta < 0 ? `${fmtNum(Math.abs(cpmDelta), 1)}% más bajo` : `${fmtNum(cpmDelta, 1)}% más alto`} que el promedio.`);
+  }
+
+  if (isBest) pieces.push('Es el día con mejor rendimiento histórico observado entre los días con muestra comparable.');
+  if (isWorst) pieces.push('Es el día con peor rendimiento histórico observado entre los días con muestra comparable.');
+  if (!isBest && !isWorst && row.classification === 'ESTABLE') pieces.push('No presenta una diferencia suficientemente fuerte para tratarlo como mejor o peor día.');
+
+  return pieces.join(' ');
+}
+
+function buildCampaignWeekdayAnalysisCC(campaignHistory, maxCpa) {
+  const history = (campaignHistory || [])
+    .filter(r => r && r.date && String(r.date) < todayColombiaCC())
+    .filter(r => !r.syntheticZero || toNumber(r.spend) > 0 || toNumber(r.purchases) > 0);
+
+  const baseline = aggregateRecords(history);
+  const firstDate = history.length ? String(history[0].date) : null;
+  const lastDate = history.length ? String(history[history.length - 1].date) : null;
+
+  const rows = WEEKDAYS_CC.map(day => {
+    const records = history.filter(r => weekdayIndexFromIsoCC(r.date) === day.id);
+    const uniqueDates = [...new Set(records.map(r => String(r.date)))];
+    const stats = aggregateRecords(records);
+
+    const signals = {
+      cpa: weekdayMetricSignalCC(stats.cpa, baseline.cpa, true, 5),
+      cvr: weekdayMetricSignalCC(stats.visitToPurchase, baseline.visitToPurchase, false, 5),
+      cpc: weekdayMetricSignalCC(stats.cpc, baseline.cpc, true, 5),
+      ctr: weekdayMetricSignalCC(stats.ctr, baseline.ctr, false, 5),
+      cpm: weekdayMetricSignalCC(stats.cpm, baseline.cpm, true, 5)
+    };
+
+    const favorableCount = Object.values(signals).filter(x => x.signal === 'good').length;
+    const unfavorableCount = Object.values(signals).filter(x => x.signal === 'bad').length;
+    const confidence = weekdayConfidenceCC(uniqueDates.length);
+
+    return {
+      ...day,
+      records,
+      sampleDays: uniqueDates.length,
+      stats,
+      signals,
+      favorableCount,
+      unfavorableCount,
+      confidence,
+      classification: uniqueDates.length < 2 ? 'MUESTRA BAJA' : 'ESTABLE'
+    };
+  });
+
+  const qualified = rows.filter(r => r.sampleDays >= 2 && toNumber(r.stats.spend) > 0);
+
+  // Mejor día: prioriza resultado comercial (CPA), y usa CVR/CPC/CTR/CPM como evidencia de apoyo.
+  const bestCandidates = qualified
+    .filter(r => toNumber(r.stats.purchases) > 0 && r.stats.cpa !== null)
+    .sort((a, b) => {
+      const aCpa = toNumber(a.stats.cpa);
+      const bCpa = toNumber(b.stats.cpa);
+      if (aCpa !== bCpa) return aCpa - bCpa;
+      if (a.unfavorableCount !== b.unfavorableCount) return a.unfavorableCount - b.unfavorableCount;
+      return b.favorableCount - a.favorableCount;
+    });
+
+  // Peor día: primero días sin compra con gasto, luego CPA más alto, apoyado por el resto de métricas.
+  const worstCandidates = [...qualified].sort((a, b) => {
+    const aNoPurchase = toNumber(a.stats.purchases) <= 0 && toNumber(a.stats.spend) > 0 ? 1 : 0;
+    const bNoPurchase = toNumber(b.stats.purchases) <= 0 && toNumber(b.stats.spend) > 0 ? 1 : 0;
+    if (aNoPurchase !== bNoPurchase) return bNoPurchase - aNoPurchase;
+
+    const aCpa = a.stats.cpa === null ? Number.POSITIVE_INFINITY : toNumber(a.stats.cpa);
+    const bCpa = b.stats.cpa === null ? Number.POSITIVE_INFINITY : toNumber(b.stats.cpa);
+    if (aCpa !== bCpa) return bCpa - aCpa;
+    if (a.unfavorableCount !== b.unfavorableCount) return b.unfavorableCount - a.unfavorableCount;
+    return a.favorableCount - b.favorableCount;
+  });
+
+  const best = bestCandidates[0] || null;
+  const worst = worstCandidates.find(r => !best || r.id !== best.id) || null;
+
+  const baselineCpa = baseline.cpa;
+  const max = Math.max(1, toNumber(maxCpa));
+
+  rows.forEach(row => {
+    if (row.sampleDays < 2) {
+      row.classification = 'MUESTRA BAJA';
+      return;
+    }
+
+    const isBest = !!best && row.id === best.id;
+    const isWorst = !!worst && row.id === worst.id;
+
+    const cpaDelta = row.signals.cpa.delta;
+    const noPurchaseDamage = toNumber(row.stats.purchases) <= 0 && toNumber(row.stats.spend) >= max * 0.5;
+
+    const bestSupported =
+      isBest &&
+      toNumber(row.stats.purchases) > 0 &&
+      (
+        (cpaDelta !== null && cpaDelta <= -8 && row.favorableCount >= row.unfavorableCount) ||
+        row.favorableCount >= 3
+      );
+
+    const worstSupported =
+      isWorst &&
+      (
+        noPurchaseDamage ||
+        (cpaDelta !== null && cpaDelta >= 8 && row.unfavorableCount >= row.favorableCount) ||
+        row.unfavorableCount >= 3
+      );
+
+    if (bestSupported) row.classification = 'MEJOR RENDIMIENTO';
+    else if (worstSupported) row.classification = 'PEOR RENDIMIENTO';
+    else row.classification = 'ESTABLE';
+  });
+
+  // Si el mejor/peor no alcanzó diferencia fuerte, se mantiene como relativo en el resumen,
+  // pero no colorea el día como patrón fuerte.
+  const bestRow = best ? rows.find(r => r.id === best.id) : null;
+  const worstRow = worst ? rows.find(r => r.id === worst.id) : null;
+
+  rows.forEach(row => {
+    row.summary = weekdayPlainSummaryCC(
+      row,
+      baseline,
+      !!bestRow && row.id === bestRow.id,
+      !!worstRow && row.id === worstRow.id
+    );
+  });
+
+  return {
+    rows,
+    baseline,
+    best: bestRow,
+    worst: worstRow,
+    stable: rows.filter(r => r.classification === 'ESTABLE'),
+    lowSample: rows.filter(r => r.classification === 'MUESTRA BAJA'),
+    historyDays: [...new Set(history.map(r => String(r.date)))].length,
+    firstDate,
+    lastDate
+  };
+}
+
+function weekdayClassificationToneCC(classification) {
+  if (classification === 'MEJOR RENDIMIENTO') return 'good';
+  if (classification === 'PEOR RENDIMIENTO') return 'critical';
+  if (classification === 'MUESTRA BAJA') return 'neutral';
+  return 'normal';
+}
+
+function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
+  const hasDelta = delta !== null && delta !== undefined;
+  let tone = 'text-slate-500';
+  if (hasDelta) {
+    const favorable = lowerIsBetter ? delta < -5 : delta > 5;
+    const unfavorable = lowerIsBetter ? delta > 5 : delta < -5;
+    if (favorable) tone = 'text-emerald-700';
+    else if (unfavorable) tone = 'text-rose-700';
+  }
+
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2">
+      <p className="text-[7px] font-black uppercase text-slate-400">{label}</p>
+      <p className="text-[10px] font-black text-zinc-900 mt-1 break-words">{value}</p>
+      <p className={`text-[7px] font-black mt-1 ${tone}`}>
+        {hasDelta ? `${delta > 0 ? '+' : ''}${fmtNum(delta, 1)}% vs campaña` : 'Sin comparación'}
+      </p>
+    </div>
+  );
+}
+
+function CampaignWeekdayHistoryView({ campaign, analysis }) {
+  const best = analysis?.best;
+  const worst = analysis?.worst;
+  const stableNames = (analysis?.stable || []).map(x => x.label);
+  const rangeText = analysis?.firstDate && analysis?.lastDate
+    ? `${formatDate(analysis.firstDate)} → ${formatDate(analysis.lastDate)}`
+    : 'Sin rango histórico';
+
+  return (
+    <div className="space-y-4 min-w-0">
+      <section className="rounded-3xl border-2 border-indigo-200 bg-white shadow-sm overflow-hidden">
+        <div className="p-4 sm:p-5 lg:p-6">
+          <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-3 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase">CAPA 1 · PATRÓN SEMANAL</span>
+                <span className="px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">HISTORIAL TOTAL</span>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-zinc-900 mt-3 break-words">Días de la semana · {campaign.name}</h3>
+              <p className="text-[9px] sm:text-[10px] text-slate-600 mt-2 max-w-4xl leading-relaxed">
+                Agrupa todos los lunes entre sí, todos los martes entre sí y así sucesivamente. Compara cada día contra el comportamiento histórico global de esta misma campaña.
+              </p>
+              <p className="text-[8px] text-slate-400 mt-2">
+                {analysis?.historyDays || 0} días completos registrados · {rangeText} · hoy y días OFF excluidos.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 xl:max-w-[360px]">
+              <p className="text-[8px] font-black uppercase text-amber-700">Importante</p>
+              <p className="text-[9px] text-amber-900 mt-1.5 leading-relaxed">
+                Este patrón histórico sirve para entender qué días suelen funcionar mejor o peor. No reemplaza la decisión 3D y no pausa ni escala anuncios automáticamente.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-5">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-[8px] font-black uppercase text-emerald-700">Mejor día observado</p>
+              <p className="text-lg font-black text-zinc-900 mt-1">{best?.label || 'Sin muestra suficiente'}</p>
+              <p className="text-[9px] text-slate-600 mt-1.5">
+                {best ? `${best.sampleDays} ${best.label.toLowerCase()} registrados · CPA ${fmtCpa(best.stats.cpa)}` : 'Se necesitan más datos.'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+              <p className="text-[8px] font-black uppercase text-rose-700">Peor día observado</p>
+              <p className="text-lg font-black text-zinc-900 mt-1">{worst?.label || 'Sin muestra suficiente'}</p>
+              <p className="text-[9px] text-slate-600 mt-1.5">
+                {worst ? `${worst.sampleDays} ${worst.label.toLowerCase()} registrados · CPA ${fmtCpa(worst.stats.cpa)}` : 'Se necesitan más datos.'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[8px] font-black uppercase text-slate-500">Días estables</p>
+              <p className="text-sm font-black text-zinc-900 mt-1 leading-relaxed">
+                {stableNames.length ? stableNames.join(' · ') : 'Ninguno todavía'}
+              </p>
+              <p className="text-[9px] text-slate-500 mt-1.5">Se mantienen cerca del comportamiento histórico general.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        {(analysis?.rows || []).map(row => {
+          const tone = weekdayClassificationToneCC(row.classification);
+          return (
+            <article key={row.id} className={`min-w-0 rounded-3xl border-2 p-4 sm:p-5 ${toneBg(tone)}`}>
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2.5 py-1 rounded-full text-[8px] font-black uppercase ${toneBadge(tone)}`}>{row.classification}</span>
+                    <span className={`px-2.5 py-1 rounded-full text-[8px] font-black uppercase ${toneBadge(row.confidence.tone)}`}>
+                      Confianza {row.confidence.label}
+                    </span>
+                  </div>
+                  <h4 className="text-lg font-black text-zinc-900 mt-2">{row.label}</h4>
+                  <p className="text-[8px] text-slate-500 mt-1">{row.sampleDays} ocurrencia(s) histórica(s) · {row.confidence.text}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:min-w-[190px]">
+                  <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                    <p className="text-[7px] font-black uppercase text-slate-400">Gasto histórico</p>
+                    <p className="text-[11px] font-black mt-1">{fmtMoney(row.stats.spend)}</p>
+                  </div>
+                  <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                    <p className="text-[7px] font-black uppercase text-slate-400">Compras</p>
+                    <p className="text-[11px] font-black mt-1">{fmtNum(row.stats.purchases, 0)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[9px] sm:text-[10px] text-slate-700 mt-3 leading-relaxed">{row.summary}</p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 mt-4">
+                <WeekdayMetricMiniCC label="CPA" value={fmtCpa(row.stats.cpa)} delta={row.signals.cpa.delta} lowerIsBetter />
+                <WeekdayMetricMiniCC label="CVR" value={fmtRate(row.stats.visitToPurchase)} delta={row.signals.cvr.delta} />
+                <WeekdayMetricMiniCC label="CPC" value={fmtMoneyOrDashCC(row.stats.cpc)} delta={row.signals.cpc.delta} lowerIsBetter />
+                <WeekdayMetricMiniCC label="CTR" value={fmtRate(row.stats.ctr)} delta={row.signals.ctr.delta} />
+                <WeekdayMetricMiniCC label="CPM" value={fmtMoneyOrDashCC(row.stats.cpm)} delta={row.signals.cpm.delta} lowerIsBetter />
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-[8px] font-black uppercase text-slate-500">Cómo se define mejor / peor día</p>
+        <p className="text-[9px] text-slate-600 mt-1.5 leading-relaxed">
+          El resultado comercial manda: se prioriza CPA histórico del día. CVR, CPC, CTR y CPM se usan para confirmar si el resultado viene acompañado por señales coherentes. Un solo registro no se considera patrón; queda marcado como muestra baja.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const { currentStats: campaign3d, previousStats: campaignPrev3d } = splitPeriodRecords(campaignHistory, '3d');
@@ -6002,96 +6383,145 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
   const campaignColors = readingActionClassesCC(campaignTone);
 
   return (
-    <div className="space-y-4">
-      <div
-        className="rounded-3xl border-2 bg-white p-4 md:p-5 shadow-sm"
+    <div className="space-y-5 min-w-0">
+      {/* CAPA 1 · CAMPAÑA */}
+      <section
+        className="min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
         style={{ borderColor: campaignColors.border, boxShadow: `0 10px 28px ${campaignColors.border}12` }}
       >
-        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${campaignColors.badge}`}>
-                CAPA 1 · CAMPAÑA
-              </span>
-              <span className="px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">3D DECIDE</span>
-              <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${toneBadge(campaignOverview.scopeTone)}`}>{campaignOverview.scope}</span>
+        <div className="p-4 sm:p-5 lg:p-6">
+          {/* Cabecera: lectura a la izquierda, acción a la derecha solo cuando hay espacio real */}
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 xl:gap-6 items-start">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${campaignColors.badge}`}>
+                  CAPA 1 · CAMPAÑA
+                </span>
+                <span className="px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">3D DECIDE</span>
+                <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${toneBadge(campaignOverview.scopeTone)}`}>
+                  {campaignOverview.scope}
+                </span>
+              </div>
+
+              <h3 className="text-xl sm:text-2xl font-black text-zinc-900 mt-3 break-words">{campaign.name}</h3>
+              <p className={`text-[11px] sm:text-xs font-black mt-1 ${campaignColors.text}`}>{campaignOverview.resultTitle}</p>
+              <p className="text-[10px] sm:text-[11px] font-semibold text-zinc-800 mt-2 max-w-4xl leading-relaxed">
+                {campaignOverview.resultSimple}
+              </p>
+              <p className="text-[9px] sm:text-[10px] text-slate-600 mt-2 max-w-4xl leading-relaxed">
+                {campaignOverview.scopeSimple}
+              </p>
             </div>
-            <h3 className="text-xl font-black text-zinc-900 mt-3">{campaign.name}</h3>
-            <p className={`text-[10px] font-black mt-1 ${campaignColors.text}`}>{campaignOverview.resultTitle}</p>
-            <p className="text-[10px] font-black text-zinc-800 mt-2 max-w-3xl leading-relaxed">{campaignOverview.resultSimple}</p>
-            <p className="text-[9px] text-slate-600 mt-2 max-w-3xl leading-relaxed">{campaignOverview.scopeSimple}</p>
-          </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 min-w-full xl:min-w-[620px]">
-            <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`máx. ${fmtMoney(maxCpa)}`}/>
-            <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de mostrar"/>
-            <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio"/>
-            <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic"/>
-            <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra"/>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-4">
-          <div className={`rounded-2xl border p-3 ${toneBg(campaignOverview.scopeTone)}`}>
-            <p className="text-[8px] font-black uppercase text-slate-500">¿Es general o son pocos anuncios?</p>
-            <p className="text-[12px] font-black mt-1">{campaignOverview.scope}</p>
-            <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">{campaignOverview.scopeSimple}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-[8px] font-black uppercase text-slate-500">Presupuesto afectado</p>
-            <p className="text-2xl font-black mt-1 text-zinc-900">{fmtRate(campaignOverview.affectedSpend)}</p>
-            <p className="text-[8px] text-slate-600 mt-1">{campaignOverview.affectedCount} de {campaignOverview.activeSpendCount} anuncios con gasto presentan una señal que requiere atención.</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-[8px] font-black uppercase text-slate-500">Dónde aparece la mayor señal</p>
-            <p className="text-[12px] font-black mt-1 text-zinc-900">{campaignOverview.dominantLayer}</p>
-            <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">{campaignOverview.action}</p>
-          </div>
-        </div>
-
-        {campaignOverview.topProblems.length ? (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-            <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Anuncios que más explican el deterioro</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-              {campaignOverview.topProblems.map((item, index) => (
-                <div key={item.id || index} className="rounded-xl bg-slate-50 border border-slate-100 p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[9px] font-black text-zinc-900 truncate">{index + 1}. {item.name}</p>
-                    <span className={`px-2 py-1 rounded-full text-[7px] font-black ${item.action === 'PAUSAR' ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-700'}`}>{item.action}</span>
-                  </div>
-                  <p className="text-[7px] text-slate-500 mt-1">{fmtRate(item.spendShare)} del gasto · {item.contribution} · {item.layer}</p>
+            <div className={`rounded-2xl border p-4 ${toneBg(campaignOverview.scopeTone)}`}>
+              <p className="text-[8px] font-black uppercase tracking-wider text-slate-500">Qué hacer con la campaña</p>
+              <p className="text-sm font-black text-zinc-900 mt-1">{campaignOverview.dominantLayer}</p>
+              <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{campaignOverview.action}</p>
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                  <p className="text-[7px] font-black uppercase text-slate-400">Presupuesto afectado</p>
+                  <p className="text-lg font-black mt-1">{fmtRate(campaignOverview.affectedSpend)}</p>
                 </div>
-              ))}
+                <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                  <p className="text-[7px] font-black uppercase text-slate-400">Anuncios afectados</p>
+                  <p className="text-lg font-black mt-1">{campaignOverview.affectedCount}/{campaignOverview.activeSpendCount}</p>
+                </div>
+              </div>
             </div>
           </div>
-        ) : null}
 
-        <div className="mt-4 pt-3 border-t border-slate-100">
-          <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Hoy debes hacer</p>
-          <div className="flex flex-wrap gap-2 mt-2">
-            <span className="px-2.5 py-1.5 rounded-full bg-rose-50 text-rose-700 text-[8px] font-black">{actionCounts.PAUSAR || 0} pausar</span>
-            <span className="px-2.5 py-1.5 rounded-full bg-amber-50 text-amber-700 text-[8px] font-black">{actionCounts.VIGILAR || 0} vigilar</span>
-            <span className="px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[8px] font-black">{actionCounts.ESCALAR || 0} escalar</span>
-            <span className="px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-700 text-[8px] font-black">{actionCounts.MANTENER || 0} mantener</span>
+          {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mt-5">
+            <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`}/>
+            <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones"/>
+            <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio"/>
+            <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic"/>
+            <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra"/>
+          </div>
+
+          {/* Lectura ejecutiva */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-4">
+            <div className={`rounded-2xl border p-3.5 ${toneBg(campaignOverview.scopeTone)}`}>
+              <p className="text-[8px] font-black uppercase text-slate-500">Alcance del problema</p>
+              <p className="text-[12px] font-black mt-1">{campaignOverview.scope}</p>
+              <p className="text-[9px] text-slate-600 mt-1.5 leading-relaxed">{campaignOverview.scopeSimple}</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+              <p className="text-[8px] font-black uppercase text-slate-500">Impacto en presupuesto</p>
+              <p className="text-2xl font-black mt-1 text-zinc-900">{fmtRate(campaignOverview.affectedSpend)}</p>
+              <p className="text-[9px] text-slate-600 mt-1.5 leading-relaxed">
+                {campaignOverview.affectedCount} de {campaignOverview.activeSpendCount} anuncios con gasto requieren atención.
+              </p>
+            </div>
+
+            <div className="sm:col-span-2 xl:col-span-1 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+              <p className="text-[8px] font-black uppercase text-slate-500">Mayor señal observada</p>
+              <p className="text-[12px] font-black mt-1 text-zinc-900">{campaignOverview.dominantLayer}</p>
+              <p className="text-[9px] text-slate-600 mt-1.5 leading-relaxed">{campaignOverview.action}</p>
+            </div>
+          </div>
+
+          {campaignOverview.topProblems.length ? (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Anuncios que más explican el deterioro</p>
+                <p className="text-[8px] text-slate-400">Ordenados por impacto económico</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-2.5">
+                {campaignOverview.topProblems.map((item, index) => (
+                  <div key={item.id || index} className="min-w-0 rounded-xl bg-slate-50 border border-slate-100 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 text-[10px] font-black text-zinc-900 break-words">{index + 1}. {item.name}</p>
+                      <span className={`shrink-0 px-2 py-1 rounded-full text-[7px] font-black ${item.action === 'PAUSAR' ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-700'}`}>
+                        {item.action}
+                      </span>
+                    </div>
+                    <p className="text-[8px] text-slate-500 mt-1.5 leading-relaxed">
+                      {fmtRate(item.spendShare)} del gasto · {item.contribution} · {item.layer}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Hoy debes hacer</p>
+              <p className="text-[8px] text-slate-400">Pausar protege presupuesto; no declara muerto el creativo.</p>
+            </div>
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mt-2.5">
+              <span className="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 text-[9px] font-black text-center">{actionCounts.PAUSAR || 0} pausar</span>
+              <span className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-[9px] font-black text-center">{actionCounts.VIGILAR || 0} vigilar</span>
+              <span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-[9px] font-black text-center">{actionCounts.ESCALAR || 0} escalar</span>
+              <span className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-[9px] font-black text-center">{actionCounts.MANTENER || 0} mantener</span>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="rounded-2xl bg-zinc-950 text-white p-3 md:p-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+      {/* Separador conceptual */}
+      <div className="rounded-2xl bg-zinc-950 text-white p-3.5 sm:p-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] lg:items-center gap-2 lg:gap-5">
           <div>
-            <p className="text-[9px] font-black uppercase tracking-wider text-emerald-400">Lectura instantánea</p>
-            <p className="text-[9px] text-zinc-300 mt-1">Primero decisión. Después causa. Finalmente detalle. Los números operativos siempre son 3D vs los 3 días activos completos anteriores.</p>
+            <p className="text-[9px] font-black uppercase tracking-wider text-emerald-400">Cómo leer esta pantalla</p>
+            <p className="text-[9px] sm:text-[10px] text-zinc-300 mt-1 leading-relaxed">
+              Primero mira la campaña. Después baja únicamente a los anuncios que explican el cambio. Todo lo operativo usa 3D vs los 3 días activos completos anteriores.
+            </p>
           </div>
-          <span className="text-[8px] font-black uppercase text-zinc-400">Prioridad: Pausar para proteger presupuesto → Vigilar → Escalar → Mantener</span>
+          <span className="text-[8px] font-black uppercase text-zinc-400 lg:text-right">
+            Pausar → Vigilar → Escalar → Mantener
+          </span>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 px-1 pt-1">
-        <span className="px-3 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">CAPA 2 · ANUNCIOS</span>
-        <p className="text-[8px] text-slate-500">Aquí bajamos del panorama general a la causa exacta por anuncio.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-1 pt-1">
+        <span className="w-fit px-3 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">CAPA 2 · ANUNCIOS</span>
+        <p className="text-[9px] text-slate-500">Detalle por anuncio: qué cambió, dónde está el problema y qué acción corresponde.</p>
       </div>
 
+      {/* CAPA 2 · ANUNCIOS */}
       {rows.length ? rows.map(({ ad, diag, contribution, action, audience, messages, relational }) => {
         const colors = readingActionClassesCC(action.tone);
         const open = expandedReadAds[ad.id] === true;
@@ -6102,13 +6532,14 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           contribution?.status === 'Sin entrega de Meta' ? 'attention' : 'neutral';
 
         return (
-          <div
+          <article
             key={ad.id}
-            className="rounded-3xl border-2 bg-white overflow-hidden shadow-sm"
+            className="min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
             style={{ borderColor: colors.border, boxShadow: `0 8px 24px ${colors.border}10` }}
           >
-            <div className="p-4 md:p-5">
-              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+            <div className="p-4 sm:p-5 lg:p-6">
+              {/* Identidad + decisión, sin forzar las métricas en paralelo */}
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 xl:gap-6 items-start">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${colors.badge}`}>{action.label}</span>
@@ -6121,36 +6552,48 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                       </span>
                     ) : null}
                   </div>
-                  <h4 className="text-base md:text-lg font-black text-zinc-900 mt-3">{ad.name}</h4>
-                  <p className={`text-[10px] font-black mt-1 ${colors.text}`}>{diag.operational3dDiagnosis}</p>
-                  <p className="text-[9px] font-black text-zinc-800 mt-2 leading-relaxed max-w-3xl">{relational.general.title}</p>
-                  <p className="text-[9px] text-slate-600 mt-1 leading-relaxed max-w-3xl">{relational.general.simpleStory}</p>
+
+                  <h4 className="text-base sm:text-lg font-black text-zinc-900 mt-3 break-words">{ad.name}</h4>
+                  <p className={`text-[10px] sm:text-[11px] font-black mt-1 ${colors.text}`}>{diag.operational3dDiagnosis}</p>
+                  <p className="text-[10px] font-black text-zinc-800 mt-2 leading-relaxed max-w-4xl">{relational.general.title}</p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed max-w-4xl">{relational.general.simpleStory}</p>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2 lg:min-w-[650px]">
-                  <QuickMetricCC label="CPA" value={fmtCpa(diag.scale3d.cpa)} delta={diag.scaleDelta3d.cpa} metric="cpa" sub={`máx. ${fmtMoney(maxCpa)}`}/>
-                  <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(diag.scale3d.cpc)} delta={diag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `bench. ${fmtMoneyOrDashCC(benchmark.cpc)}` : null}/>
-                  <QuickMetricCC label="CTR" value={fmtRate(diag.scale3d.ctr)} delta={diag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `bench. ${fmtRate(benchmark.ctr)}` : null}/>
-                  <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(diag.scale3d.cpm)} delta={diag.scaleDelta3d.cpm} metric="cpm" sub={benchmark?.sampleDays ? `bench. ${fmtMoneyOrDashCC(benchmark.cpm)}` : null}/>
-                  <QuickMetricCC label="CVR" value={fmtRate(diag.scale3d.visitToPurchase)} delta={diag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub="Visita → compra"/>
+                <div className={`rounded-2xl border p-4 ${toneBg(action.pause?.tone || action.tone || 'normal')}`}>
+                  <p className="text-[8px] font-black uppercase text-slate-500">Acción recomendada</p>
+                  <p className={`text-sm font-black mt-1 ${colors.text}`}>{action.title}</p>
+                  <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{action.simple}</p>
+                  <p className="text-[8px] font-black text-zinc-700 mt-3">
+                    Prioridad: {relational.impact.level}
+                  </p>
                 </div>
               </div>
 
-              <div className="mt-4">
-                <div className="flex items-center justify-between gap-2">
+              {/* Métricas principales */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mt-5">
+                <QuickMetricCC label="CPA" value={fmtCpa(diag.scale3d.cpa)} previousValue={fmtCpa(diag.scalePrev3d.cpa)} delta={diag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`}/>
+                <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(diag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(diag.scalePrev3d.cpc)} delta={diag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpc)}` : null}/>
+                <QuickMetricCC label="CTR" value={fmtRate(diag.scale3d.ctr)} previousValue={fmtRate(diag.scalePrev3d.ctr)} delta={diag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `Bench. ${fmtRate(benchmark.ctr)}` : null}/>
+                <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(diag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(diag.scalePrev3d.cpm)} delta={diag.scaleDelta3d.cpm} metric="cpm" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpm)}` : null}/>
+                <QuickMetricCC label="CVR" value={fmtRate(diag.scale3d.visitToPurchase)} previousValue={fmtRate(diag.scalePrev3d.visitToPurchase)} delta={diag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub="Visita → compra"/>
+              </div>
+
+              {/* Diagnóstico relacional */}
+              <div className="mt-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Cadena diagnóstica 3D</p>
-                  <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[7px] font-black uppercase">
+                  <span className="w-fit px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
                     Principal: {relational.primaryLayer}
                   </span>
                 </div>
 
-                <div className={`mt-2 rounded-2xl border-2 p-3 ${toneBg(relational.general.tone)}`}>
+                <div className={`mt-2.5 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(relational.general.tone)}`}>
                   <p className="text-[8px] font-black uppercase">Diagnóstico general</p>
-                  <p className="text-[11px] font-black mt-1">{relational.general.title}</p>
-                  <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">{relational.general.interpretation}</p>
+                  <p className="text-[12px] font-black mt-1">{relational.general.title}</p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1.5 leading-relaxed">{relational.general.interpretation}</p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 mt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-2.5">
                   {[
                     ['1 · Resultado', relational.result],
                     ['2 · Impacto presupuesto', relational.impact],
@@ -6159,50 +6602,53 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     ['5 · Costo del tráfico', relational.traffic],
                     ['6 · Post-clic / CVR', relational.postClick]
                   ].map(([label, layer]) => (
-                    <div key={label} className={`rounded-xl border p-3 ${toneBg(layer?.tone || 'normal')}`}>
-                      <p className="text-[7px] font-black uppercase text-slate-500">{label}</p>
-                      <p className="text-[9px] font-black mt-1">{layer?.title || layer?.level || '—'}</p>
-                      <p className="text-[7px] text-slate-600 mt-1 leading-relaxed">{layer?.plain || layer?.summary || '—'}</p>
+                    <div key={label} className={`min-w-0 rounded-2xl border p-3.5 ${toneBg(layer?.tone || 'normal')}`}>
+                      <p className="text-[8px] font-black uppercase text-slate-500">{label}</p>
+                      <p className="text-[10px] font-black mt-1.5 break-words">{layer?.title || layer?.level || '—'}</p>
+                      <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">{layer?.plain || layer?.summary || '—'}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2.5">
                   {hh?.isVideo ? (
-                    <div className={`rounded-xl border p-3 ${toneBg(hh.tone)}`}>
+                    <div className={`rounded-2xl border p-3.5 ${toneBg(hh.tone)}`}>
                       <p className="text-[8px] font-black uppercase">Video · Hook / Hold</p>
-                      <p className="text-[9px] font-black mt-1">{hh.diagnosis}</p>
-                      <p className="text-[7px] text-slate-500 mt-1">Hook {fmtRate(diag.scale3d.hookRate)} · Hold {fmtRate(diag.scale3d.holdRate)}</p>
+                      <p className="text-[10px] font-black mt-1.5">{hh.diagnosis}</p>
+                      <p className="text-[8px] text-slate-500 mt-1.5">Hook {fmtRate(diag.scale3d.hookRate)} · Hold {fmtRate(diag.scale3d.holdRate)}</p>
                     </div>
                   ) : (
-                    <div className="rounded-xl border p-3 bg-slate-50 border-slate-200">
+                    <div className="rounded-2xl border p-3.5 bg-slate-50 border-slate-200">
                       <p className="text-[8px] font-black uppercase">Creativo de imagen</p>
-                      <p className="text-[9px] font-black mt-1">CTR tiene mayor peso en la lectura creativa.</p>
-                      <p className="text-[7px] text-slate-500 mt-1">CTR {fmtRate(diag.scale3d.ctr)} · Δ {diag.scaleDelta3d.ctr === null ? '—' : `${diag.scaleDelta3d.ctr > 0 ? '+' : ''}${fmtNum(diag.scaleDelta3d.ctr,2)}%`}</p>
+                      <p className="text-[10px] font-black mt-1.5">CTR tiene mayor peso en la lectura creativa.</p>
+                      <p className="text-[8px] text-slate-500 mt-1.5">
+                        CTR {fmtRate(diag.scale3d.ctr)} · Δ {diag.scaleDelta3d.ctr === null ? '—' : `${diag.scaleDelta3d.ctr > 0 ? '+' : ''}${fmtNum(diag.scaleDelta3d.ctr,2)}%`}
+                      </p>
                     </div>
                   )}
 
-                  <div className={`rounded-xl border p-3 ${toneBg(messages.tone)}`}>
+                  <div className={`rounded-2xl border p-3.5 ${toneBg(messages.tone)}`}>
                     <p className="text-[8px] font-black uppercase">Potencial para mensajes</p>
-                    <p className="text-[9px] font-black mt-1">{messages.label}</p>
-                    <p className="text-[7px] text-slate-500 mt-1">{messages.summary}</p>
+                    <p className="text-[10px] font-black mt-1.5">{messages.label}</p>
+                    <p className="text-[8px] sm:text-[9px] text-slate-500 mt-1.5 leading-relaxed">{messages.summary}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-3">
-                <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Acción recomendada</p>
-                    <p className={`text-sm font-black mt-1 ${colors.text}`}>{action.title}</p>
-                    <p className="text-[9px] text-slate-700 mt-1 max-w-3xl leading-relaxed">{action.simple}</p>
-                    <p className="text-[8px] text-slate-500 mt-2 max-w-3xl">Evidencia: {action.reason}</p>
-                    <p className="text-[8px] font-black text-zinc-700 mt-2">Prioridad presupuestaria: {relational.impact.level} · {relational.impact.summary}</p>
+              {/* Acción inferior / detalle */}
+              <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 p-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Evidencia de la decisión</p>
+                    <p className="text-[9px] text-slate-600 mt-1 leading-relaxed max-w-4xl">{action.reason}</p>
+                    <p className="text-[8px] font-black text-zinc-700 mt-2">
+                      {relational.impact.summary}
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setExpandedReadAds(x => ({ ...x, [ad.id]: !open }))}
-                    className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[8px] font-black uppercase text-slate-600 whitespace-nowrap"
+                    className="w-full sm:w-auto shrink-0 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-600"
                   >
                     {open ? 'Ocultar detalle' : 'Ver por qué'}
                   </button>
@@ -6211,36 +6657,38 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             </div>
 
             {open && (
-              <div className="border-t border-slate-100 bg-slate-50/60 p-4 md:p-5">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-3">
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+              <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 lg:p-6">
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-2.5 mb-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-emerald-700">Hecho</p>
-                    <p className="text-[8px] text-slate-700 mt-1 leading-relaxed">{relational.general.fact}</p>
+                    <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">{relational.general.fact}</p>
                   </div>
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-blue-700">Interpretación</p>
-                    <p className="text-[8px] text-slate-700 mt-1 leading-relaxed">{relational.general.interpretation}</p>
+                    <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">{relational.general.interpretation}</p>
                   </div>
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-amber-700">Hipótesis · no demostrada</p>
-                    <p className="text-[8px] text-slate-700 mt-1 leading-relaxed">{relational.general.hypothesis}</p>
+                    <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">{relational.general.hypothesis}</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className={`rounded-2xl border p-3 ${toneBg(action.pause?.tone || 'normal')}`}>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                  <div className={`rounded-2xl border p-3.5 ${toneBg(action.pause?.tone || 'normal')}`}>
                     <p className="text-[8px] font-black uppercase text-slate-500">Protección de presupuesto · pausa 3D</p>
                     <p className="text-[11px] font-black mt-1">{action.pause?.title || 'SIN LECTURA'}</p>
-                    <p className="text-[8px] text-slate-700 mt-2 leading-relaxed">{action.pause?.simple}</p>
-                    <p className="text-[7px] text-slate-500 mt-2">{action.pause?.recoverySignal ? 'El último día completo muestra recuperación y frena una pausa automática.' : 'El último día completo no reemplaza al 3D; solo ayuda a detectar recuperación.'}</p>
-                    <p className="text-[7px] font-black text-zinc-700 mt-2">{action.pause?.futureStatus}</p>
+                    <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{action.pause?.simple}</p>
+                    <p className="text-[8px] text-slate-500 mt-2">
+                      {action.pause?.recoverySignal ? 'El último día completo muestra recuperación y frena una pausa automática.' : 'El último día completo no reemplaza al 3D; solo ayuda a detectar recuperación.'}
+                    </p>
+                    <p className="text-[8px] font-black text-zinc-700 mt-2">{action.pause?.futureStatus}</p>
                   </div>
 
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-slate-500">Contribución 3D · lo que aporta / drena</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(contributionTone)}`}>{contribution?.status || 'Sin lectura'}</p>
-                    <p className="text-[8px] text-slate-600 mt-2">{contribution?.cause || 'Sin diagnóstico de contribución.'}</p>
-                    <div className="grid grid-cols-2 gap-2 mt-3">
+                    <p className="text-[9px] text-slate-600 mt-2">{contribution?.cause || 'Sin diagnóstico de contribución.'}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
                       <MiniCard label="Gasto campaña" value={fmtRate(contribution?.spendShare)} />
                       <MiniCard label="Compras campaña" value={fmtRate(contribution?.purchaseShare)} />
                       <MiniCard label="CPA anuncio" value={fmtCpa(contribution?.cpa)} />
@@ -6250,50 +6698,56 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     </div>
                   </div>
 
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-slate-500">CVR vs otros anuncios · misma ventana</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(relational.postClick.tone)}`}>{relational.postClick.title}</p>
-                    <p className="text-[8px] text-slate-600 mt-2">{relational.postClick.peerInterpretation}</p>
-                    <p className="text-[7px] text-slate-400 mt-2">Esto evita culpar automáticamente a la landing cuando el deterioro puede estar concentrado en el tráfico de un solo anuncio.</p>
+                    <p className="text-[9px] text-slate-600 mt-2 leading-relaxed">{relational.postClick.peerInterpretation}</p>
+                    <p className="text-[8px] text-slate-400 mt-2">Esto evita culpar automáticamente a la landing cuando el deterioro puede estar concentrado en el tráfico de un solo anuncio.</p>
                   </div>
 
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-slate-500">Presión de audiencia</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(audience.tone)}`}>{audience.label}</p>
-                    <p className="text-[8px] text-slate-600 mt-2">{audience.summary}</p>
-                    <p className="text-[8px] text-slate-500 mt-2"><strong>Posible causa:</strong> {audience.cause}</p>
-                    <p className="text-[8px] font-black text-zinc-800 mt-2">Acción: {audience.action}</p>
+                    <p className="text-[9px] text-slate-600 mt-2 leading-relaxed">{audience.summary}</p>
+                    <p className="text-[9px] text-slate-500 mt-2"><strong>Posible causa:</strong> {audience.cause}</p>
+                    <p className="text-[9px] font-black text-zinc-800 mt-2">Acción: {audience.action}</p>
                   </div>
 
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-slate-500">Potencial para campañas de mensajes</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(messages.tone)}`}>{messages.label}</p>
-                    <p className="text-[8px] text-slate-600 mt-2">{messages.summary}</p>
-                    <p className="text-[8px] font-black text-zinc-800 mt-2">Acción: {messages.action}</p>
-                    <p className="text-[7px] text-slate-400 mt-2">Esta señal no modifica CPA, ganador/perdedor ni guardrails. Solo prioriza creativos para probar en mensajes.</p>
+                    <p className="text-[9px] text-slate-600 mt-2 leading-relaxed">{messages.summary}</p>
+                    <p className="text-[9px] font-black text-zinc-800 mt-2">Acción: {messages.action}</p>
+                    <p className="text-[8px] text-slate-400 mt-2">Esta señal no modifica CPA, ganador/perdedor ni guardrails. Solo prioriza creativos para probar en mensajes.</p>
                   </div>
 
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5">
                     <p className="text-[8px] font-black uppercase text-slate-500">Confianza de la evidencia</p>
                     <p className="text-[11px] font-black mt-1 text-zinc-900">{relational.confidence.label}</p>
-                    <p className="text-[8px] text-slate-600 mt-2">{relational.confidence.summary}</p>
-                    <p className="text-[7px] text-slate-400 mt-2">La confianza contextualiza el diagnóstico; no sustituye las reglas 3D ni fabrica resultados.</p>
+                    <p className="text-[9px] text-slate-600 mt-2">{relational.confidence.summary}</p>
+                    <p className="text-[8px] text-slate-400 mt-2">La confianza contextualiza el diagnóstico; no sustituye las reglas 3D.</p>
                   </div>
 
-                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
-                    <p className="text-[8px] font-black uppercase text-slate-500">Guardrails 3D</p>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <GuardrailPill ok={diag.guardrails.cpaMargin} label="Margen CPA"/>
-                      <GuardrailPill ok={diag.guardrails.stability} label="Estabilidad"/>
-                      <GuardrailPill ok={diag.guardrails.creative} label="Creativo"/>
-                      <GuardrailPill ok={diag.guardrails.postClick} label="Post-clic"/>
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3.5 xl:col-span-2">
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 lg:items-center">
+                      <div>
+                        <p className="text-[8px] font-black uppercase text-slate-500">Guardrails 3D</p>
+                        <p className="text-[9px] text-slate-500 mt-2">
+                          Volumen: {fmtNum(diag.volumeReference?.purchases, 0)} compras · confianza {diag.volumeReference?.confidence}. El volumen informa confianza; no bloquea por sí solo.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <GuardrailPill ok={diag.guardrails.cpaMargin} label="Margen CPA"/>
+                        <GuardrailPill ok={diag.guardrails.stability} label="Estabilidad"/>
+                        <GuardrailPill ok={diag.guardrails.creative} label="Creativo"/>
+                        <GuardrailPill ok={diag.guardrails.postClick} label="Post-clic"/>
+                      </div>
                     </div>
-                    <p className="text-[8px] text-slate-500 mt-3">Volumen: {fmtNum(diag.volumeReference?.purchases, 0)} compras · confianza {diag.volumeReference?.confidence}. El volumen informa confianza; no bloquea por sí solo.</p>
                   </div>
                 </div>
               </div>
             )}
-          </div>
+          </article>
         );
       }) : <EmptyState>Sin anuncios activos con lectura 3D.</EmptyState>}
     </div>
@@ -6368,26 +6822,37 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
   const dynamicCounts = adRows.reduce((acc, x) => { acc[x.diag.dynamicDiagnosis] = (acc[x.diag.dynamicDiagnosis] || 0) + 1; return acc; }, {});
   const maxCpa = toNumber(product?.maxCpa);
+  const weekdayAnalysis = useMemo(
+    () => buildCampaignWeekdayAnalysisCC(campaignHistory, maxCpa),
+    [campaignHistory, maxCpa]
+  );
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
-        <div className="px-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="px-1 md:px-2">
           <p className="text-[9px] font-black uppercase text-zinc-900">Cómo quieres leer la campaña</p>
-          <p className="text-[8px] text-slate-500 mt-0.5">Modo lectura resume la decisión en segundos. Detalle técnico conserva todas las tablas y motores actuales.</p>
+          <p className="text-[9px] text-slate-500 mt-0.5 leading-relaxed">Modo lectura resume la decisión en segundos. Días de la semana descubre patrones históricos por lunes, martes, miércoles, etc. Detalle técnico conserva todas las tablas y motores actuales.</p>
         </div>
-        <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+        <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto overflow-hidden">
           <button
             type="button"
             onClick={() => setViewMode('reading')}
-            className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'reading' ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500'}`}
+            className={`flex-1 md:flex-none px-4 py-2.5 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'reading' ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500'}`}
           >
             Modo lectura
           </button>
           <button
             type="button"
+            onClick={() => setViewMode('weekdays')}
+            className={`flex-1 md:flex-none px-4 py-2.5 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'weekdays' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500'}`}
+          >
+            Días de la semana
+          </button>
+          <button
+            type="button"
             onClick={() => setViewMode('technical')}
-            className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'technical' ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500'}`}
+            className={`flex-1 md:flex-none px-4 py-2.5 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'technical' ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500'}`}
           >
             Detalle técnico
           </button>
@@ -6402,6 +6867,13 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           campaignHistory={campaignHistory}
           campaignDecision={campaignDecision}
           benchmark={benchmark}
+        />
+      )}
+
+      {viewMode === 'weekdays' && (
+        <CampaignWeekdayHistoryView
+          campaign={campaign}
+          analysis={weekdayAnalysis}
         />
       )}
 
@@ -6444,12 +6916,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             <p className="text-[9px] font-black uppercase text-cyan-800">Período de monitoreo por anuncio</p>
             <p className="text-[8px] text-slate-500 mt-1">Controla la lectura analítica de Variaciones dinámicas y Embudo post-clic. NO modifica decisiones, Guardrails, Contribución ni observaciones operativas: todo eso se determina en 3D.</p>
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto overflow-x-auto">
             {MONITOR_PERIODS.map(p => (
               <button
                 key={p.id}
                 onClick={() => setMonitorPeriod(p.id)}
-                className={`px-4 py-2 rounded-lg text-[9px] font-black transition ${monitorPeriod === p.id ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500 hover:text-zinc-900'}`}
+                className={`shrink-0 px-3 sm:px-4 py-2 rounded-lg text-[9px] font-black transition ${monitorPeriod === p.id ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500 hover:text-zinc-900'}`}
               >
                 {p.label}
               </button>
@@ -8577,7 +9049,7 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main style={{ maxWidth: '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
+      <main style={{ maxWidth: activeTab === 'campaignControl' ? '96rem' : '72rem', margin: '0 auto', padding: '1rem 1rem 3rem' }}>
         {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
         {activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
         {activeTab === 'config' && <VistaConfig configs={configs} />}
