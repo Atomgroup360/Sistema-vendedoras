@@ -7972,6 +7972,53 @@ function buildScaleChangeImpactDiagnosisCC(
   };
 }
 
+
+function marginalCpaDisplayCC(scaleStatus) {
+  const marginal = scaleStatus?.marginalCpa;
+  const extraSpend = scaleStatus?.marginalExtraSpendDay;
+  const extraPurchases = scaleStatus?.marginalExtraPurchasesDay;
+
+  if (marginal !== null && marginal !== undefined && Number.isFinite(Number(marginal))) {
+    const m = Number(marginal);
+    return {
+      value: fmtMoney(m),
+      status: m > 0 ? 'CALCULADO' : 'SIN DATOS',
+      tone: m > 0 ? 'normal' : 'neutral',
+      formula:
+        extraSpend !== null && extraSpend !== undefined &&
+        extraPurchases !== null && extraPurchases !== undefined
+          ? `Δ gasto/día ${extraSpend >= 0 ? '+' : ''}${fmtMoney(extraSpend)} ÷ Δ compras/día ${extraPurchases >= 0 ? '+' : ''}${fmtNum(extraPurchases, 2)}`
+          : 'Δ gasto/día ÷ Δ compras/día',
+      explanation: 'Costo de cada compra diaria adicional generada por el nuevo nivel.'
+    };
+  }
+
+  if (
+    extraSpend !== null &&
+    extraSpend !== undefined &&
+    toNumber(extraSpend) > 0 &&
+    extraPurchases !== null &&
+    extraPurchases !== undefined &&
+    toNumber(extraPurchases) <= 0
+  ) {
+    return {
+      value: '∞',
+      status: 'SIN GANANCIA · INEFICIENTE',
+      tone: 'critical',
+      formula: `Δ gasto/día +${fmtMoney(extraSpend)} ÷ Δ compras/día ${fmtNum(extraPurchases, 2)}`,
+      explanation: 'El gasto diario aumentó, pero las compras/día no aumentaron. Por eso no existe un CPA marginal positivo finito.'
+    };
+  }
+
+  return {
+    value: '—',
+    status: 'SIN MUESTRA COMPARABLE',
+    tone: 'neutral',
+    formula: 'Δ gasto/día ÷ Δ compras/día',
+    explanation: 'Aún no hay dos niveles comparables con datos suficientes.'
+  };
+}
+
 function currentScaleStatusMarginalNoGainCC(scaleStatus) {
   return (
     scaleStatus?.marginalExtraSpendDay !== null &&
@@ -8078,7 +8125,7 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
       summary:
         currentRow.marginalCpa !== null && currentRow.marginalCpa !== undefined
           ? `El presupuesto actual de ${fmtMoney(currentBudget)} presenta un CPA marginal de ${fmtCpa(currentRow.marginalCpa)}, por encima del CPA máximo de ${fmtMoney(max)}. El gasto adicional de este nivel está perdiendo eficiencia.`
-          : `El presupuesto actual de ${fmtMoney(currentBudget)} aumentó el gasto diario frente al nivel anterior, pero no produjo compras diarias adicionales. No existe un CPA marginal positivo calculable porque la respuesta incremental fue nula o negativa.`,
+          : `El presupuesto actual de ${fmtMoney(currentBudget)} aumentó el gasto diario frente al nivel anterior, pero no generó compras/día adicionales. El nuevo nivel perdió eficiencia incremental.`,
       action:
         profitableCeiling
           ? `No continuar escalando. El último nivel rentable observado es ${fmtMoney(profitableCeiling.budget)}, pero la reducción solo se habilita si el diagnóstico causal cumple todas las condiciones estrictas.`
@@ -8143,11 +8190,12 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
 
   const tone = scaleStatus.tone || 'neutral';
   const diag = scaleStatus.scaleDiagnosis || null;
+  const marginalDisplay = marginalCpaDisplayCC(scaleStatus);
 
   const valueBox = (label, value, sub = null) => (
-    <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-3 py-3 sm:px-3.5">
+    <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-2.5 py-2.5 sm:px-3 sm:py-3">
       <p
-        className="text-[6.5px] sm:text-[7px] font-black uppercase leading-tight tracking-wide text-slate-400"
+        className="text-[6px] sm:text-[6.5px] font-black uppercase leading-tight tracking-wide text-slate-400"
         style={{ overflowWrap: 'anywhere' }}
       >
         {label}
@@ -8155,13 +8203,13 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
 
       <p
         className="mt-1.5 font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
-        style={{ fontSize: 'clamp(12px, 1.05vw, 17px)' }}
+        style={{ fontSize: 'clamp(11px, 0.9vw, 15px)' }}
       >
         {value}
       </p>
 
       {sub ? (
-        <p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1.5 leading-snug">
+        <p className="text-[6px] sm:text-[6.5px] text-slate-500 mt-1.5 leading-snug">
           {sub}
         </p>
       ) : null}
@@ -8169,39 +8217,39 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   );
 
   return (
-    <div className={`mt-4 rounded-2xl border-2 p-3 sm:p-4 lg:p-5 ${toneBg(tone)}`}>
-      {/* CABECERA · usa todo el ancho disponible */}
+    <div className={`mt-4 rounded-2xl border-2 p-3 sm:p-4 ${toneBg(tone)}`}>
+      {/* CABECERA */}
       <div className="min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <p className="text-[8px] font-black uppercase tracking-wide text-slate-500">
+          <p className="text-[7px] sm:text-[8px] font-black uppercase tracking-wide text-slate-500">
             Estado actual de escala
           </p>
 
           <span
-            className={`inline-flex self-start sm:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[7px] sm:text-[8px] font-black uppercase leading-tight text-center ${toneBadge(tone)}`}
+            className={`inline-flex self-start sm:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[6.5px] sm:text-[7.5px] font-black uppercase leading-tight text-center ${toneBadge(tone)}`}
             style={{ overflowWrap: 'anywhere' }}
           >
             {scaleStatus.status}
           </span>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)] gap-3 xl:gap-5">
-          <p className="min-w-0 text-[11px] sm:text-[12px] lg:text-[13px] font-black text-zinc-900 leading-relaxed">
+        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)] gap-3 xl:gap-4">
+          <p className="min-w-0 text-[9px] sm:text-[10px] lg:text-[11px] font-bold text-zinc-900 leading-[1.55]">
             {scaleStatus.summary}
           </p>
 
           <div className="min-w-0 rounded-xl border border-white/70 bg-white/55 px-3 py-2.5">
-            <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+            <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-400">
               Qué hacer
             </p>
-            <p className="text-[8px] sm:text-[9px] text-slate-700 mt-1.5 leading-relaxed">
+            <p className="text-[7.5px] sm:text-[8px] text-slate-700 mt-1.5 leading-[1.55]">
               {scaleStatus.action}
             </p>
           </div>
         </div>
       </div>
 
-      {/* MÉTRICAS · 2 columnas móvil / 4 columnas PC */}
+      {/* MÉTRICAS */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 mt-4">
         {valueBox(
           'Presupuesto actual',
@@ -8217,23 +8265,39 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
           `CPA máximo ${fmtMoney(maxCpa)}`
         )}
 
-        {valueBox(
-          'CPA marginal',
-          scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
-            ? fmtMoney(scaleStatus.marginalCpa)
-            : (
-                currentScaleStatusMarginalNoGainCC(scaleStatus)
-                  ? 'SIN GANANCIA'
-                  : '—'
-              ),
-          scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
-            ? 'Costo por cada compra diaria adicional'
-            : (
-                currentScaleStatusMarginalNoGainCC(scaleStatus)
-                  ? 'Subió el gasto diario, pero no aumentaron las compras/día'
-                  : 'Aún no hay nivel anterior comparable'
-              )
-        )}
+        <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-2.5 py-2.5 sm:px-3 sm:py-3">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[6px] sm:text-[6.5px] font-black uppercase leading-tight tracking-wide text-slate-400">
+              CPA marginal
+            </p>
+            <span
+              className={`inline-flex max-w-[65%] px-1.5 py-1 rounded-md text-[5.5px] sm:text-[6px] font-black uppercase leading-tight text-center ${toneBadge(marginalDisplay.tone)}`}
+              style={{ overflowWrap: 'anywhere' }}
+            >
+              {marginalDisplay.status}
+            </span>
+          </div>
+
+          <p
+            className="mt-1.5 font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+            style={{ fontSize: 'clamp(12px, 0.95vw, 16px)' }}
+          >
+            {marginalDisplay.value}
+          </p>
+
+          <p className="text-[6px] sm:text-[6.5px] text-slate-600 mt-1.5 leading-snug">
+            {marginalDisplay.explanation}
+          </p>
+
+          <div className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5">
+            <p className="text-[5.5px] sm:text-[6px] font-black uppercase text-slate-400">
+              Cómo se calcula
+            </p>
+            <p className="text-[5.5px] sm:text-[6px] text-slate-500 mt-1 leading-snug">
+              {marginalDisplay.formula}
+            </p>
+          </div>
+        </div>
 
         {valueBox(
           'Último nivel rentable',
@@ -8246,16 +8310,16 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
         )}
       </div>
 
-      {/* DIAGNÓSTICO DEL ESCALAMIENTO · ancho completo */}
+      {/* DIAGNÓSTICO DEL ESCALAMIENTO */}
       {diag ? (
-        <div className={`mt-4 rounded-2xl border p-3 sm:p-4 ${toneBg(diag.tone || 'neutral')}`}>
+        <div className={`mt-4 rounded-2xl border p-3 sm:p-3.5 ${toneBg(diag.tone || 'neutral')}`}>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <p className="text-[8px] font-black uppercase tracking-wide text-slate-500">
+            <p className="text-[7px] sm:text-[8px] font-black uppercase tracking-wide text-slate-500">
               Relación con último escalamiento
             </p>
 
             <span
-              className={`inline-flex self-start md:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[7px] sm:text-[8px] font-black uppercase leading-tight text-center ${toneBadge(diag.tone || 'neutral')}`}
+              className={`inline-flex self-start md:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[6.5px] sm:text-[7px] font-black uppercase leading-tight text-center ${toneBadge(diag.tone || 'neutral')}`}
               style={{ overflowWrap: 'anywhere' }}
             >
               {diag.status}
@@ -8263,35 +8327,35 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5 mt-3">
-            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3">
-              <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
+              <p className="text-[6px] sm:text-[6.5px] font-black uppercase tracking-wide text-slate-400">
                 Lectura
               </p>
-              <p className="text-[8px] sm:text-[9px] font-semibold text-zinc-800 mt-1.5 leading-relaxed">
+              <p className="text-[7.5px] sm:text-[8px] font-semibold text-zinc-800 mt-1.5 leading-[1.55]">
                 {diag.summary}
               </p>
             </div>
 
-            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3">
-              <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
+              <p className="text-[6px] sm:text-[6.5px] font-black uppercase tracking-wide text-slate-400">
                 Evidencia
               </p>
-              <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">
+              <p className="text-[7.5px] sm:text-[8px] text-slate-600 mt-1.5 leading-[1.55]">
                 {diag.evidence}
               </p>
             </div>
 
-            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3">
-              <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
+              <p className="text-[6px] sm:text-[6.5px] font-black uppercase tracking-wide text-slate-400">
                 {diag.shouldReduceBudget ? 'Acción' : 'Qué hacer'}
               </p>
-              <p className="text-[8px] sm:text-[9px] font-semibold text-slate-700 mt-1.5 leading-relaxed">
+              <p className="text-[7.5px] sm:text-[8px] font-semibold text-slate-700 mt-1.5 leading-[1.55]">
                 {diag.recommendedAction}
               </p>
             </div>
           </div>
 
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[6.5px] sm:text-[7px] text-slate-400">
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[5.5px] sm:text-[6.5px] text-slate-400">
             <span>Confianza: <strong>{diag.confidence}</strong></span>
             <span>3D confirma: <strong>{diag.threeDayConfirms ? 'Sí' : 'No'}</strong></span>
             <span>Recuperación: <strong>{diag.recoverySignal ? 'Sí' : 'No'}</strong></span>
@@ -8300,7 +8364,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
         </div>
       ) : null}
 
-      <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-3 leading-relaxed">
+      <p className="text-[5.5px] sm:text-[6.5px] text-slate-400 mt-3 leading-relaxed">
         Lectura histórica del nivel de presupuesto. No reemplaza la decisión 3D ni los guardrails de escala.
       </p>
     </div>
