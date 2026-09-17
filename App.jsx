@@ -6025,26 +6025,44 @@ function readingActionClassesCC(tone) {
 
 function QuickMetricCC({ label, value, previousValue = null, delta, metric, sub, periodLabel = '3D' }) {
   const hasPrevious = previousValue !== null && previousValue !== undefined && previousValue !== '—';
+
   return (
-    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5 sm:p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 p-3 sm:p-4">
+      <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0">
-          <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">{label}</p>
-          <p className="text-[7px] font-black uppercase tracking-wide text-slate-300 mt-1">Actual · {periodLabel}</p>
+          <p className="text-[8px] font-black uppercase tracking-wider text-slate-400 whitespace-nowrap">{label}</p>
+          <p className="text-[7px] font-black uppercase tracking-wide text-slate-300 mt-1 whitespace-nowrap">
+            Actual · {periodLabel}
+          </p>
         </div>
-        <span className="shrink-0 text-[8px] leading-none"><Delta metric={metric} value={delta}/></span>
+
+        <span className="shrink-0 text-[8px] leading-none whitespace-nowrap">
+          <Delta metric={metric} value={delta}/>
+        </span>
       </div>
 
-      <p className="text-xl sm:text-2xl font-black leading-none text-zinc-900 break-words mt-2">{value}</p>
-
-      <div className="mt-3 pt-2.5 border-t border-slate-200/80">
-        <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">Anterior · {periodLabel}</p>
-        <p className="text-[11px] sm:text-xs font-black text-slate-600 mt-0.5 break-words">
-          {hasPrevious ? previousValue : 'Sin dato comparable'}
+      <div className="mt-3 min-h-[34px] sm:min-h-[40px] flex items-center">
+        <p className="max-w-full text-lg sm:text-xl 2xl:text-2xl font-black leading-none tracking-tight tabular-nums text-zinc-900 whitespace-nowrap">
+          {value}
         </p>
       </div>
 
-      {sub ? <p className="text-[8px] text-slate-500 mt-2.5 leading-tight">{sub}</p> : null}
+      <div className="mt-3 pt-2.5 border-t border-slate-200/80">
+        <div className="flex flex-col gap-1">
+          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">
+            Anterior · {periodLabel}
+          </p>
+          <p className="text-[11px] sm:text-xs font-black tabular-nums text-slate-600 whitespace-nowrap">
+            {hasPrevious ? previousValue : 'Sin dato comparable'}
+          </p>
+        </div>
+      </div>
+
+      {sub ? (
+        <p className="text-[8px] text-slate-500 mt-2.5 leading-snug min-h-[20px]">
+          {sub}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -6442,6 +6460,7 @@ function weekdayClassificationToneCC(classification) {
 function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
   const hasDelta = delta !== null && delta !== undefined;
   let tone = 'text-slate-500';
+
   if (hasDelta) {
     const favorable = lowerIsBetter ? delta < -5 : delta > 5;
     const unfavorable = lowerIsBetter ? delta > 5 : delta < -5;
@@ -6450,12 +6469,23 @@ function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
   }
 
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2">
-      <p className="text-[7px] font-black uppercase text-slate-400">{label}</p>
-      <p className="text-[10px] font-black text-zinc-900 mt-1 break-words">{value}</p>
-      <p className={`text-[7px] font-black mt-1 ${tone}`}>
-        {hasDelta ? `${delta > 0 ? '+' : ''}${fmtNum(delta, 1)}% vs promedio histórico` : 'Sin comparación'}
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[7px] font-black uppercase text-slate-400 whitespace-nowrap">{label}</p>
+      </div>
+
+      <p className="text-sm sm:text-[15px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 whitespace-nowrap">
+        {value}
       </p>
+
+      <div className="mt-2 pt-2 border-t border-slate-100">
+        <p className={`text-[9px] font-black tabular-nums whitespace-nowrap ${tone}`}>
+          {hasDelta ? `${delta > 0 ? '+' : ''}${fmtNum(delta, 1)}%` : '—'}
+        </p>
+        <p className="text-[7px] font-bold text-slate-400 mt-0.5 leading-tight">
+          {hasDelta ? 'vs promedio histórico' : 'Sin comparación'}
+        </p>
+      </div>
     </div>
   );
 }
@@ -6495,7 +6525,7 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-[8px] font-black uppercase text-emerald-700">Mejor rendimiento histórico</p>
               <p className="text-lg font-black text-zinc-900 mt-1">{best?.label || 'Sin muestra suficiente'}</p>
@@ -6523,7 +6553,7 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-4">
         {(analysis?.rows || []).map(row => {
           const tone = weekdayClassificationToneCC(row.classification);
           return (
@@ -6543,18 +6573,18 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
                 <div className="grid grid-cols-2 gap-2 sm:min-w-[190px]">
                   <div className="rounded-xl bg-white/80 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Gasto histórico</p>
-                    <p className="text-[11px] font-black mt-1">{fmtMoney(row.stats.spend)}</p>
+                    <p className="text-[11px] font-black tabular-nums whitespace-nowrap mt-1">{fmtMoney(row.stats.spend)}</p>
                   </div>
                   <div className="rounded-xl bg-white/80 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Compras</p>
-                    <p className="text-[11px] font-black mt-1">{fmtNum(row.stats.purchases, 0)}</p>
+                    <p className="text-[11px] font-black tabular-nums whitespace-nowrap mt-1">{fmtNum(row.stats.purchases, 0)}</p>
                   </div>
                 </div>
               </div>
 
               <p className="text-[9px] sm:text-[10px] text-slate-700 mt-3 leading-relaxed">{row.summary}</p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-5 gap-2 mt-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-3 gap-2.5 mt-4">
                 <WeekdayMetricMiniCC label="CPA" value={fmtCpa(row.stats.cpa)} delta={row.signals.cpa.delta} lowerIsBetter />
                 <WeekdayMetricMiniCC label="CVR" value={fmtRate(row.stats.visitToPurchase)} delta={row.signals.cvr.delta} />
                 <WeekdayMetricMiniCC label="CPC" value={fmtMoneyOrDashCC(row.stats.cpc)} delta={row.signals.cpc.delta} lowerIsBetter />
@@ -6688,7 +6718,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           </div>
 
           {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 mt-5">
+          <div className="grid grid-cols-1 min-[460px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-3 mt-5">
             <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodLabel}/>
             <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodLabel}/>
             <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodLabel}/>
@@ -6827,7 +6857,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               </div>
 
               {/* Métricas principales */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-3 mt-5">
+              <div className="grid grid-cols-1 min-[460px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-3 mt-5">
                 <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodLabel}/>
                 <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpc)} · ${periodLabel}` : periodLabel} periodLabel={periodLabel}/>
                 <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `Bench. ${fmtRate(benchmark.ctr)} · ${periodLabel}` : periodLabel} periodLabel={periodLabel}/>
