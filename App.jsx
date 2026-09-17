@@ -3723,6 +3723,10 @@ function buildDetailedCampaignReportCC({
   lines.push('• "CPA del resto sin anuncio" es un contrafactual histórico matemático; NO predice la redistribución futura de Meta.');
   lines.push('• CVR = Visita → Compra. Es una métrica principal para localizar deterioro post-clic.');
   lines.push('• HECHO, INTERPRETACIÓN e HIPÓTESIS se separan: una hipótesis nunca se presenta como causa demostrada.');
+  lines.push('• TENDENCIA y SALUD ACTUAL son distintas: una métrica puede deteriorarse frente al bloque anterior y seguir saludable/aceptable por estándar operativo.');
+  lines.push('• Estándares operativos actuales: CTR saludable ≥2%, aceptable 1,2–1,99%; CVR saludable ≥3%, aceptable 2–2,99%; CPM saludable ≤$10.000; CPC máximo rentable ≈ CPA máximo × CVR.');
+  lines.push('• CPC para mensajes usa una escala separada: <500 excelente; 500–599 sobresaliente; 600–799 muy bueno; 800–999 bueno; 1.000–1.200 aceptable; >1.200 no apto actualmente.');
+  lines.push('• Margen operativo de cambios: 48 h entre cambios estructurales; escalamiento de presupuesto hasta +20% puede repetirse tras 24 h. Son reglas internas de seguridad, no umbrales oficiales universales publicados por Meta.');
   lines.push('');
   lines.push(`ALCANCE: ${productId === 'all' ? 'TODOS LOS PRODUCTOS' : (products.find(p => p.id === productId)?.name || productId)}${campaignId !== 'all' ? ` · CAMPAÑA ${campaigns.find(c => c.id === campaignId)?.name || campaignId}` : ''}`);
   lines.push(`Productos incluidos: ${selectedProducts.length}`);
@@ -5261,6 +5265,352 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
 }
 
 
+
+const METRIC_STANDARDS_CC = {
+  ctrHealthy: 2,
+  ctrAcceptable: 1.2,
+  ctrPoor: 1,
+  cvrHealthy: 3,
+  cvrAcceptable: 2,
+  cpmHealthyMax: 10000
+};
+
+function metricTrendCC(metric, delta) {
+  if (delta === null || delta === undefined || !Number.isFinite(Number(delta))) {
+    return { state: 'SIN COMPARACIÓN', tone: 'neutral', deteriorating: false, improving: false, magnitude: null };
+  }
+
+  const d = Number(delta);
+  const higherIsBetter = ['ctr', 'visitToPurchase', 'hookRate', 'holdRate'].includes(metric);
+  const deterioration = higherIsBetter ? d < 0 : d > 0;
+  const improvement = higherIsBetter ? d > 0 : d < 0;
+  const magnitude = Math.abs(d);
+
+  if (magnitude < 5) {
+    return { state: 'ESTABLE', tone: 'normal', deteriorating: false, improving: false, magnitude };
+  }
+
+  if (deterioration) {
+    return {
+      state: magnitude >= 20 ? 'DETERIORO FUERTE' : magnitude >= 10 ? 'DETERIORO' : 'DETERIORO LEVE',
+      tone: magnitude >= 20 ? 'alert' : 'attention',
+      deteriorating: true,
+      improving: false,
+      magnitude
+    };
+  }
+
+  if (improvement) {
+    return {
+      state: magnitude >= 20 ? 'MEJORA FUERTE' : magnitude >= 10 ? 'MEJORA' : 'MEJORA LEVE',
+      tone: 'good',
+      deteriorating: false,
+      improving: true,
+      magnitude
+    };
+  }
+
+  return { state: 'ESTABLE', tone: 'normal', deteriorating: false, improving: false, magnitude };
+}
+
+function cpcProfitabilityLimitCC(maxCpa, cvr) {
+  const max = toNumber(maxCpa);
+  const rate = toNumber(cvr);
+  if (max <= 0 || rate <= 0) return null;
+  return max * (rate / 100);
+}
+
+function metricAbsoluteHealthCC(metric, value, context = {}) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return {
+      level: 'SIN DATOS',
+      tone: 'neutral',
+      actionable: false,
+      healthy: false,
+      acceptable: false,
+      explanation: 'No hay un valor actual válido para evaluar el estándar.',
+      standardText: 'Sin estándar evaluable.'
+    };
+  }
+
+  const v = Number(value);
+  const maxCpa = Math.max(1, toNumber(context?.maxCpa));
+  const cvr = context?.cvr;
+
+  if (metric === 'cpa') {
+    if (v <= maxCpa * 0.8) {
+      return {
+        level: 'SALUDABLE',
+        tone: 'good',
+        actionable: false,
+        healthy: true,
+        acceptable: true,
+        explanation: `El CPA está ${fmtNum(((maxCpa - v) / maxCpa) * 100, 1)}% por debajo del máximo y conserva margen de escala.`,
+        standardText: `Saludable ≤ ${fmtMoney(maxCpa * 0.8)} · Aceptable ≤ ${fmtMoney(maxCpa)}`
+      };
+    }
+    if (v <= maxCpa) {
+      return {
+        level: 'ACEPTABLE',
+        tone: 'normal',
+        actionable: false,
+        healthy: false,
+        acceptable: true,
+        explanation: `El CPA sigue dentro del máximo configurado de ${fmtMoney(maxCpa)}, aunque con menos margen.`,
+        standardText: `Máximo permitido ${fmtMoney(maxCpa)}`
+      };
+    }
+    return {
+      level: v > maxCpa * 1.25 ? 'CRÍTICO' : 'FUERA DEL OBJETIVO',
+      tone: v > maxCpa * 1.25 ? 'critical' : 'alert',
+      actionable: true,
+      healthy: false,
+      acceptable: false,
+      explanation: `El CPA está ${fmtNum(((v - maxCpa) / maxCpa) * 100, 1)}% por encima del máximo configurado.`,
+      standardText: `Máximo permitido ${fmtMoney(maxCpa)}`
+    };
+  }
+
+  if (metric === 'ctr') {
+    if (v >= METRIC_STANDARDS_CC.ctrHealthy) {
+      return {
+        level: 'SALUDABLE',
+        tone: 'good',
+        actionable: false,
+        healthy: true,
+        acceptable: true,
+        explanation: `CTR ${fmtRate(v)} continúa en zona saludable (≥ ${fmtRate(METRIC_STANDARDS_CC.ctrHealthy)}).`,
+        standardText: `Saludable ≥ 2% · Aceptable 1,2–1,99%`
+      };
+    }
+    if (v >= METRIC_STANDARDS_CC.ctrAcceptable) {
+      return {
+        level: 'ACEPTABLE',
+        tone: 'attention',
+        actionable: false,
+        healthy: false,
+        acceptable: true,
+        explanation: `CTR ${fmtRate(v)} está por debajo de 2%, pero continúa dentro del rango aceptable de 1,2–2%.`,
+        standardText: `Saludable ≥ 2% · Aceptable 1,2–1,99%`
+      };
+    }
+    if (v >= METRIC_STANDARDS_CC.ctrPoor) {
+      return {
+        level: 'DÉBIL · REVISAR',
+        tone: 'alert',
+        actionable: true,
+        healthy: false,
+        acceptable: false,
+        explanation: `CTR ${fmtRate(v)} ya está por debajo del mínimo aceptable de 1,2%.`,
+        standardText: `Acción < 1,2% · Malo < 1%`
+      };
+    }
+    return {
+      level: 'MALO',
+      tone: 'critical',
+      actionable: true,
+      healthy: false,
+      acceptable: false,
+      explanation: `CTR ${fmtRate(v)} está por debajo de 1%, señal clara de respuesta creativa débil.`,
+      standardText: `Malo < 1%`
+    };
+  }
+
+  if (metric === 'visitToPurchase') {
+    if (v >= METRIC_STANDARDS_CC.cvrHealthy) {
+      return {
+        level: 'SALUDABLE',
+        tone: 'good',
+        actionable: false,
+        healthy: true,
+        acceptable: true,
+        explanation: `CVR ${fmtRate(v)} alcanza o supera el estándar buscado de 3%.`,
+        standardText: `Saludable ≥ 3% · Aceptable 2–2,99%`
+      };
+    }
+    if (v >= METRIC_STANDARDS_CC.cvrAcceptable) {
+      return {
+        level: 'ACEPTABLE',
+        tone: 'attention',
+        actionable: false,
+        healthy: false,
+        acceptable: true,
+        explanation: `CVR ${fmtRate(v)} está por debajo del objetivo de 3%, pero sigue dentro del rango aceptable de 2–3%.`,
+        standardText: `Saludable ≥ 3% · Aceptable 2–2,99%`
+      };
+    }
+    return {
+      level: v < 1 ? 'CRÍTICO' : 'FUERA DEL ESTÁNDAR',
+      tone: v < 1 ? 'critical' : 'alert',
+      actionable: true,
+      healthy: false,
+      acceptable: false,
+      explanation: `CVR ${fmtRate(v)} está por debajo del mínimo aceptable de 2%.`,
+      standardText: `Acción < 2%`
+    };
+  }
+
+  if (metric === 'cpm') {
+    if (v <= METRIC_STANDARDS_CC.cpmHealthyMax) {
+      return {
+        level: 'SALUDABLE',
+        tone: 'good',
+        actionable: false,
+        healthy: true,
+        acceptable: true,
+        explanation: `CPM ${fmtMoney(v)} continúa por debajo del límite operativo de ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}.`,
+        standardText: `Bien ≤ ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}`
+      };
+    }
+    return {
+      level: 'REVISAR',
+      tone: 'attention',
+      actionable: true,
+      healthy: false,
+      acceptable: false,
+      explanation: `CPM ${fmtMoney(v)} supera ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)} y merece revisión, aunque no demuestra por sí solo la causa.`,
+      standardText: `Revisar > ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}`
+    };
+  }
+
+  if (metric === 'cpc') {
+    const limit = cpcProfitabilityLimitCC(maxCpa, cvr);
+    if (limit === null) {
+      return {
+        level: 'SIN ESTÁNDAR CALCULABLE',
+        tone: 'neutral',
+        actionable: false,
+        healthy: false,
+        acceptable: false,
+        explanation: 'Sin CVR válido no se puede calcular el CPC máximo sostenible para el CPA objetivo.',
+        standardText: 'CPC máximo ≈ CPA máximo × CVR'
+      };
+    }
+    if (v <= limit * 0.8) {
+      return {
+        level: 'SALUDABLE',
+        tone: 'good',
+        actionable: false,
+        healthy: true,
+        acceptable: true,
+        explanation: `CPC ${fmtMoney(v)} está cómodamente por debajo del límite rentable estimado de ${fmtMoney(limit)} para el CVR actual.`,
+        standardText: `Límite rentable estimado ${fmtMoney(limit)}`
+      };
+    }
+    if (v <= limit) {
+      return {
+        level: 'ACEPTABLE',
+        tone: 'attention',
+        actionable: false,
+        healthy: false,
+        acceptable: true,
+        explanation: `CPC ${fmtMoney(v)} todavía cabe dentro del límite rentable estimado de ${fmtMoney(limit)}, pero con poco margen.`,
+        standardText: `Límite rentable estimado ${fmtMoney(limit)}`
+      };
+    }
+    return {
+      level: v > limit * 1.25 ? 'CRÍTICO' : 'FUERA DEL ESTÁNDAR',
+      tone: v > limit * 1.25 ? 'critical' : 'alert',
+      actionable: true,
+      healthy: false,
+      acceptable: false,
+      explanation: `CPC ${fmtMoney(v)} supera el límite rentable estimado de ${fmtMoney(limit)} dado el CVR actual.`,
+      standardText: `Límite rentable estimado ${fmtMoney(limit)}`
+    };
+  }
+
+  return {
+    level: 'SIN REGLA',
+    tone: 'neutral',
+    actionable: false,
+    healthy: false,
+    acceptable: false,
+    explanation: 'No hay estándar operativo configurado para esta métrica.',
+    standardText: '—'
+  };
+}
+
+function metricTrendHealthDiagnosisCC(metric, value, delta, context = {}) {
+  const health = metricAbsoluteHealthCC(metric, value, context);
+  const trend = metricTrendCC(metric, delta);
+
+  let label = health.level;
+  let tone = health.tone;
+  let action = health.actionable
+    ? 'La métrica ya está fuera del estándar operativo: buscar causa y actuar según el diagnóstico completo.'
+    : 'No requiere una corrección aislada por nivel actual. Mantener vigilancia.';
+
+  if (health.actionable) {
+    if (trend.improving) {
+      label = `FUERA DEL ESTÁNDAR · PERO MEJORANDO`;
+      tone = health.tone;
+      action = 'Sigue fuera del estándar, aunque la dirección es favorable. Mantener acción correctiva hasta recuperar el rango.';
+    } else if (trend.deteriorating) {
+      label = `ACCIÓN · FUERA DEL ESTÁNDAR Y DETERIORANDO`;
+      tone = health.tone === 'critical' ? 'critical' : 'alert';
+      action = 'El nivel actual y la tendencia apuntan en la misma dirección negativa. Priorizar intervención.';
+    }
+  } else if (trend.deteriorating) {
+    if (health.healthy) {
+      label = 'ALERTA DE DETERIORO · SIGUE SALUDABLE';
+      tone = 'attention';
+      action = 'No actuar solo por la caída. Vigilar si continúa deteriorándose hasta acercarse al límite operativo.';
+    } else if (health.acceptable) {
+      label = 'ALERTA DE DETERIORO · AÚN ACEPTABLE';
+      tone = 'attention';
+      action = 'Todavía no exige una acción fuerte, pero está perdiendo margen y requiere vigilancia cercana.';
+    }
+  } else if (trend.improving) {
+    label = health.healthy ? 'SALUDABLE · MEJORANDO' : health.acceptable ? 'ACEPTABLE · MEJORANDO' : health.level;
+    tone = health.healthy ? 'good' : health.tone;
+  } else if (trend.state === 'ESTABLE') {
+    label = health.healthy ? 'SALUDABLE · ESTABLE' : health.acceptable ? 'ACEPTABLE · ESTABLE' : health.level;
+  }
+
+  return {
+    metric,
+    ...health,
+    trend,
+    combinedLabel: label,
+    combinedTone: tone,
+    action,
+    summary: `${health.explanation}${trend.magnitude !== null ? ` Frente al período anterior: ${trend.state.toLowerCase()} de ${fmtNum(trend.magnitude, 1)}%.` : ''}`
+  };
+}
+
+function metricSetDiagnosisCC(stats, previousStats, maxCpa) {
+  const cvr = stats?.visitToPurchase;
+  return {
+    cpa: metricTrendHealthDiagnosisCC('cpa', stats?.cpa, pctChange(stats?.cpa, previousStats?.cpa), { maxCpa, cvr }),
+    cpm: metricTrendHealthDiagnosisCC('cpm', stats?.cpm, pctChange(stats?.cpm, previousStats?.cpm), { maxCpa, cvr }),
+    ctr: metricTrendHealthDiagnosisCC('ctr', stats?.ctr, pctChange(stats?.ctr, previousStats?.ctr), { maxCpa, cvr }),
+    cpc: metricTrendHealthDiagnosisCC('cpc', stats?.cpc, pctChange(stats?.cpc, previousStats?.cpc), { maxCpa, cvr }),
+    cvr: metricTrendHealthDiagnosisCC('visitToPurchase', stats?.visitToPurchase, pctChange(stats?.visitToPurchase, previousStats?.visitToPurchase), { maxCpa, cvr })
+  };
+}
+
+function videoLevelHealthyCC(level) {
+  return ['BUENO', 'FUERTE', 'EXCEPCIONAL'].includes(String(level || ''));
+}
+
+function videoLevelAcceptableCC(level) {
+  return String(level || '') === 'ACEPTABLE';
+}
+
+function videoTrendHealthTextCC(name, levelObj, delta) {
+  if (!levelObj || delta === null || delta === undefined) return '';
+  const trend = metricTrendCC(name === 'Hook' ? 'hookRate' : 'holdRate', delta);
+  if (!trend.deteriorating) return '';
+
+  if (videoLevelHealthyCC(levelObj.level)) {
+    return `${name} cayó ${fmtNum(trend.magnitude, 1)}%, pero continúa ${String(levelObj.level).toLowerCase()}.`;
+  }
+  if (videoLevelAcceptableCC(levelObj.level)) {
+    return `${name} cayó ${fmtNum(trend.magnitude, 1)}% y permanece aceptable; vigilar antes de intervenir.`;
+  }
+  return `${name} cayó ${fmtNum(trend.magnitude, 1)}% y ya está en nivel ${String(levelObj.level).toLowerCase()}.`;
+}
+
 function audiencePressureDiagnosisCC(stats3d, previous3d, benchmark = null) {
   const cpm = stats3d?.cpm;
   const ctr = stats3d?.ctr;
@@ -5283,6 +5633,7 @@ function audiencePressureDiagnosisCC(stats3d, previous3d, benchmark = null) {
   const cpcDelta = pctChange(cpc, previous3d?.cpc);
   const freqDelta = pctChange(frequency, previous3d?.frequency);
   const cvrDelta = pctChange(cvr, previous3d?.visitToPurchase);
+  const cpmStatus = metricTrendHealthDiagnosisCC('cpm', cpm, cpmDelta, { cvr });
 
   const has = v => v !== null && v !== undefined;
   const gt = (v, n) => has(v) && v > n;
@@ -5291,31 +5642,33 @@ function audiencePressureDiagnosisCC(stats3d, previous3d, benchmark = null) {
 
   if (gt(cpmDelta, 10) && gt(freqDelta, 15) && lt(ctrDelta, -10) && gt(cpcDelta, 10)) {
     return {
-      label: 'POSIBLE SATURACIÓN / FATIGA',
-      tone: 'critical',
-      summary: 'El costo de impresión aumenta al mismo tiempo que sube la frecuencia y cae la respuesta al anuncio.',
+      label: cpmStatus.actionable ? 'POSIBLE SATURACIÓN / FATIGA · CPM A REVISAR' : 'ALERTA DE DETERIORO · CPM AÚN SALUDABLE',
+      tone: cpmStatus.actionable ? 'critical' : 'attention',
+      summary: `${cpmStatus.summary} Además, la frecuencia sube mientras cae la respuesta al anuncio.`,
       cause: 'El patrón es compatible con repetición creciente sobre la audiencia y deterioro creativo. Es una interpretación, no una causa demostrada.',
-      action: 'Revisar reemplazo creativo y detener escalado si el CPA también se deteriora.'
+      action: cpmStatus.actionable
+        ? 'Revisar reemplazo creativo y detener escalado si el CPA también se deteriora.'
+        : 'No actuar solo por CPM: vigilar frecuencia, CTR, CPC y CPA.'
     };
   }
 
-  if (gt(cpmDelta, 15) && stable(freqDelta, 10) && !lt(ctrDelta, -10)) {
+  if (gt(cpmDelta, 10)) {
     return {
-      label: 'COSTO DE IMPRESIÓN EN AUMENTO',
-      tone: 'attention',
-      summary: `Conseguir 1.000 impresiones cuesta ${fmtNum(Math.abs(cpmDelta), 2)}% más, mientras la frecuencia y el CTR permanecen relativamente estables.`,
-      cause: 'Puede estar relacionado con mayor competencia, cambios de audiencia, placements, temporalidad u otros factores de distribución. El CPM por sí solo no identifica la causa.',
-      action: 'Mantener si CPA/CPC siguen controlados y vigilar la evolución.'
+      label: cpmStatus.combinedLabel,
+      tone: cpmStatus.combinedTone,
+      summary: cpmStatus.summary,
+      cause: 'El aumento puede estar relacionado con competencia, cambios de audiencia, placements, temporalidad u otros factores. El CPM por sí solo no identifica una causa.',
+      action: cpmStatus.action
     };
   }
 
-  if (gt(cpmDelta, 15) && gt(ctrDelta, 0) && (!has(cpcDelta) || cpcDelta <= 10)) {
+  if (cpmStatus.actionable) {
     return {
-      label: 'CREATIVO RESISTE A MAYOR COSTO DE IMPRESIÓN',
-      tone: 'good',
-      summary: 'Las impresiones se encarecieron, pero el anuncio conserva o mejora su capacidad de generar clics.',
-      cause: 'La mejora del CTR está amortiguando parte de la presión del CPM sobre el CPC.',
-      action: 'No apagar por CPM. Mantener y vigilar CPA/CVR.'
+      label: cpmStatus.combinedLabel,
+      tone: cpmStatus.combinedTone,
+      summary: cpmStatus.summary,
+      cause: 'El CPM actual supera el estándar operativo aunque la variación reciente no sea fuerte.',
+      action: cpmStatus.action
     };
   }
 
@@ -5329,72 +5682,148 @@ function audiencePressureDiagnosisCC(stats3d, previous3d, benchmark = null) {
     return {
       label: 'EXPOSICIÓN + RESPUESTA EFICIENTES',
       tone: 'good',
-      summary: 'El anuncio consigue impresiones a buen costo y las transforma en clics eficientemente frente al benchmark rentable del producto.',
-      cause: 'CPM, CTR y CPC están alineados favorablemente.',
-      action: 'Mantener la estructura mientras CPA y CVR acompañen.'
-    };
-  }
-
-  if (
-    benchmarkReady &&
-    toNumber(cpm) < toNumber(benchmark.cpm) * 0.9 &&
-    toNumber(ctr) < toNumber(benchmark.ctr) * 0.85 &&
-    toNumber(cpc) > toNumber(benchmark.cpc) * 1.15
-  ) {
-    return {
-      label: 'IMPRESIONES ECONÓMICAS · RESPUESTA DÉBIL',
-      tone: 'alert',
-      summary: 'La exposición es económica, pero el anuncio transforma pocas impresiones en clics.',
-      cause: 'La señal negativa aparece principalmente en la respuesta creativa, no en el costo de exposición.',
-      action: 'Trabajar creativo antes de atribuir el problema a distribución.'
+      summary: `${cpmStatus.summary} Además, CPM, CTR y CPC están alineados favorablemente frente al benchmark rentable propio del producto.`,
+      cause: 'La distribución y la respuesta están funcionando conjuntamente.',
+      action: 'Mantener mientras CPA y CVR acompañen.'
     };
   }
 
   if (gt(cpmDelta, 10) && lt(cvrDelta, -20) && !lt(ctrDelta, -10)) {
     return {
-      label: 'COSTO DE IMPRESIÓN ↑ + CVR ↓',
+      label: cpmStatus.healthy ? 'CPM DETERIORA, PERO SIGUE SALUDABLE · CVR ES LA ALERTA MAYOR' : 'CPM ↑ + CVR ↓',
       tone: 'alert',
-      summary: 'El costo de conseguir impresiones aumentó, pero la caída más fuerte está después del clic.',
+      summary: `${cpmStatus.summary} La caída más fuerte se encuentra después del clic.`,
       cause: 'Existe presión de distribución acompañando un deterioro post-clic; el CPM no explica por sí solo el CPA.',
       action: 'Priorizar el diagnóstico post-clic y mantener CPM como factor acompañante.'
     };
   }
 
   return {
-    label: 'DISTRIBUCIÓN SIN CAMBIO CRÍTICO',
-    tone: 'normal',
-    summary: 'No aparece una combinación suficientemente fuerte para explicar por sí sola un deterioro del resultado desde CPM/frecuencia.',
-    cause: 'Los cambios observados son moderados o están siendo compensados por otras métricas.',
-    action: 'Usar CPA, CPC y CVR para completar la lectura.'
+    label: cpmStatus.combinedLabel,
+    tone: cpmStatus.combinedTone,
+    summary: cpmStatus.summary,
+    cause: 'No aparece una combinación suficientemente fuerte para atribuir el resultado únicamente a distribución.',
+    action: cpmStatus.action
   };
+}
+
+
+function messageCpcBandCC(cpc) {
+  const value = toNumber(cpc);
+
+  if (value <= 0) {
+    return {
+      level: 'SIN DATOS',
+      tone: 'neutral',
+      rank: 0,
+      apt: false,
+      value,
+      summary: 'No hay CPC suficiente para evaluar el creativo como candidato a campañas de mensajes.'
+    };
+  }
+
+  if (value < 500) {
+    return {
+      level: 'EXCELENTE',
+      tone: 'good',
+      rank: 6,
+      apt: true,
+      value,
+      summary: `CPC ${fmtMoney(value)} · excelente para priorizar pruebas en campañas de mensajes.`
+    };
+  }
+
+  if (value < 600) {
+    return {
+      level: 'SOBRESALIENTE',
+      tone: 'good',
+      rank: 5,
+      apt: true,
+      value,
+      summary: `CPC ${fmtMoney(value)} · sobresaliente para campañas de mensajes.`
+    };
+  }
+
+  if (value < 800) {
+    return {
+      level: 'MUY BUENO',
+      tone: 'good',
+      rank: 4,
+      apt: true,
+      value,
+      summary: `CPC ${fmtMoney(value)} · muy buena señal para campañas de mensajes.`
+    };
+  }
+
+  if (value < 1000) {
+    return {
+      level: 'BUENO',
+      tone: 'good',
+      rank: 3,
+      apt: true,
+      value,
+      summary: `CPC ${fmtMoney(value)} · buen rango para considerar una prueba en mensajes.`
+    };
+  }
+
+  if (value <= 1200) {
+    return {
+      level: 'ACEPTABLE',
+      tone: 'attention',
+      rank: 2,
+      apt: true,
+      value,
+      summary: `CPC ${fmtMoney(value)} · aceptable para mensajes, pero necesita que CTR/CPM y estabilidad acompañen.`
+    };
+  }
+
+  return {
+    level: 'NO APTO ACTUALMENTE',
+    tone: 'critical',
+    rank: 1,
+    apt: false,
+    value,
+    summary: `CPC ${fmtMoney(value)} · supera el límite operativo de ${fmtMoney(1200)} para priorizar este creativo en campañas de mensajes.`
+  };
+}
+
+function messageCpcTrendTextCC(cpc, delta) {
+  const band = messageCpcBandCC(cpc);
+  if (delta === null || delta === undefined || !Number.isFinite(Number(delta))) {
+    return `${band.summary} Sin bloque anterior comparable.`;
+  }
+
+  const d = Number(delta);
+  if (Math.abs(d) < 5) {
+    return `${band.summary} El CPC está estable frente al bloque anterior.`;
+  }
+
+  if (d > 0) {
+    return `${band.summary} Además, se deterioró ${fmtNum(Math.abs(d), 1)}% frente al bloque anterior${band.apt ? ', pero todavía permanece dentro de un rango utilizable para mensajes.' : '.'}`;
+  }
+
+  return `${band.summary} Además, mejoró ${fmtNum(Math.abs(d), 1)}% frente al bloque anterior.`;
 }
 
 function messagePotentialDiagnosisCC(diag, benchmark, ad, periodLabel = '3D') {
   const stats = diag?.scale3d || {};
   const delta = diag?.scaleDelta3d || {};
-  const benchmarkReady = benchmark?.sampleDays > 0 && toNumber(benchmark?.cpc) > 0 && toNumber(benchmark?.ctr) > 0;
   const hasClicks = stats?.clicks !== null && stats?.clicks !== undefined && toNumber(stats.clicks) > 0;
+  const cpcBand = messageCpcBandCC(stats.cpc);
 
   if (!hasClicks || !toNumber(stats?.days)) {
     return {
       label: 'NO CONCLUYENTE',
       tone: 'neutral',
+      cpcBand,
       summary: 'No hay señal suficiente de clics para evaluar este creativo como candidato a mensajes.',
       action: 'Acumular datos antes de reutilizarlo en Click-to-WhatsApp.'
     };
   }
 
-  const cpcStrong = benchmarkReady
-    ? toNumber(stats.cpc) > 0 && toNumber(stats.cpc) <= toNumber(benchmark.cpc) * 0.9
-    : delta.cpc !== null && delta.cpc !== undefined && delta.cpc <= -10;
-
-  const ctrStrong = benchmarkReady
-    ? toNumber(stats.ctr) >= toNumber(benchmark.ctr)
-    : delta.ctr !== null && delta.ctr !== undefined && delta.ctr >= 0;
-
-  const cpmControlled = benchmarkReady && toNumber(benchmark.cpm) > 0
-    ? toNumber(stats.cpm) <= toNumber(benchmark.cpm) * 1.15
-    : delta.cpm === null || delta.cpm === undefined || delta.cpm <= 15;
+  const ctrStatus = metricAbsoluteHealthCC('ctr', stats.ctr, {});
+  const cpmStatus = metricAbsoluteHealthCC('cpm', stats.cpm, {});
+  const cpcTrend = messageCpcTrendTextCC(stats.cpc, delta.cpc);
 
   const fatigueBad = ['Fatiga probable', 'Fatiga confirmada'].includes(diag?.scaleDynamic3d);
   const hh = diag?.hookHold3d;
@@ -5404,54 +5833,330 @@ function messagePotentialDiagnosisCC(diag, benchmark, ad, periodLabel = '3D') {
     ['CRÍTICO'].includes(hh?.hold?.level)
   );
 
-  if (cpcStrong && ctrStrong && cpmControlled && !fatigueBad && !videoCritical) {
+  if (!cpcBand.apt) {
     return {
-      label: 'ALTO POTENCIAL PARA MENSAJES',
-      tone: 'good',
-      summary: `Consigue clics eficientemente, el CTR responde bien y el costo de exposición no invalida la señal.${video ? ' Hook/Hold no muestran una falla crítica.' : ''}`,
-      action: 'Candidato prioritario para probar como creativo en Click-to-WhatsApp. No predice el costo por mensaje.'
+      label: 'NO APTO ACTUALMENTE PARA MENSAJES',
+      tone: 'critical',
+      cpcBand,
+      summary: `${cpcTrend} Aunque otras métricas puedan ser favorables, el CPC actual supera el límite operativo para priorizarlo en mensajes.`,
+      action: 'No priorizar para campañas de mensajes hasta recuperar CPC ≤ $1.200.'
     };
   }
 
-  if (cpcStrong && (ctrStrong || cpmControlled) && !fatigueBad) {
+  if (fatigueBad || videoCritical) {
+    return {
+      label: 'POTENCIAL LIMITADO POR CREATIVO',
+      tone: 'alert',
+      cpcBand,
+      summary: `${cpcTrend} Sin embargo, existen señales de deterioro creativo${videoCritical ? ' en Hook/Hold' : ''}.`,
+      action: 'No descartar el concepto por CPC; primero renovar/variar el creativo y volver a medir.'
+    };
+  }
+
+  const ctrHealthy = ctrStatus.healthy || ctrStatus.acceptable;
+  const cpmHealthy = cpmStatus.healthy || cpmStatus.acceptable;
+
+  if (cpcBand.rank >= 5 && ctrHealthy && cpmHealthy) {
+    return {
+      label: 'ALTO POTENCIAL PARA MENSAJES',
+      tone: 'good',
+      cpcBand,
+      summary: `${cpcTrend} CTR y CPM acompañan la señal.${video ? ' Hook/Hold no muestran una falla crítica.' : ''}`,
+      action: 'Candidato prioritario para probar en Click-to-WhatsApp. Esta clasificación no predice el costo real por conversación.'
+    };
+  }
+
+  if (cpcBand.rank >= 3 && (ctrHealthy || cpmHealthy)) {
     return {
       label: 'BUEN CANDIDATO PARA TEST',
-      tone: 'attention',
-      summary: `El CPC muestra una señal favorable${ctrStrong ? ' y el CTR acompaña' : ''}${video && hh?.isVideo ? `; ${hh.diagnosis.toLowerCase()}` : ''}.`,
+      tone: 'good',
+      cpcBand,
+      summary: `${cpcTrend} ${ctrHealthy ? 'El CTR acompaña.' : ''} ${cpmHealthy ? 'El CPM sigue controlado.' : ''}`.trim(),
       action: 'Probar en mensajes con presupuesto controlado y validar allí el costo real por conversación.'
     };
   }
 
-  if (
-    benchmarkReady &&
-    toNumber(stats.cpc) > toNumber(benchmark.cpc) * 1.25 &&
-    toNumber(stats.ctr) < toNumber(benchmark.ctr) * 0.85
-  ) {
+  if (cpcBand.rank === 2 && ctrHealthy && cpmHealthy) {
     return {
-      label: 'BAJO POTENCIAL ACTUAL',
-      tone: 'alert',
-      summary: 'El anuncio está pagando más por el clic y obtiene menor respuesta que el benchmark rentable del producto.',
-      action: 'No priorizar para mensajes hasta mejorar la respuesta creativa.'
-    };
-  }
-
-  if (fatigueBad) {
-    return {
-      label: 'BAJO POTENCIAL ACTUAL',
-      tone: 'alert',
-      summary: `Hay señales de deterioro creativo en ${periodLabel}; reutilizarlo ahora en otro objetivo no es prioritario.`,
-      action: 'Primero renovar el creativo.'
+      label: 'CANDIDATO A TEST · CPC ACEPTABLE',
+      tone: 'attention',
+      cpcBand,
+      summary: `${cpcTrend} Como está en el rango aceptable, necesita apoyo claro de CTR/CPM para justificar la prueba.`,
+      action: 'Testear con presupuesto limitado; no tratarlo como candidato prioritario.'
     };
   }
 
   return {
     label: 'POTENCIAL NO CONCLUYENTE',
     tone: 'neutral',
-    summary: 'Las señales de CPC, CTR y CPM todavía no forman un patrón suficientemente fuerte.',
+    cpcBand,
+    summary: `${cpcTrend} El CPC es utilizable, pero CTR/CPM o estabilidad todavía no forman un patrón suficientemente fuerte.`,
     action: 'Mantener en observación y comparar contra más historial.'
   };
 }
 
+
+const CAMPAIGN_CHANGE_RULES_CC = {
+  structuralHours: 48,
+  safeScaleHours: 24,
+  maxSafeScalePct: 20
+};
+
+function firestoreTimeMsCC(value) {
+  if (!value) return null;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value?.toDate === 'function') return value.toDate().getTime();
+  if (Number.isFinite(Number(value?.seconds))) {
+    return Number(value.seconds) * 1000 + Math.floor(Number(value.nanoseconds || 0) / 1e6);
+  }
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function changeEventTimeMsCC(item) {
+  const client = toNumber(item?.clientRecordedAtMs);
+  if (client > 0) return client;
+
+  const candidates = [
+    item?.createdAt,
+    item?.updatedAt,
+    item?.appliedAt,
+    item?.stateChangedAt
+  ];
+
+  for (const candidate of candidates) {
+    const ms = firestoreTimeMsCC(candidate);
+    if (ms) return ms;
+  }
+
+  // Fallback histórico: solo sirve para contexto, no precisión horaria perfecta.
+  const date = String(item?.date || '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const ms = new Date(`${date}T12:00:00-05:00`).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  return null;
+}
+
+function hoursRemainingCC(targetMs, nowMs = Date.now()) {
+  if (!targetMs || targetMs <= nowMs) return 0;
+  return (targetMs - nowMs) / 3600000;
+}
+
+function fmtHoursRemainingCC(hours) {
+  const h = Math.max(0, Number(hours) || 0);
+  if (h <= 0) return 'Disponible ahora';
+  const whole = Math.floor(h);
+  const minutes = Math.ceil((h - whole) * 60);
+  if (whole <= 0) return `${minutes} min`;
+  if (minutes >= 60) return `${whole + 1} h`;
+  return `${whole} h ${minutes} min`;
+}
+
+function classifyDecisionChangeCC(decision) {
+  const explicit = String(decision?.changeType || '').trim();
+  if (explicit) return explicit;
+
+  const action = String(decision?.action || '').toLowerCase();
+
+  if (action.includes('anuncio apagado') || action.includes('anuncio encendido')) return 'ad_state';
+  if (action.includes('anuncio creado') || action.includes('anuncio agregado')) return 'ad_added';
+  if (action.includes('campaña encendida')) return 'campaign_state';
+  if (action.includes('campaña apagada')) return 'campaign_state';
+  return null;
+}
+
+function buildCampaignChangeSafetyCC(campaign, budgetChanges = [], decisions = [], nowMs = Date.now()) {
+  if (!campaign?.id) {
+    return {
+      active: false,
+      status: 'SIN CAMPAÑA',
+      tone: 'neutral',
+      canScaleNow: false,
+      canStructuralNow: false,
+      nextScaleAt: null,
+      nextStructuralAt: null,
+      scaleRemainingHours: 0,
+      structuralRemainingHours: 0,
+      lastEvent: null,
+      events: []
+    };
+  }
+
+  if (campaign.active === false || campaign.archived) {
+    return {
+      active: false,
+      status: campaign.archived ? 'NO APLICA · CAMPAÑA ARCHIVADA' : 'NO APLICA · CAMPAÑA APAGADA',
+      tone: 'neutral',
+      canScaleNow: false,
+      canStructuralNow: false,
+      nextScaleAt: null,
+      nextStructuralAt: null,
+      scaleRemainingHours: 0,
+      structuralRemainingHours: 0,
+      lastEvent: null,
+      events: []
+    };
+  }
+
+  const structuralEvents = (decisions || [])
+    .filter(d => d.campaignId === campaign.id)
+    .map(d => {
+      const type = classifyDecisionChangeCC(d);
+      const timeMs = changeEventTimeMsCC(d);
+      if (!type || !timeMs) return null;
+      return {
+        id: d.id,
+        source: 'decision',
+        type,
+        timeMs,
+        action: d.action || 'Cambio estructural',
+        detail: d.detail || '',
+        structuralUntil: timeMs + CAMPAIGN_CHANGE_RULES_CC.structuralHours * 3600000,
+        scaleUntil: timeMs + CAMPAIGN_CHANGE_RULES_CC.structuralHours * 3600000
+      };
+    })
+    .filter(Boolean);
+
+  const budgetEvents = (budgetChanges || [])
+    .filter(b => b.campaignId === campaign.id)
+    .map(b => {
+      const timeMs = changeEventTimeMsCC(b);
+      if (!timeMs) return null;
+      const pct = toNumber(b.changePct);
+      const safeScale = pct > 0 && pct <= CAMPAIGN_CHANGE_RULES_CC.maxSafeScalePct;
+      const structuralHours = CAMPAIGN_CHANGE_RULES_CC.structuralHours;
+      const scaleHours = safeScale
+        ? CAMPAIGN_CHANGE_RULES_CC.safeScaleHours
+        : CAMPAIGN_CHANGE_RULES_CC.structuralHours;
+
+      return {
+        id: b.id,
+        source: 'budget',
+        type: safeScale ? 'budget_scale_safe' : 'budget_change_major',
+        timeMs,
+        action: safeScale ? 'Escalamiento de presupuesto' : 'Cambio de presupuesto',
+        detail: `${fmtMoney(b.previousBudget)} → ${fmtMoney(b.newBudget)} (${pct > 0 ? '+' : ''}${fmtNum(pct, 2)}%)`,
+        changePct: pct,
+        safeScale,
+        structuralUntil: timeMs + structuralHours * 3600000,
+        scaleUntil: timeMs + scaleHours * 3600000
+      };
+    })
+    .filter(Boolean);
+
+  const events = [...structuralEvents, ...budgetEvents]
+    .sort((a, b) => b.timeMs - a.timeMs);
+
+  const nextScaleAt = events.reduce((max, e) => Math.max(max, toNumber(e.scaleUntil)), 0) || null;
+  const nextStructuralAt = events.reduce((max, e) => Math.max(max, toNumber(e.structuralUntil)), 0) || null;
+
+  const canScaleNow = !nextScaleAt || nowMs >= nextScaleAt;
+  const canStructuralNow = !nextStructuralAt || nowMs >= nextStructuralAt;
+
+  const scaleRemainingHours = hoursRemainingCC(nextScaleAt, nowMs);
+  const structuralRemainingHours = hoursRemainingCC(nextStructuralAt, nowMs);
+
+  let status = 'MARGEN SEGURO PARA CAMBIOS';
+  let tone = 'good';
+  let summary = 'No hay un cambio registrado dentro de la ventana de seguridad.';
+
+  if (!canScaleNow && !canStructuralNow) {
+    status = 'VENTANA DE ESTABILIZACIÓN ACTIVA';
+    tone = 'alert';
+    summary = `Espera ${fmtHoursRemainingCC(Math.max(scaleRemainingHours, structuralRemainingHours))} antes de otro cambio importante.`;
+  } else if (canScaleNow && !canStructuralNow) {
+    status = 'ESCALAMIENTO DISPONIBLE · OTROS CAMBIOS EN ESPERA';
+    tone = 'attention';
+    summary = `Puedes considerar otro escalamiento de hasta +${CAMPAIGN_CHANGE_RULES_CC.maxSafeScalePct}% si la campaña lo justifica. Para apagar/encender anuncios u otro cambio estructural faltan ${fmtHoursRemainingCC(structuralRemainingHours)}.`;
+  }
+
+  return {
+    active: true,
+    status,
+    tone,
+    summary,
+    canScaleNow,
+    canStructuralNow,
+    nextScaleAt,
+    nextStructuralAt,
+    scaleRemainingHours,
+    structuralRemainingHours,
+    lastEvent: events[0] || null,
+    events
+  };
+}
+
+function useSafetyClockCC() {
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return nowMs;
+}
+
+function CampaignChangeSafetyCardCC({ safety, currentBudget = null }) {
+  if (!safety) return null;
+
+  const maxScaleBudget = toNumber(currentBudget) > 0
+    ? toNumber(currentBudget) * (1 + CAMPAIGN_CHANGE_RULES_CC.maxSafeScalePct / 100)
+    : null;
+
+  return (
+    <div className={`rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(safety.tone || 'neutral')}`}>
+      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[8px] font-black uppercase text-slate-500">Margen de seguridad para cambios</p>
+            <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${toneBadge(safety.tone || 'neutral')}`}>
+              {safety.status}
+            </span>
+          </div>
+
+          <p className="text-[9px] font-bold text-zinc-800 mt-2 leading-relaxed">{safety.summary}</p>
+
+          {safety.lastEvent ? (
+            <p className="text-[8px] text-slate-500 mt-2 leading-relaxed">
+              Último cambio registrado: <strong>{safety.lastEvent.action}</strong>
+              {safety.lastEvent.detail ? ` · ${safety.lastEvent.detail}` : ''}
+            </p>
+          ) : (
+            <p className="text-[8px] text-slate-500 mt-2">Sin cambios recientes registrados que activen el margen de seguridad.</p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:w-[430px] gap-2">
+          <div className={`rounded-xl border p-3 ${safety.canScaleNow ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+            <p className="text-[7px] font-black uppercase text-slate-500">Escalamiento de presupuesto</p>
+            <p className={`text-[10px] font-black mt-1 ${safety.canScaleNow ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {safety.canScaleNow ? 'DISPONIBLE' : `ESPERAR ${fmtHoursRemainingCC(safety.scaleRemainingHours)}`}
+            </p>
+            <p className="text-[7px] text-slate-500 mt-1.5">
+              Regla interna: máximo +20% cada 24 h.
+              {maxScaleBudget ? ` · Desde ${fmtMoney(currentBudget)}: hasta ${fmtMoney(maxScaleBudget)}.` : ''}
+            </p>
+          </div>
+
+          <div className={`rounded-xl border p-3 ${safety.canStructuralNow ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+            <p className="text-[7px] font-black uppercase text-slate-500">Apagar/encender anuncios y otros cambios</p>
+            <p className={`text-[10px] font-black mt-1 ${safety.canStructuralNow ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {safety.canStructuralNow ? 'MARGEN SEGURO' : `ESPERAR ${fmtHoursRemainingCC(safety.structuralRemainingHours)}`}
+            </p>
+            <p className="text-[7px] text-slate-500 mt-1.5">Regla interna: 48 h entre cambios estructurales.</p>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-[7px] text-slate-400 mt-3 leading-relaxed">
+        Regla operativa interna de protección. Meta puede considerar significativos ciertos cambios y no publica un corte universal de 20% ni una espera oficial fija de 48 h.
+      </p>
+    </div>
+  );
+}
 
 function budgetImpactDiagnosisCC(contribution, stats, maxCpa) {
   const share = toNumber(contribution?.spendShare);
@@ -5516,6 +6221,7 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
   const max = Math.max(1, toNumber(maxCpa));
   const hh = diag?.hookHold3d;
   const isVideo = hh?.isVideo === true;
+  const metricStatus = metricSetDiagnosisCC(s, p, max);
 
   const cpa = s.cpa;
   const cpaDelta = d.cpa;
@@ -5530,31 +6236,22 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
     cpa !== null && cpa !== undefined && toNumber(cpa) <= max * 0.8 ? 'good' :
     cpa !== null && cpa !== undefined && toNumber(cpa) <= max ? 'normal' : 'attention';
 
-  let resultTitle = diag?.cpaObservation3d?.title || 'RESULTADO SIN LECTURA';
-  let resultSummary = diag?.cpaObservation3d?.text || 'Sin suficiente información de CPA.';
+  let resultTitle = metricStatus.cpa.combinedLabel;
+  let resultSummary = metricStatus.cpa.summary;
   if (cpa !== null && cpa !== undefined) {
     const relation = cpaVsMax > 0
       ? `${fmtNum(Math.abs(cpaVsMax), 2)}% por encima del máximo`
       : `${fmtNum(Math.abs(cpaVsMax), 2)}% por debajo del máximo`;
-    const trend = cpaDelta === null
-      ? `sin base ${periodLabel} previa comparable`
-      : `${cpaDelta > 0 ? 'deteriorándose' : cpaDelta < 0 ? 'mejorando' : 'sin cambio'} ${fmtNum(Math.abs(cpaDelta), 2)}% vs ${periodLabel} previo`;
-    resultSummary = `CPA ${fmtCpa(cpa)} · ${relation} (${fmtMoney(max)}) · ${trend}.`;
+    resultSummary = `CPA ${fmtCpa(cpa)} · ${relation} (${fmtMoney(max)}). ${metricStatus.cpa.summary}`;
   }
 
   const impact = budgetImpactDiagnosisCC(contribution, s, max);
 
   // DISTRIBUTION
   const cpmDelta = d.cpm;
-  let distributionTone = 'normal';
-  let distributionTitle = 'COSTO DE IMPRESIÓN SIN CAMBIO CRÍTICO';
-  if (cpmDelta !== null && cpmDelta > 20) { distributionTone = 'alert'; distributionTitle = 'COSTO DE IMPRESIÓN DETERIORADO'; }
-  else if (cpmDelta !== null && cpmDelta > 10) { distributionTone = 'attention'; distributionTitle = 'COSTO DE IMPRESIÓN EN AUMENTO'; }
-  else if (cpmDelta !== null && cpmDelta < -15) { distributionTone = 'good'; distributionTitle = 'COSTO DE IMPRESIÓN MEJORANDO'; }
-
-  const distributionSummary = cpmDelta === null
-    ? `CPM ${fmtMoneyOrDashCC(s.cpm)} · sin base comparable.`
-    : `CPM ${fmtMoneyOrDashCC(s.cpm)} · ${cpmDelta > 0 ? '+' : ''}${fmtNum(cpmDelta, 2)}% vs ${periodLabel} previo.`;
+  let distributionTone = metricStatus.cpm.combinedTone;
+  let distributionTitle = metricStatus.cpm.combinedLabel;
+  const distributionSummary = metricStatus.cpm.summary;
 
   const distributionHypothesis = cpmDelta !== null && cpmDelta > 10
     ? 'Puede estar relacionado con competencia, cambios de audiencia, placements, temporalidad u otros factores de distribución. El CPM no demuestra una causa única.'
@@ -5564,42 +6261,34 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
   const ctrDelta = d.ctr;
   const hookDelta = d.hookRate;
   const holdDelta = d.holdRate;
-  let creativeTone = 'normal';
-  let creativeTitle = 'RESPUESTA CREATIVA SIN DETERIORO FUERTE';
-  let creativeSummary = `CTR ${fmtRate(s.ctr)}${ctrDelta === null ? '' : ` · ${ctrDelta > 0 ? '+' : ''}${fmtNum(ctrDelta, 2)}% vs ${periodLabel} previo`}.`;
-
-  if (ctrDelta !== null && ctrDelta <= -20) {
-    creativeTone = 'critical';
-    creativeTitle = 'RESPUESTA CREATIVA DETERIORADA';
-  } else if (ctrDelta !== null && ctrDelta <= -10) {
-    creativeTone = 'alert';
-    creativeTitle = 'RESPUESTA CREATIVA EN DETERIORO';
-  } else if (ctrDelta !== null && ctrDelta >= 10) {
-    creativeTone = 'good';
-    creativeTitle = 'RESPUESTA CREATIVA MEJORANDO';
-  }
+  let creativeTone = metricStatus.ctr.combinedTone;
+  let creativeTitle = metricStatus.ctr.combinedLabel;
+  let creativeSummary = metricStatus.ctr.summary;
 
   if (isVideo) {
-    creativeSummary += ` Hook ${fmtRate(s.hookRate)}${hookDelta === null ? '' : ` (${hookDelta > 0 ? '+' : ''}${fmtNum(hookDelta, 2)}%)`} · Hold ${fmtRate(s.holdRate)}${holdDelta === null ? '' : ` (${holdDelta > 0 ? '+' : ''}${fmtNum(holdDelta, 2)}%)`}.`;
+    const hookContext = videoTrendHealthTextCC('Hook', hh?.hook, hookDelta);
+    const holdContext = videoTrendHealthTextCC('Hold', hh?.hold, holdDelta);
+    creativeSummary += ` Hook ${fmtRate(s.hookRate)} · Hold ${fmtRate(s.holdRate)}.${hookContext ? ` ${hookContext}` : ''}${holdContext ? ` ${holdContext}` : ''}`;
+
+    const hookBelow = hh?.hook && !videoLevelHealthyCC(hh.hook.level) && !videoLevelAcceptableCC(hh.hook.level);
+    const holdBelow = hh?.hold && !videoLevelHealthyCC(hh.hold.level) && !videoLevelAcceptableCC(hh.hold.level);
+
     if (
+      metricStatus.ctr.actionable &&
       ctrDelta !== null && ctrDelta < -10 &&
-      hookDelta !== null && hookDelta < -10 &&
-      holdDelta !== null && holdDelta < -10
+      hookBelow &&
+      holdBelow
     ) {
       creativeTone = 'critical';
-      creativeTitle = 'DETERIORO PRE-CLIC / CREATIVO PROBABLE';
+      creativeTitle = 'ACCIÓN · DETERIORO PRE-CLIC Y NIVELES DÉBILES';
     }
   }
 
   // TRAFFIC COST: CPM + CTR -> CPC
   const cpcDelta = d.cpc;
-  let trafficTone = 'normal';
-  let trafficTitle = 'COSTO DEL TRÁFICO ESTABLE';
-  let trafficSummary = `CPC ${fmtMoneyOrDashCC(s.cpc)}${cpcDelta === null ? '' : ` · ${cpcDelta > 0 ? '+' : ''}${fmtNum(cpcDelta, 2)}%`}.`;
-
-  if (cpcDelta !== null && cpcDelta > 20) { trafficTone = 'critical'; trafficTitle = 'COSTO DEL TRÁFICO DETERIORADO'; }
-  else if (cpcDelta !== null && cpcDelta > 10) { trafficTone = 'attention'; trafficTitle = 'COSTO DEL TRÁFICO EN AUMENTO'; }
-  else if (cpcDelta !== null && cpcDelta < -10) { trafficTone = 'good'; trafficTitle = 'COSTO DEL TRÁFICO MEJORANDO'; }
+  let trafficTone = metricStatus.cpc.combinedTone;
+  let trafficTitle = metricStatus.cpc.combinedLabel;
+  let trafficSummary = metricStatus.cpc.summary;
 
   if (cpcDelta !== null && cpmDelta !== null && ctrDelta !== null) {
     if (cpmDelta > 10 && ctrDelta > 10 && cpcDelta > 0) {
@@ -5621,27 +6310,15 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
   const cvrDelta = d.visitToPurchase;
   const quality = diag?.scalePostDataQuality3d || postClickDataQualityCC(s);
 
-  let postTone = 'normal';
-  let postTitle = 'CVR SIN DETERIORO FUERTE';
-  let postSummary = `CVR ${fmtRate(cvr)}${cvrDelta === null ? '' : ` · ${cvrDelta > 0 ? '+' : ''}${fmtNum(cvrDelta, 2)}% vs ${periodLabel} previo`}.`;
+  let postTone = metricStatus.cvr.combinedTone;
+  let postTitle = metricStatus.cvr.combinedLabel;
+  let postSummary = metricStatus.cvr.summary;
   let peerInterpretation = '';
 
   if (quality?.level === 'missing') {
     postTone = 'attention';
     postTitle = 'DATOS POST-CLIC INCOMPLETOS';
     postSummary = quality.reason || 'No hay datos post-clic suficientes para evaluar CVR.';
-  } else if (cvrDelta !== null && cvrDelta <= -30) {
-    postTone = 'critical';
-    postTitle = 'DETERIORO POST-CLIC SEVERO';
-    postSummary = `CVR cayó de ${fmtRate(prevCvr)} a ${fmtRate(cvr)}, una variación de ${fmtNum(cvrDelta, 2)}%.`;
-  } else if (cvrDelta !== null && cvrDelta <= -15) {
-    postTone = 'alert';
-    postTitle = 'DETERIORO POST-CLIC';
-    postSummary = `CVR cayó de ${fmtRate(prevCvr)} a ${fmtRate(cvr)}, una variación de ${fmtNum(cvrDelta, 2)}%.`;
-  } else if (cvrDelta !== null && cvrDelta >= 15) {
-    postTone = 'good';
-    postTitle = 'CONVERSIÓN POST-CLIC MEJORANDO';
-    postSummary = `CVR subió de ${fmtRate(prevCvr)} a ${fmtRate(cvr)}, una variación de +${fmtNum(cvrDelta, 2)}%.`;
   }
 
   const peerCurrent = contribution?.peerVisitToPurchase;
@@ -5663,13 +6340,13 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
   }
 
   // Identify main layer moving CPA.
-  const badCpa = cpa !== null && cpa !== undefined && (toNumber(cpa) > max || (cpaDelta !== null && cpaDelta > 15));
-  const postSevere = cvrDelta !== null && cvrDelta <= -25;
-  const creativeBad = ctrDelta !== null && ctrDelta <= -15;
-  const distributionBad = cpmDelta !== null && cpmDelta >= 15;
-  const cpcBad = cpcDelta !== null && cpcDelta >= 10;
-  const cvrStable = cvrDelta === null || Math.abs(cvrDelta) <= 10;
-  const ctrStableOrBetter = ctrDelta === null || ctrDelta >= -10;
+  const badCpa = metricStatus.cpa.actionable;
+  const postSevere = metricStatus.cvr.actionable && cvrDelta !== null && cvrDelta <= -15;
+  const creativeBad = metricStatus.ctr.actionable && ctrDelta !== null && ctrDelta <= -10;
+  const distributionBad = metricStatus.cpm.actionable;
+  const cpcBad = metricStatus.cpc.actionable;
+  const cvrStable = !metricStatus.cvr.actionable && (cvrDelta === null || Math.abs(cvrDelta) <= 15);
+  const ctrStableOrBetter = !metricStatus.ctr.actionable;
 
   let generalTone = resultTone;
   let generalTitle = 'SIN DETERIORO PRINCIPAL IDENTIFICADO';
@@ -5677,7 +6354,21 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
   let hypothesis = 'Continuar observando la cadena completa antes de atribuir una causa.';
   let primaryLayer = 'Resultado comercial';
 
-  if (badCpa && postSevere && distributionBad) {
+  const healthyDeteriorations = [
+    metricStatus.cpa,
+    metricStatus.cpm,
+    metricStatus.ctr,
+    metricStatus.cpc,
+    metricStatus.cvr
+  ].filter(x => x?.trend?.deteriorating && !x?.actionable);
+
+  if (!badCpa && healthyDeteriorations.length > 0) {
+    generalTone = 'attention';
+    generalTitle = 'ALERTA DE DETERIORO · NIVELES AÚN CONTROLADOS';
+    primaryLayer = 'Vigilancia';
+    interpretation = `Hay ${healthyDeteriorations.length} métrica(s) empeorando frente al período anterior, pero todavía permanecen dentro de rangos saludables o aceptables. La caída relativa es una alerta, no una razón automática para intervenir.`;
+    hypothesis = 'Vigilar si el deterioro continúa hasta cruzar los estándares operativos o si empieza a afectar el CPA/contribución.';
+  } else if (badCpa && postSevere && distributionBad) {
     generalTone = 'critical';
     generalTitle = 'PROBLEMA MIXTO · POST-CLIC ES LA MAYOR SEÑAL';
     primaryLayer = 'Post-clic';
@@ -5820,7 +6511,8 @@ function buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad = null, be
       peerInterpretation
     },
     confidence: relationalConfidenceCC(diag, periodLabel),
-    priorityScore: impact.priority + (generalTone === 'critical' ? 4 : generalTone === 'alert' ? 2 : 0)
+    metricStatus,
+    priorityScore: impact.priority + (generalTone === 'critical' ? 4 : generalTone === 'alert' ? 2 : generalTone === 'attention' ? 1 : 0)
   };
 }
 
@@ -6037,7 +6729,8 @@ function QuickMetricCC({
   metric,
   sub,
   periodLabel = '3D',
-  previousPeriodLabel = null
+  previousPeriodLabel = null,
+  healthStatus = null
 }) {
   const hasPrevious = previousValue !== null && previousValue !== undefined && previousValue !== '—';
   const prevLabel = previousPeriodLabel || periodLabel;
@@ -6066,6 +6759,14 @@ function QuickMetricCC({
         </p>
       </div>
 
+      {healthStatus ? (
+        <div className="mt-2 min-w-0">
+          <span className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[6px] font-black uppercase leading-tight ${toneBadge(healthStatus.combinedTone || healthStatus.tone || 'neutral')}`}>
+            {healthStatus.combinedLabel || healthStatus.level}
+          </span>
+        </div>
+      ) : null}
+
       <div className="mt-2.5 pt-2 border-t border-slate-200/80 min-w-0">
         <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">
           Anterior · {prevLabel}
@@ -6086,6 +6787,7 @@ function QuickMetricCC({
 
 function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], maxCpa, periodLabel = '3D') {
   const max = Math.max(1, toNumber(maxCpa));
+  const campaignMetricStatus = metricSetDiagnosisCC(campaign3d, campaignPrev3d, max);
   const delta = {
     cpa: pctChange(campaign3d?.cpa, campaignPrev3d?.cpa),
     cpm: pctChange(campaign3d?.cpm, campaignPrev3d?.cpm),
@@ -6178,12 +6880,12 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
 
   // Campaign metric chain: decide which global layer has the clearest movement.
   let campaignLayer = dominantLayer;
-  const cvrBad = delta.visitToPurchase !== null && delta.visitToPurchase <= -20;
-  const ctrBad = delta.ctr !== null && delta.ctr <= -15;
-  const cpmBad = delta.cpm !== null && delta.cpm >= 15;
-  const cpcBad = delta.cpc !== null && delta.cpc >= 10;
-  const ctrStableOrBetter = delta.ctr === null || delta.ctr >= -10;
-  const cvrStable = delta.visitToPurchase === null || Math.abs(delta.visitToPurchase) <= 10;
+  const cvrBad = campaignMetricStatus.cvr.actionable && delta.visitToPurchase !== null && delta.visitToPurchase < 0;
+  const ctrBad = campaignMetricStatus.ctr.actionable && delta.ctr !== null && delta.ctr < 0;
+  const cpmBad = campaignMetricStatus.cpm.actionable;
+  const cpcBad = campaignMetricStatus.cpc.actionable;
+  const ctrStableOrBetter = !campaignMetricStatus.ctr.actionable;
+  const cvrStable = !campaignMetricStatus.cvr.actionable;
 
   if (cvrBad && ctrStableOrBetter) campaignLayer = 'Post-clic';
   else if (ctrBad && cvrStable) campaignLayer = 'Respuesta creativa';
@@ -6236,6 +6938,7 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
     dominantLayer: campaignLayer,
     layerSpend,
     delta,
+    metricStatus: campaignMetricStatus,
     action,
     topProblems,
     rulesNote: 'Alcance generalizado/concentrado se define con reglas operativas internas basadas principalmente en % de gasto afectado y cantidad de anuncios; no es un benchmark oficial de Meta.'
@@ -6621,7 +7324,7 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
   );
 }
 
-function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d' }) {
+function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const periodLabel = periodLabelCC(analysisPeriod);
   const periodCardLabel = periodCardLabelCC(analysisPeriod, false);
@@ -6734,13 +7437,20 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             </div>
           </div>
 
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+            <p className="text-[7px] font-black uppercase text-slate-500">Cómo leer las métricas</p>
+            <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">
+              <strong>Variación</strong> = dirección frente al bloque anterior. <strong>Salud actual</strong> = si el valor de hoy sigue dentro del estándar operativo. Una métrica puede deteriorarse y seguir saludable.
+            </p>
+          </div>
+
           {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
           <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-5 gap-2.5 sm:gap-3 mt-5">
-            <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-            <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-            <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-            <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-            <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+            <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpa}/>
+            <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpm}/>
+            <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.ctr}/>
+            <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpc}/>
+            <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cvr}/>
           </div>
 
           {/* Lectura ejecutiva */}
@@ -6804,6 +7514,13 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           </div>
         </div>
       </section>
+
+      {campaign.active !== false && changeSafety ? (
+        <CampaignChangeSafetyCardCC
+          safety={changeSafety}
+          currentBudget={campaignHistory?.[campaignHistory.length - 1]?.budget}
+        />
+      ) : null}
 
       {/* Separador conceptual */}
       <div className="rounded-2xl bg-zinc-950 text-white p-3.5 sm:p-4">
@@ -6875,11 +7592,11 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
 
               {/* Métricas principales */}
               <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-5 gap-2.5 sm:gap-3 mt-5">
-                <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-                <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpc)} · ${periodLabel}` : periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-                <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `Bench. ${fmtRate(benchmark.ctr)} · ${periodLabel}` : periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-                <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={benchmark?.sampleDays ? `Bench. ${fmtMoneyOrDashCC(benchmark.cpm)} · ${periodLabel}` : periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-                <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={`Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
+                <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpa}/>
+                <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={relational.metricStatus?.cpc?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpc}/>
+                <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={relational.metricStatus?.ctr?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.ctr}/>
+                <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={relational.metricStatus?.cpm?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpm}/>
+                <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={relational.metricStatus?.cvr?.standardText || `Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cvr}/>
               </div>
 
               {/* Diagnóstico relacional */}
@@ -7109,6 +7826,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   }).sort((a, b) => (a.diag.stats.cpa || 999999999) - (b.diag.stats.cpa || 999999999));
 
   const today = todayColombiaCC();
+  const safetyNowMs = useSafetyClockCC();
   const campaignHistory = eligibleCampaignRecords(
     dailyCampaigns.filter(r => r.campaignId === campaign.id),
     campaign
@@ -7117,6 +7835,10 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   const scaleRows = useMemo(() => buildScaleHistory(campaignHistory, product?.maxCpa), [campaignHistory, product?.maxCpa]);
   const budgetRows = budgetChanges.filter(b => b.campaignId === campaign.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const decisionRows = decisions.filter(d => d.campaignId === campaign.id).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const changeSafety = useMemo(
+    () => buildCampaignChangeSafetyCC(campaign, budgetChanges, decisions, safetyNowMs),
+    [campaign, budgetChanges, decisions, safetyNowMs]
+  );
   const benchmark = useMemo(
     () => buildProductBenchmark(product?.id, dailyAds, dailyCampaigns, product?.maxCpa, allAds || ads, allCampaigns || [campaign]),
     [product?.id, product?.maxCpa, dailyAds, dailyCampaigns, allAds, allCampaigns, ads, campaign]
@@ -7222,6 +7944,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           campaignDecision={campaignDecision}
           benchmark={benchmark}
           analysisPeriod={monitorPeriod}
+          changeSafety={changeSafety}
         />
       )}
 
@@ -7247,6 +7970,13 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           </span>
         </div>
       </div>
+      {campaign.active !== false ? (
+        <CampaignChangeSafetyCardCC
+          safety={changeSafety}
+          currentBudget={campaignHistory?.[campaignHistory.length - 1]?.budget}
+        />
+      ) : null}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className={`rounded-2xl p-3 ${toneBg(
           campaignDecision.cpaObservation3d?.level === 'critical' ? 'critical' :
@@ -7275,7 +8005,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           )}
         </div>
         <div className="rounded-2xl p-3 bg-blue-50" style={{border:'2px solid #2563eb'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
-        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Distribución / costo de impresiones</p><p className="text-[9px] text-slate-600 mt-1">CPM mide cuánto cuesta conseguir 1.000 impresiones. Si sube, el costo de distribución aumentó; la causa puede involucrar competencia, audiencia, placements, temporalidad u otros factores. Solo se habla de posible saturación cuando frecuencia, CTR, CPC y resultado acompañan el patrón.</p></div>
+        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Distribución / costo de impresiones</p><p className="text-[9px] text-slate-600 mt-1">CPM se lee en dos capas: tendencia vs período anterior y nivel actual. Un CPM puede subir y seguir saludable si permanece ≤ $10.000. Si supera $10.000 entra en revisión; la causa no se demuestra solo con CPM.</p></div>
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50" style={{border:'2px solid #0891b2'}}>
@@ -7799,6 +8529,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const [busyKey, setBusyKey] = useState('');
   const [campaignOffPicker, setCampaignOffPicker] = useState(null);
   const today = todayColombiaCC();
+  const safetyNowMs = useSafetyClockCC();
 
   const showManagerMessage = (type, text) => {
     setManagerMessage({ type, text });
@@ -7810,6 +8541,20 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     if (code.includes('permission-denied')) return `${action}: Firestore bloqueó la escritura. Debes permitir la colección correspondiente en las reglas de Firebase.`;
     if (code.includes('unavailable')) return `${action}: Firebase no está disponible temporalmente.`;
     return `${action}: ${error?.message || 'No fue posible completar la operación.'}`;
+  };
+
+  const confirmStructuralChangeSafety = campaign => {
+    const safety = buildCampaignChangeSafetyCC(campaign, budgetChanges, decisions, Date.now());
+    if (!safety.active || safety.canStructuralNow) return true;
+
+    return window.confirm(
+      `MARGEN DE SEGURIDAD ACTIVO\n\n` +
+      `Todavía faltan ${fmtHoursRemainingCC(safety.structuralRemainingHours)} para completar la ventana interna de 48 horas.\n\n` +
+      `Último cambio: ${safety.lastEvent?.action || 'cambio reciente registrado'}\n` +
+      `${safety.lastEvent?.detail || ''}\n\n` +
+      `Cambiar ahora puede dificultar la lectura del rendimiento y puede afectar la estabilización de Meta.\n\n` +
+      `¿Deseas continuar de todas formas?`
+    );
   };
 
   const addProduct = async () => {
@@ -8110,7 +8855,8 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         campaign,
         null,
         'Campaña apagada',
-        `Fecha efectiva de apagado: ${offDate}. Desde esa fecha quedó excluida de Registro diario; histórico anterior conservado.`
+        `Fecha efectiva de apagado: ${offDate}. Desde esa fecha quedó excluida de Registro diario; histórico anterior conservado.`,
+        { changeType: 'campaign_state', safetyHours: 48 }
       );
       setCampaignOffPicker(null);
       showManagerMessage('success', `"${campaign.name}" apagada con fecha efectiva ${offDate}.`);
@@ -8145,7 +8891,8 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         campaign,
         null,
         'Campaña encendida',
-        `Reactivada el ${today}. Se restauró el estado individual previo de los anuncios.`
+        `Reactivada el ${today}. Se restauró el estado individual previo de los anuncios.`,
+        { changeType: 'campaign_state', safetyHours: 48 }
       );
       showManagerMessage('success', `"${campaign.name}" encendida desde ${today}.`);
     }
@@ -8215,9 +8962,17 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         stateChangedAt: serverTimestamp(),
         disabledByCampaign: campaign.active === false
       });
+      await addDecision(
+        ownerUid,
+        campaign,
+        { id: ref.id, productId: campaign.productId, campaignId: campaign.id },
+        'Anuncio creado',
+        `Nuevo anuncio agregado a la campaña: ${name}`,
+        { changeType: 'ad_added', safetyHours: 48 }
+      );
       setAdNameByCampaign(x => ({ ...x, [campaign.id]: '' }));
       setExpanded(x => ({ ...x, [campaign.id]: true }));
-      showManagerMessage('success', `Anuncio "${name}" creado correctamente en "${campaign.name}".`);
+      showManagerMessage('success', `Anuncio "${name}" creado correctamente en "${campaign.name}". Se activó margen de seguridad de cambios.`);
     } catch (error) {
       console.error('Lectura de Campañas · crear anuncio', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo crear el anuncio'));
@@ -8227,9 +8982,25 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   };
   const toggleAd = async (ad,campaign) => {
     if(campaign.active===false&&ad.active===false) return alert('Primero debes encender la campaña.');
+    if (!confirmStructuralChangeSafety(campaign)) return;
+
     const next=ad.active===false;
-    await updateDoc(doc(db,COLLECTIONS.ads,ad.id),{ active:next,savedActiveBeforeCampaignOff:next,disabledByCampaign:false,stateChangedDate:today,stateHistory:[...(ad.stateHistory||[]),{date:today,active:next}],stateChangedAt:serverTimestamp() });
-    await addDecision(ownerUid,campaign,ad,next?'Anuncio encendido':'Anuncio apagado',`Estado cambiado manualmente: ${ad.name}`);
+    await updateDoc(doc(db,COLLECTIONS.ads,ad.id),{
+      active:next,
+      savedActiveBeforeCampaignOff:next,
+      disabledByCampaign:false,
+      stateChangedDate:today,
+      stateHistory:[...(ad.stateHistory||[]),{date:today,active:next}],
+      stateChangedAt:serverTimestamp()
+    });
+    await addDecision(
+      ownerUid,
+      campaign,
+      ad,
+      next?'Anuncio encendido':'Anuncio apagado',
+      `Estado cambiado manualmente: ${ad.name}`,
+      { changeType: 'ad_state', safetyHours: 48 }
+    );
   };
   const deleteAd = async (ad,campaign) => {
     const relatedDaily=dailyAds.filter(x=>x.adId===ad.id); const relatedDecisions=decisions.filter(x=>x.adId===ad.id); const relatedRecommendations=recommendations.filter(x=>x.adId===ad.id);
@@ -8349,6 +9120,19 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
               </div>
             </div>
 
+            {campaign.active !== false && !campaign.archived && (() => {
+              const campaignSafety = buildCampaignChangeSafetyCC(campaign, budgetChanges, decisions, safetyNowMs);
+              const latestBudget = [...budgetChanges]
+                .filter(b => b.campaignId === campaign.id && toNumber(b.newBudget) > 0)
+                .sort((a,b) => toNumber(changeEventTimeMsCC(b)) - toNumber(changeEventTimeMsCC(a)))[0]?.newBudget || null;
+
+              return (
+                <div className="mt-3">
+                  <CampaignChangeSafetyCardCC safety={campaignSafety} currentBudget={latestBudget} />
+                </div>
+              );
+            })()}
+
             {campaignOffPicker?.campaignId === campaign.id && campaign.active !== false && !campaign.archived && (
               <div className="mt-3 rounded-2xl border-2 border-rose-200 bg-rose-50 p-3">
                 <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
@@ -8415,7 +9199,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   </div>;
 }
 
-async function addDecision(ownerUid, campaign, ad, action, detail) {
+async function addDecision(ownerUid, campaign, ad, action, detail, meta = {}) {
   await addDoc(collection(db, COLLECTIONS.decisions), {
     ownerUid,
     productId: campaign?.productId || ad?.productId || null,
@@ -8424,6 +9208,8 @@ async function addDecision(ownerUid, campaign, ad, action, detail) {
     date: todayColombiaCC(),
     action,
     detail,
+    ...meta,
+    clientRecordedAtMs: Date.now(),
     createdAt: serverTimestamp()
   });
 }
@@ -9350,6 +10136,12 @@ async function detectBudgetChange({ ownerUid, date, campaign, currentBudget, dai
     .find(r => toNumber(r.recommendedBudget) === currentBudget);
 
   const origin = recommendation ? 'recommendation' : 'manual';
+  const changePct = ((currentBudget - previousBudget) / previousBudget) * 100;
+  const safeScale = changePct > 0 && changePct <= CAMPAIGN_CHANGE_RULES_CC.maxSafeScalePct;
+  const safetyHours = safeScale
+    ? CAMPAIGN_CHANGE_RULES_CC.safeScaleHours
+    : CAMPAIGN_CHANGE_RULES_CC.structuralHours;
+
   await setDoc(doc(db, COLLECTIONS.budgetChanges, `${campaign.id}_${date}`), {
     ownerUid,
     productId: campaign.productId,
@@ -9357,9 +10149,13 @@ async function detectBudgetChange({ ownerUid, date, campaign, currentBudget, dai
     date,
     previousBudget,
     newBudget: currentBudget,
-    changePct: ((currentBudget - previousBudget) / previousBudget) * 100,
+    changePct,
     origin,
     recommendationId: recommendation?.id || null,
+    changeType: safeScale ? 'budget_scale_safe' : 'budget_change_major',
+    safetyHours,
+    ruleMaxScalePct: CAMPAIGN_CHANGE_RULES_CC.maxSafeScalePct,
+    clientRecordedAtMs: Date.now(),
     createdAt: serverTimestamp()
   }, { merge: true });
 
@@ -9372,7 +10168,10 @@ async function detectBudgetChange({ ownerUid, date, campaign, currentBudget, dai
     adId: null,
     date,
     action: origin === 'recommendation' ? 'Recomendación de presupuesto aplicada' : 'Cambio manual de presupuesto',
-    detail: `${fmtMoney(previousBudget)} → ${fmtMoney(currentBudget)} (${fmtNum(((currentBudget - previousBudget) / previousBudget) * 100, 2)}%)`,
+    detail: `${fmtMoney(previousBudget)} → ${fmtMoney(currentBudget)} (${changePct > 0 ? '+' : ''}${fmtNum(changePct, 2)}%)`,
+    changeType: safeScale ? 'budget_scale_safe' : 'budget_change_major',
+    safetyHours,
+    clientRecordedAtMs: Date.now(),
     createdAt: serverTimestamp()
   });
 }
