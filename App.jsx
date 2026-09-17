@@ -3216,7 +3216,7 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
         : 'bg-white border-slate-100';
 
   return (
-    <div className={`min-w-0 overflow-hidden rounded-2xl border px-2.5 py-3 sm:px-3 ${toneClass}`}>
+    <div className={`min-w-0 overflow-hidden rounded-2xl border px-2 py-3 sm:px-2.5 ${toneClass}`}>
       <p
         className="min-w-0 text-[7px] sm:text-[8px] font-black uppercase tracking-wide leading-tight text-slate-400"
         style={{ overflowWrap: 'anywhere' }}
@@ -3226,8 +3226,8 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
 
       <div className="min-w-0 mt-1.5 overflow-hidden">
         <div
-          className="max-w-full font-black leading-none tracking-[-0.01em] tabular-nums text-zinc-900 whitespace-nowrap overflow-hidden text-ellipsis"
-          style={{ fontSize: 'clamp(12px, 0.95vw, 16px)' }}
+          className="max-w-full font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+          style={{ fontSize: 'clamp(10px, 0.78vw, 13px)' }}
         >
           {value}
         </div>
