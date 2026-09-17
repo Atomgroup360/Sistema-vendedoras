@@ -8097,96 +8097,157 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   if (!scaleStatus) return null;
 
   const tone = scaleStatus.tone || 'neutral';
+  const diag = scaleStatus.scaleDiagnosis || null;
 
   const valueBox = (label, value, sub = null) => (
-    <div className="min-w-0 rounded-xl border border-white/80 bg-white/75 px-2.5 py-2.5">
-      <p className="text-[6.5px] sm:text-[7px] font-black uppercase leading-tight text-slate-400" style={{ overflowWrap: 'anywhere' }}>
+    <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-3 py-3 sm:px-3.5">
+      <p
+        className="text-[6.5px] sm:text-[7px] font-black uppercase leading-tight tracking-wide text-slate-400"
+        style={{ overflowWrap: 'anywhere' }}
+      >
         {label}
       </p>
+
       <p
-        className="mt-1.5 font-black leading-none tabular-nums text-zinc-900 whitespace-nowrap overflow-hidden text-ellipsis"
-        style={{ fontSize: 'clamp(10px, 0.9vw, 14px)' }}
+        className="mt-1.5 font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+        style={{ fontSize: 'clamp(12px, 1.05vw, 17px)' }}
       >
         {value}
       </p>
-      {sub ? <p className="text-[6.5px] text-slate-500 mt-1 leading-tight">{sub}</p> : null}
+
+      {sub ? (
+        <p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1.5 leading-snug">
+          {sub}
+        </p>
+      ) : null}
     </div>
   );
 
   return (
-    <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(tone)}`}>
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.85fr)] gap-4 xl:items-start">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[8px] font-black uppercase tracking-wide text-slate-500">Estado actual de escala</p>
-            <span className={`max-w-full px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase leading-tight ${toneBadge(tone)}`}>
-              {scaleStatus.status}
-            </span>
-          </div>
+    <div className={`mt-4 rounded-2xl border-2 p-3 sm:p-4 lg:p-5 ${toneBg(tone)}`}>
+      {/* CABECERA · usa todo el ancho disponible */}
+      <div className="min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="text-[8px] font-black uppercase tracking-wide text-slate-500">
+            Estado actual de escala
+          </p>
 
-          <p className="text-[10px] sm:text-[11px] font-black text-zinc-900 mt-2 leading-relaxed">
+          <span
+            className={`inline-flex self-start sm:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[7px] sm:text-[8px] font-black uppercase leading-tight text-center ${toneBadge(tone)}`}
+            style={{ overflowWrap: 'anywhere' }}
+          >
+            {scaleStatus.status}
+          </span>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)] gap-3 xl:gap-5">
+          <p className="min-w-0 text-[11px] sm:text-[12px] lg:text-[13px] font-black text-zinc-900 leading-relaxed">
             {scaleStatus.summary}
           </p>
 
-          <p className="text-[8px] sm:text-[9px] text-slate-600 mt-2 leading-relaxed">
-            <strong>Qué hacer:</strong> {scaleStatus.action}
-          </p>
-
-          {scaleStatus.scaleDiagnosis ? (
-            <div className={`mt-3 rounded-xl border p-3 ${toneBg(scaleStatus.scaleDiagnosis.tone || 'neutral')}`}>
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-[7px] font-black uppercase text-slate-500">Relación con último escalamiento</p>
-                <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${toneBadge(scaleStatus.scaleDiagnosis.tone || 'neutral')}`}>
-                  {scaleStatus.scaleDiagnosis.status}
-                </span>
-              </div>
-              <p className="text-[8px] sm:text-[9px] font-bold text-zinc-800 mt-2 leading-relaxed">
-                {scaleStatus.scaleDiagnosis.summary}
-              </p>
-              <p className="text-[7px] text-slate-500 mt-1.5 leading-relaxed">
-                <strong>Evidencia:</strong> {scaleStatus.scaleDiagnosis.evidence}
-              </p>
-              <p className="text-[8px] text-slate-700 mt-2 leading-relaxed">
-                <strong>{scaleStatus.scaleDiagnosis.shouldReduceBudget ? 'ACCIÓN:' : 'Qué hacer:'}</strong> {scaleStatus.scaleDiagnosis.recommendedAction}
-              </p>
-              <p className="text-[6.5px] text-slate-400 mt-2">
-                Confianza {scaleStatus.scaleDiagnosis.confidence}. Es una relación temporal/operativa, no una prueba causal absoluta.
-              </p>
-            </div>
-          ) : null}
-
-          <p className="text-[7px] text-slate-400 mt-2 leading-relaxed">
-            Lectura histórica del nivel de presupuesto. No reemplaza la decisión 3D ni los guardrails de escala.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {valueBox(
-            'Presupuesto actual',
-            scaleStatus.currentBudget ? fmtMoney(scaleStatus.currentBudget) : '—',
-            scaleStatus.days ? `${scaleStatus.days} día(s) en este nivel` : null
-          )}
-          {valueBox(
-            'CPA histórico del nivel',
-            scaleStatus.cpa !== null && scaleStatus.cpa !== undefined ? fmtCpa(scaleStatus.cpa) : '—',
-            `CPA máximo ${fmtMoney(maxCpa)}`
-          )}
-          {valueBox(
-            'CPA marginal',
-            scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
-              ? fmtMoney(scaleStatus.marginalCpa)
-              : '—',
-            'Costo de las compras adicionales al subir de nivel'
-          )}
-          {valueBox(
-            'Último nivel rentable',
-            scaleStatus.profitableCeilingBudget ? fmtMoney(scaleStatus.profitableCeilingBudget) : '—',
-            scaleStatus.profitableCeilingCpa
-              ? `CPA ${fmtCpa(scaleStatus.profitableCeilingCpa)}`
-              : 'Sin nivel rentable confirmado'
-          )}
+          <div className="min-w-0 rounded-xl border border-white/70 bg-white/55 px-3 py-2.5">
+            <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+              Qué hacer
+            </p>
+            <p className="text-[8px] sm:text-[9px] text-slate-700 mt-1.5 leading-relaxed">
+              {scaleStatus.action}
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* MÉTRICAS · 2 columnas móvil / 4 columnas PC */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 mt-4">
+        {valueBox(
+          'Presupuesto actual',
+          scaleStatus.currentBudget ? fmtMoney(scaleStatus.currentBudget) : '—',
+          scaleStatus.days ? `${scaleStatus.days} día(s) en este nivel` : null
+        )}
+
+        {valueBox(
+          'CPA histórico del nivel',
+          scaleStatus.cpa !== null && scaleStatus.cpa !== undefined
+            ? fmtCpa(scaleStatus.cpa)
+            : '—',
+          `CPA máximo ${fmtMoney(maxCpa)}`
+        )}
+
+        {valueBox(
+          'CPA marginal',
+          scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
+            ? fmtMoney(scaleStatus.marginalCpa)
+            : '—',
+          'Costo de las compras adicionales al subir de nivel'
+        )}
+
+        {valueBox(
+          'Último nivel rentable',
+          scaleStatus.profitableCeilingBudget
+            ? fmtMoney(scaleStatus.profitableCeilingBudget)
+            : '—',
+          scaleStatus.profitableCeilingCpa
+            ? `CPA ${fmtCpa(scaleStatus.profitableCeilingCpa)}`
+            : 'Sin nivel rentable confirmado'
+        )}
+      </div>
+
+      {/* DIAGNÓSTICO DEL ESCALAMIENTO · ancho completo */}
+      {diag ? (
+        <div className={`mt-4 rounded-2xl border p-3 sm:p-4 ${toneBg(diag.tone || 'neutral')}`}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <p className="text-[8px] font-black uppercase tracking-wide text-slate-500">
+              Relación con último escalamiento
+            </p>
+
+            <span
+              className={`inline-flex self-start md:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[7px] sm:text-[8px] font-black uppercase leading-tight text-center ${toneBadge(diag.tone || 'neutral')}`}
+              style={{ overflowWrap: 'anywhere' }}
+            >
+              {diag.status}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5 mt-3">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3">
+              <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+                Lectura
+              </p>
+              <p className="text-[8px] sm:text-[9px] font-semibold text-zinc-800 mt-1.5 leading-relaxed">
+                {diag.summary}
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3">
+              <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+                Evidencia
+              </p>
+              <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">
+                {diag.evidence}
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3">
+              <p className="text-[7px] font-black uppercase tracking-wide text-slate-400">
+                {diag.shouldReduceBudget ? 'Acción' : 'Qué hacer'}
+              </p>
+              <p className="text-[8px] sm:text-[9px] font-semibold text-slate-700 mt-1.5 leading-relaxed">
+                {diag.recommendedAction}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[6.5px] sm:text-[7px] text-slate-400">
+            <span>Confianza: <strong>{diag.confidence}</strong></span>
+            <span>3D confirma: <strong>{diag.threeDayConfirms ? 'Sí' : 'No'}</strong></span>
+            <span>Recuperación: <strong>{diag.recoverySignal ? 'Sí' : 'No'}</strong></span>
+            <span>Reducción: <strong>{diag.shouldReduceBudget ? 'Habilitada' : 'No habilitada'}</strong></span>
+          </div>
+        </div>
+      ) : null}
+
+      <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-3 leading-relaxed">
+        Lectura histórica del nivel de presupuesto. No reemplaza la decisión 3D ni los guardrails de escala.
+      </p>
     </div>
   );
 }
