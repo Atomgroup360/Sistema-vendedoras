@@ -1335,6 +1335,9 @@ const META_CSV_ALIASES = {
   cpc: ['CPC (Coste por clic en el enlace) (COP)', 'CPC (costo por clic en el enlace)', 'CPC (cost per link click)', 'CPC'],
   cpm: ['CPM (coste por 1000 impresiones) (COP)', 'CPM (costo por 1000 impresiones)', 'CPM (cost per 1,000 impressions)', 'CPM'],
   frequency: ['Frecuencia', 'Frequency'],
+  hookRate: ['Hook Rate', 'Hook rate', 'Tasa de Hook', 'Tasa de hook'],
+  holdRate: ['Hold Rate', 'Hold rate', 'Tasa de Hold', 'Tasa de hold'],
+  avgVideoWatchTime: ['Tiempo medio de reproducción del vídeo', 'Tiempo medio de reproducción del video', 'Average video play time', 'Average video watch time'],
   landingViews: [
     'Visitas a la página de destino',
     'Visitas a la página de destino del sitio web',
@@ -1588,9 +1591,183 @@ function fmtCpa(value) {
   return fmtMoney(value);
 }
 
+function fmtMoneyOrDashCC(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
+  return fmtMoney(value);
+}
+
 function fmtRate(value, suffix = '%') {
   if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
   return `${fmtNum(value, 2)}${suffix}`;
+}
+
+function parseMetaPercentCC(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const raw = String(value).trim();
+  const explicitPercent = raw.includes('%');
+  const n = toNumber(raw);
+  if (!Number.isFinite(n)) return null;
+
+  // Meta exporta Hook/Hold normalmente como proporción 0–1.
+  // Si ya viene con % o con valor > 1, lo tratamos como porcentaje.
+  if (!explicitPercent && Math.abs(n) <= 1) return n * 100;
+  return n;
+}
+
+const HOOK_HOLD_SAMPLE_CC = {
+  hookMinImpressions: 500,
+  holdMinEstimated3s: 100
+};
+
+function hookLevelCC(rate) {
+  if (rate === null || rate === undefined || !Number.isFinite(Number(rate))) {
+    return { level: 'SIN DATOS', tone: 'neutral', reading: 'Hook Rate no disponible.', action: 'No diagnosticar apertura.' };
+  }
+  const v = Number(rate);
+  if (v < 15) return { level: 'CRÍTICO', tone: 'critical', reading: 'El inicio prácticamente no detiene el scroll.', action: 'Replantear concepto/apertura.' };
+  if (v < 20) return { level: 'BAJO', tone: 'alert', reading: 'Hook débil.', action: 'Crear nuevos primeros 3 s.' };
+  if (v < 25) return { level: 'ACEPTABLE', tone: 'attention', reading: 'Capta atención, pero tiene margen claro.', action: 'Probar variantes de hook.' };
+  if (v < 30) return { level: 'BUENO', tone: 'good', reading: 'Apertura competitiva.', action: 'Conservar elementos principales y testear mejoras.' };
+  if (v < 40) return { level: 'FUERTE', tone: 'good', reading: 'El hook es una fortaleza.', action: 'Replicar patrón/ángulo del hook.' };
+  return { level: 'EXCEPCIONAL', tone: 'good', reading: 'Capacidad muy alta de detener scroll.', action: 'Preservar como activo creativo; validar negocio.' };
+}
+
+function holdLevelCC(rate) {
+  if (rate === null || rate === undefined || !Number.isFinite(Number(rate))) {
+    return { level: 'SIN DATOS', tone: 'neutral', reading: 'Hold Rate no disponible.', action: 'No diagnosticar cuerpo.' };
+  }
+  const v = Number(rate);
+  if (v < 10) return { level: 'CRÍTICO', tone: 'critical', reading: 'La mayoría abandona poco después del hook.', action: 'Rehacer desarrollo 3–15 s.' };
+  if (v < 15) return { level: 'BAJO', tone: 'alert', reading: 'Retención insuficiente.', action: 'Acelerar demostración, beneficio y ritmo.' };
+  if (v < 20) return { level: 'ACEPTABLE', tone: 'attention', reading: 'Retención funcional, con margen.', action: 'Testear cuerpo más directo.' };
+  if (v < 25) return { level: 'BUENO', tone: 'good', reading: 'El cuerpo retiene bien.', action: 'Conservar estructura y probar optimizaciones.' };
+  if (v < 30) return { level: 'FUERTE', tone: 'good', reading: 'Muy buena continuidad después del hook.', action: 'Replicar estructura narrativa.' };
+  return { level: 'EXCEPCIONAL', tone: 'good', reading: 'Retención sobresaliente para esta escala.', action: 'Preservar cuerpo; validar conversión.' };
+}
+
+function likelyVideoCreativeCC(ad, stats) {
+  const name = normalizeAdName(ad?.name || '');
+  const nameSuggestsVideo = /(^|\s)(video|reel|ugc|vsl)(\s|$)/i.test(name);
+  const hook = stats?.hookRate;
+  const hold = stats?.holdRate;
+  const hasVideoSignal = stats?.videoMetricAvailable === true ||
+    (hold !== null && hold !== undefined && Number(hold) > 0) ||
+    (hook !== null && hook !== undefined && Number(hook) >= 1);
+  return nameSuggestsVideo || hasVideoSignal;
+}
+
+function hookHoldDiagnosticCC(stats, previousStats, ad = null) {
+  const isVideo = likelyVideoCreativeCC(ad, stats);
+  if (!isVideo) {
+    return {
+      isVideo: false,
+      sampleOk: false,
+      sampleLabel: 'NO APLICA',
+      hook: hookLevelCC(null),
+      hold: holdLevelCC(null),
+      hookDelta: null,
+      holdDelta: null,
+      diagnosis: 'No aplica · creativo no identificado como video',
+      action: 'Usar diagnóstico comercial, dinámico y post-clic.',
+      tone: 'neutral'
+    };
+  }
+
+  const hookRate = stats?.hookRate ?? null;
+  const holdRate = stats?.holdRate ?? null;
+  const hook = hookLevelCC(hookRate);
+  const hold = holdLevelCC(holdRate);
+  const hookDelta = pctChange(hookRate, previousStats?.hookRate);
+  const holdDelta = pctChange(holdRate, previousStats?.holdRate);
+  const impressions = toNumber(stats?.impressions);
+  const estimated3s = toNumber(stats?.video3sPlaysEstimated);
+  const sampleOk = impressions >= HOOK_HOLD_SAMPLE_CC.hookMinImpressions &&
+    estimated3s >= HOOK_HOLD_SAMPLE_CC.holdMinEstimated3s;
+
+  if (hookRate === null || holdRate === null) {
+    return {
+      isVideo: true,
+      sampleOk: false,
+      sampleLabel: 'DATOS INCOMPLETOS',
+      hook,
+      hold,
+      hookDelta,
+      holdDelta,
+      diagnosis: 'Hook/Hold incompletos',
+      action: 'Reimportar CSV con Hook Rate y Hold Rate.',
+      tone: 'attention'
+    };
+  }
+
+  if (!sampleOk) {
+    return {
+      isVideo: true,
+      sampleOk: false,
+      sampleLabel: 'MUESTRA BAJA',
+      hook,
+      hold,
+      hookDelta,
+      holdDelta,
+      diagnosis: 'Muestra insuficiente para diagnóstico creativo firme',
+      action: `Acumular muestra. Referencia interna: ≥${HOOK_HOLD_SAMPLE_CC.hookMinImpressions} impresiones y ≥${HOOK_HOLD_SAMPLE_CC.holdMinEstimated3s} reproducciones estimadas de 3 s.`,
+      tone: 'attention'
+    };
+  }
+
+  // Para traducir la matriz Fuerte/Débil a la escala de 6 bandas:
+  // BUENO o superior = señal sólida; CRÍTICO/BAJO = señal débil;
+  // ACEPTABLE se trata como zona intermedia y recibe una recomendación moderada.
+  const hookStrong = Number(hookRate) >= 25;
+  const holdStrong = Number(holdRate) >= 20;
+  const hookWeak = Number(hookRate) < 20;
+  const holdWeak = Number(holdRate) < 15;
+
+  let diagnosis = 'Base creativa funcional';
+  let action = 'Realizar variaciones controladas y validar resultado comercial.';
+  let tone = 'attention';
+
+  if (hookStrong && holdStrong) {
+    diagnosis = 'APERTURA Y DESARROLLO FUNCIONAN';
+    action = 'Replicar el concepto y hacer variaciones controladas.';
+    tone = 'good';
+  } else if (hookStrong && holdWeak) {
+    diagnosis = 'FORTALEZA EN EL HOOK · FUGA EN EL CUERPO';
+    action = 'CONSERVAR HOOK → variar cuerpo 3–15 s.';
+    tone = 'alert';
+  } else if (hookWeak && holdStrong) {
+    diagnosis = 'OPORTUNIDAD EN EL HOOK · CUERPO FUERTE';
+    action = 'CONSERVAR CUERPO → crear nuevos hooks.';
+    tone = 'alert';
+  } else if (hookWeak && holdWeak) {
+    diagnosis = 'APERTURA Y DESARROLLO DÉBILES';
+    action = 'Probar un nuevo concepto creativo; no limitarse a retoques.';
+    tone = 'critical';
+  } else if (hookStrong) {
+    diagnosis = 'HOOK SÓLIDO · CUERPO CON MARGEN';
+    action = 'Conservar la apertura y testear un cuerpo 3–15 s más directo.';
+    tone = 'attention';
+  } else if (holdStrong) {
+    diagnosis = 'CUERPO SÓLIDO · HOOK CON MARGEN';
+    action = 'Conservar el cuerpo y producir nuevas aperturas.';
+    tone = 'attention';
+  } else {
+    diagnosis = 'HOOK Y HOLD ACEPTABLES · MARGEN DE MEJORA';
+    action = 'Testear mejoras controladas sin alterar simultáneamente todo el video.';
+    tone = 'attention';
+  }
+
+  return {
+    isVideo: true,
+    sampleOk: true,
+    sampleLabel: 'MUESTRA SUFICIENTE',
+    hook,
+    hold,
+    hookDelta,
+    holdDelta,
+    diagnosis,
+    action,
+    tone
+  };
 }
 
 function safeRate(numerator, denominator) {
@@ -1623,6 +1800,8 @@ function aggregateRecords(records = []) {
   if (!records.length) return {
     days: 0, spend: 0, purchases: 0, cpa: null, ctr: null, cpc: null, cpm: null,
     frequency: null, impressions: null, clicks: null, landingViews: null, atc: null, roas: null,
+    hookRate: null, holdRate: null, video3sPlaysEstimated: null, video15sPlaysEstimated: null,
+    videoMetricAvailable: false,
     clickToLanding: null, visitToAtc: null, visitToPurchase: null, atcToPurchase: null,
     postClickCoverage: { clicks: false, landingViews: false, atc: false }
   };
@@ -1679,6 +1858,46 @@ function aggregateRecords(records = []) {
   // cuando Meta entrega ROAS por fila.
   const roas = weightedAllowZero('roas', 'spend');
 
+  // HOOK/HOLD de video.
+  // Hook agregado = reproducciones estimadas 3 s / impresiones.
+  // Hold agregado = reproducciones estimadas 15 s/ThruPlay / reproducciones estimadas 3 s.
+  // Como el CSV ya entrega las tasas, reconstruimos los denominadores con impresiones.
+  const hookRows = records.filter(r =>
+    r.hookRateDataAvailable === true &&
+    r.hookRate !== null && r.hookRate !== undefined &&
+    toNumber(r.impressions) > 0
+  );
+  const hookImpressions = hookRows.reduce((sum, r) => sum + toNumber(r.impressions), 0);
+  const video3sPlaysEstimated = hookRows.length
+    ? hookRows.reduce((sum, r) => sum + toNumber(r.impressions) * (toNumber(r.hookRate) / 100), 0)
+    : null;
+  const hookRate = hookImpressions > 0 && video3sPlaysEstimated !== null
+    ? (video3sPlaysEstimated / hookImpressions) * 100
+    : null;
+
+  const holdRows = records.filter(r =>
+    r.holdRateDataAvailable === true &&
+    r.hookRateDataAvailable === true &&
+    r.holdRate !== null && r.holdRate !== undefined &&
+    r.hookRate !== null && r.hookRate !== undefined &&
+    toNumber(r.impressions) > 0
+  );
+  const hold3sBase = holdRows.reduce(
+    (sum, r) => sum + toNumber(r.impressions) * (toNumber(r.hookRate) / 100),
+    0
+  );
+  const video15sPlaysEstimated = holdRows.length
+    ? holdRows.reduce((sum, r) => {
+        const estimated3s = toNumber(r.impressions) * (toNumber(r.hookRate) / 100);
+        return sum + estimated3s * (toNumber(r.holdRate) / 100);
+      }, 0)
+    : null;
+  const holdRate = hold3sBase > 0 && video15sPlaysEstimated !== null
+    ? (video15sPlaysEstimated / hold3sBase) * 100
+    : null;
+  const videoMetricAvailable = records.some(r => r.videoMetricAvailable === true) ||
+    (holdRate !== null && holdRate > 0) || (hookRate !== null && hookRate >= 1);
+
   return {
     days,
     spend,
@@ -1693,6 +1912,11 @@ function aggregateRecords(records = []) {
     landingViews,
     atc,
     roas,
+    hookRate,
+    holdRate,
+    video3sPlaysEstimated,
+    video15sPlaysEstimated,
+    videoMetricAvailable,
     clickToLanding: clicks !== null && landingViews !== null ? safeRate(landingViews, clicks) : null,
     visitToAtc: landingViews !== null && atc !== null ? safeRate(atc, landingViews) : null,
     visitToPurchase: landingViews !== null ? safeRate(purchases, landingViews) : null,
@@ -1885,7 +2109,7 @@ function adVariationDiagnosisFromDelta(delta) {
   if (cpa > 15 && ctr < -15 && cpc > 15 && freq > 15) return { diagnosis: 'Fatiga probable', action: 'Lanzar test creativo y detener escalado', tone: 'alert' };
   if (cpa > 10 && ctr < -10 && cpc > 10 && freq > 10) return { diagnosis: 'Fatiga temprana', action: 'Preparar 3–5 creativos', tone: 'attention' };
   if (cpa > 10 && Math.abs(ctr) <= 10 && Math.abs(cpc) <= 10 && cvr < -10) return { diagnosis: 'Problema post-clic', action: 'Revisar landing/oferta', tone: 'alert' };
-  if (cpm > 15 && Math.abs(ctr) <= 10 && Math.abs(cvr) <= 10) return { diagnosis: 'Subasta más cara', action: 'Mantener y observar', tone: 'attention' };
+  if (cpm > 15 && Math.abs(ctr) <= 10 && Math.abs(cvr) <= 10) return { diagnosis: 'Mayor competencia por la audiencia', action: 'Mantener si la respuesta sigue estable · vigilar frecuencia', tone: 'attention' };
   return { diagnosis: 'Estable', action: 'Mantener', tone: 'normal' };
 }
 
@@ -2271,12 +2495,14 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   const delta = {
     cpa: pctChange(c.cpa, p.cpa), ctr: pctChange(c.ctr, p.ctr), cpc: pctChange(c.cpc, p.cpc),
     cpm: pctChange(c.cpm, p.cpm), frequency: pctChange(c.frequency, p.frequency),
+    hookRate: pctChange(c.hookRate, p.hookRate), holdRate: pctChange(c.holdRate, p.holdRate),
     clickToLanding: pctChange(c.clickToLanding, p.clickToLanding),
     visitToAtc: pctChange(c.visitToAtc, p.visitToAtc), visitToPurchase: pctChange(c.visitToPurchase, p.visitToPurchase),
     atcToPurchase: pctChange(c.atcToPurchase, p.atcToPurchase)
   };
   const dynamic = adVariationDiagnosisFromDelta(delta);
   const post = funnelVariationDiagnosisFromDelta(delta, c, p);
+  const hookHold = hookHoldDiagnosticCC(c, p, ad);
 
   // GUARDRAILS DE ESCALADO: SIEMPRE 3D.
   // El selector Último día / 7D / 14D / 30D sirve para explorar diagnóstico,
@@ -2292,6 +2518,8 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     cpc: pctChange(scale3d.cpc, scalePrev3d.cpc),
     cpm: pctChange(scale3d.cpm, scalePrev3d.cpm),
     frequency: pctChange(scale3d.frequency, scalePrev3d.frequency),
+    hookRate: pctChange(scale3d.hookRate, scalePrev3d.hookRate),
+    holdRate: pctChange(scale3d.holdRate, scalePrev3d.holdRate),
     clickToLanding: pctChange(scale3d.clickToLanding, scalePrev3d.clickToLanding),
     visitToAtc: pctChange(scale3d.visitToAtc, scalePrev3d.visitToAtc),
     visitToPurchase: pctChange(scale3d.visitToPurchase, scalePrev3d.visitToPurchase),
@@ -2300,6 +2528,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
 
   const scaleDynamic3d = adVariationDiagnosisFromDelta(scaleDelta3d);
   const scalePost3d = funnelVariationDiagnosisFromDelta(scaleDelta3d, scale3d, scalePrev3d);
+  const hookHold3d = hookHoldDiagnosticCC(scale3d, scalePrev3d, ad);
 
   const postClickCritical3d = [
     'Fuga clic → landing',
@@ -2462,6 +2691,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
       'Deterioro · bloquear escala',
     scaleDynamic3d: scaleDynamic3d.diagnosis,
     scalePost3d: scalePost3d.diagnosis,
+    hookHold, hookHold3d,
     dynamicDiagnosis: dynamic.diagnosis, dynamicAction: dynamic.action,
     postDiagnosis: post.diagnosis, postAction: post.action, dynamicTone: dynamic.tone, postTone: post.tone,
     postDataQuality: post.dataQuality || postClickDataQualityCC(c),
@@ -2745,6 +2975,9 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
     const cpcValueRaw = resolveCsvValue(row, META_CSV_ALIASES.cpc);
     const cpmValueRaw = resolveCsvValue(row, META_CSV_ALIASES.cpm);
     const frequencyRaw = resolveCsvValue(row, META_CSV_ALIASES.frequency);
+    const hookRateRaw = resolveCsvValue(row, META_CSV_ALIASES.hookRate);
+    const holdRateRaw = resolveCsvValue(row, META_CSV_ALIASES.holdRate);
+    const avgVideoWatchTimeRaw = resolveCsvValue(row, META_CSV_ALIASES.avgVideoWatchTime);
     const landingViewsRaw = resolveCsvValue(row, META_CSV_ALIASES.landingViews);
     const atcRaw = resolveCsvValue(row, META_CSV_ALIASES.atc);
     const roasRaw = resolveCsvValue(row, META_CSV_ALIASES.roas);
@@ -2756,9 +2989,15 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
     const cpcRaw = toNumber(cpcValueRaw);
     const cpmRaw = toNumber(cpmValueRaw);
     const frequency = toNumber(frequencyRaw);
+    const hookRate = parseMetaPercentCC(hookRateRaw);
+    const holdRate = parseMetaPercentCC(holdRateRaw);
+    const avgVideoWatchTime = hasCsvMetricValueCC(avgVideoWatchTimeRaw) ? toNumber(avgVideoWatchTimeRaw) : null;
     const landingViews = toNumber(landingViewsRaw);
     const atc = toNumber(atcRaw);
     const roas = toNumber(roasRaw);
+    const nameSuggestsVideo = /(^|\s)(video|reel|ugc|vsl)(\s|$)/i.test(normalizedName);
+    const videoMetricAvailable = (hasCsvMetricValueCC(hookRateRaw) || hasCsvMetricValueCC(holdRateRaw)) &&
+      (nameSuggestsVideo || (holdRate !== null && holdRate > 0) || (hookRate !== null && hookRate >= 1));
     const reportDate =
       dateToIso(resolveCsvValue(row, META_CSV_ALIASES.endDate)) ||
       dateToIso(resolveCsvValue(row, META_CSV_ALIASES.startDate)) ||
@@ -2782,6 +3021,12 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
         cpc: clicks > 0 ? spend / clicks : cpcRaw,
         cpm: impressions > 0 ? (spend / impressions) * 1000 : cpmRaw,
         frequency,
+        hookRate,
+        holdRate,
+        avgVideoWatchTime,
+        videoMetricAvailable,
+        hookRateDataAvailable: hasCsvMetricValueCC(hookRateRaw),
+        holdRateDataAvailable: hasCsvMetricValueCC(holdRateRaw),
         landingViews,
         atc,
         roas,
@@ -2855,6 +3100,12 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
             cpc: 0,
             cpm: 0,
             frequency: 0,
+            hookRate: null,
+            holdRate: null,
+            avgVideoWatchTime: null,
+            videoMetricAvailable: false,
+            hookRateDataAvailable: false,
+            holdRateDataAvailable: false,
             landingViews: 0,
             atc: 0,
             roas: 0,
@@ -3045,6 +3296,26 @@ function reportBudgetChangeImpactCC(change, campaignHistory = []) {
     volumeDelta,
     marginalCpa
   };
+}
+
+function reportHookHoldBlockCC(title, currentStats, previousStats, ad) {
+  const hh = hookHoldDiagnosticCC(currentStats, previousStats, ad);
+  const lines = [];
+  lines.push(title);
+  lines.push('-'.repeat(Math.max(42, title.length)));
+  if (!hh.isVideo) {
+    lines.push('NO APLICA · creativo no identificado como video.');
+    return lines;
+  }
+  lines.push(`Hook Rate: ${fmtRate(currentStats?.hookRate)} · anterior ${fmtRate(previousStats?.hookRate)} · Δ ${hh.hookDelta === null ? '—' : `${hh.hookDelta > 0 ? '+' : ''}${fmtNum(hh.hookDelta, 2)}%`} · ${hh.hook.level}`);
+  lines.push(`Lectura Hook: ${hh.hook.reading} Acción específica: ${hh.hook.action}`);
+  lines.push(`Hold Rate: ${fmtRate(currentStats?.holdRate)} · anterior ${fmtRate(previousStats?.holdRate)} · Δ ${hh.holdDelta === null ? '—' : `${hh.holdDelta > 0 ? '+' : ''}${fmtNum(hh.holdDelta, 2)}%`} · ${hh.hold.level}`);
+  lines.push(`Lectura Hold: ${hh.hold.reading} Acción específica: ${hh.hold.action}`);
+  lines.push(`Muestra: ${hh.sampleLabel} · Impresiones ${fmtNum(currentStats?.impressions, 0)} · reproducciones 3 s estimadas ${fmtNum(currentStats?.video3sPlaysEstimated, 0)}`);
+  lines.push(`Diagnóstico Hook × Hold: ${hh.diagnosis}`);
+  lines.push(`Variación recomendada: ${hh.action}`);
+  lines.push('Regla: este diagnóstico NO modifica la clasificación comercial, CPA, contribución ni decisión de escala.');
+  return lines;
 }
 
 function reportContributionImpactTextCC(contribution) {
@@ -3339,6 +3610,12 @@ function buildDetailedCampaignReportCC({
         lines.push(`Días omitidos: ${diag.metaDelivery3d?.omittedDays || 0}/${diag.metaDelivery3d?.totalDays || 0}`);
         lines.push(`Acción: ${diag.metaDelivery3d?.action || '—'}`);
         lines.push(`Motivo: ${diag.metaDelivery3d?.reason || '—'}`);
+        lines.push('');
+        lines.push(...reportHookHoldBlockCC('DIAGNÓSTICO CREATIVO HOOK/HOLD · 3D VS 3D ANTERIOR', ad3.currentStats, ad3.previousStats, ad));
+        lines.push('');
+        lines.push(...reportHookHoldBlockCC('HOOK/HOLD · 7D VS 7D ANTERIOR', ad7.currentStats, ad7.previousStats, ad));
+        lines.push('');
+        lines.push(...reportHookHoldBlockCC('HOOK/HOLD · 14D VS 14D ANTERIOR', ad14.currentStats, ad14.previousStats, ad));
         lines.push('');
         lines.push('CONTRIBUCIÓN A CAMPAÑA · 3D');
         lines.push(`Estado: ${contribution?.status || 'Sin lectura'}`);
@@ -3787,11 +4064,11 @@ function CampaignControlModule() {
     if (!selectedCampaignId && activeCampaigns.length) setSelectedCampaignId(activeCampaigns[0].id);
   }, [activeCampaigns, selectedCampaignId]);
 
-  if (loading) return <div className="py-20 text-center text-slate-400 font-black uppercase text-xs">Cargando Campaign Control...</div>;
+  if (loading) return <div className="py-20 text-center text-slate-400 font-black uppercase text-xs">Cargando Lectura de Campañas...</div>;
 
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-    { id: 'campaigns', label: 'Ver campañas', icon: Layers },
+    { id: 'dashboard', label: 'Resumen', icon: BarChart3 },
+    { id: 'campaigns', label: 'Campañas', icon: Layers },
     { id: 'register', label: 'Registro diario', icon: CalendarDays },
     { id: 'reports', label: 'Informe IA', icon: FileText }
   ];
@@ -3803,8 +4080,8 @@ function CampaignControlModule() {
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-zinc-950"><Activity size={20} /></div>
             <div>
-              <h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">Campaign Control</h2>
-              <p className="text-[9px] md:text-[10px] text-slate-400 font-black uppercase tracking-widest">Módulo Meta Ads · Datos totalmente independientes</p>
+              <h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">LECTURA DE CAMPAÑAS</h2>
+              <p className="text-[9px] md:text-[10px] text-slate-400 font-black uppercase tracking-widest">Diagnóstico Meta Ads · 3D decide · entiende qué pasa en segundos</p>
             </div>
           </div>
         </div>
@@ -4101,7 +4378,7 @@ function CampaignDashboard({
       {/* TOPBAR VALIDADO */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">Dashboard de campañas</h3>
+          <h3 className="text-xl md:text-2xl font-black uppercase tracking-tight">Resumen de campañas</h3>
           <p className="text-[9px] md:text-[10px] text-slate-400 font-semibold mt-1">Control diario, variaciones, acciones recomendadas y techo rentable por producto</p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -4318,11 +4595,39 @@ function CampaignDashboard({
 }
 
 function toneText(tone) {
-  return tone === 'critical' ? 'text-rose-600' : tone === 'alert' ? 'text-orange-600' : tone === 'attention' ? 'text-amber-600' : 'text-emerald-600';
+  return tone === 'critical'
+    ? 'text-rose-600'
+    : tone === 'alert'
+      ? 'text-orange-600'
+      : tone === 'attention'
+        ? 'text-amber-600'
+        : tone === 'neutral'
+          ? 'text-slate-500'
+          : 'text-emerald-600';
 }
 
 function toneBg(tone) {
-  return tone === 'critical' ? 'bg-rose-50 border-rose-200' : tone === 'alert' ? 'bg-orange-50 border-orange-200' : tone === 'attention' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200';
+  return tone === 'critical'
+    ? 'bg-rose-50 border-rose-200'
+    : tone === 'alert'
+      ? 'bg-orange-50 border-orange-200'
+      : tone === 'attention'
+        ? 'bg-amber-50 border-amber-200'
+        : tone === 'neutral'
+          ? 'bg-slate-50 border-slate-200'
+          : 'bg-emerald-50 border-emerald-200';
+}
+
+function toneBadge(tone) {
+  return tone === 'critical'
+    ? 'bg-rose-100 text-rose-700'
+    : tone === 'alert'
+      ? 'bg-orange-100 text-orange-700'
+      : tone === 'attention'
+        ? 'bg-amber-100 text-amber-700'
+        : tone === 'neutral'
+          ? 'bg-slate-100 text-slate-600'
+          : 'bg-emerald-100 text-emerald-700';
 }
 
 function GuardrailPill({ ok, label }) {
@@ -4585,6 +4890,496 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
   };
 }
 
+
+function audiencePressureDiagnosisCC(stats3d, previous3d, benchmark = null) {
+  const cpm = stats3d?.cpm;
+  const ctr = stats3d?.ctr;
+  const cpc = stats3d?.cpc;
+  const frequency = stats3d?.frequency;
+
+  if (cpm === null || cpm === undefined || !toNumber(stats3d?.days)) {
+    return {
+      label: 'SIN LECTURA DE PRESIÓN',
+      tone: 'neutral',
+      summary: 'No hay datos suficientes de CPM para explicar el costo de exposición.',
+      cause: 'Acumular datos completos.',
+      action: 'No tomar decisiones por CPM.'
+    };
+  }
+
+  const cpmDelta = pctChange(cpm, previous3d?.cpm);
+  const ctrDelta = pctChange(ctr, previous3d?.ctr);
+  const cpcDelta = pctChange(cpc, previous3d?.cpc);
+  const freqDelta = pctChange(frequency, previous3d?.frequency);
+
+  const has = v => v !== null && v !== undefined;
+  const gt = (v, n) => has(v) && v > n;
+  const lt = (v, n) => has(v) && v < n;
+  const stable = (v, n = 10) => !has(v) || Math.abs(v) <= n;
+
+  if (gt(cpmDelta, 10) && gt(freqDelta, 15) && lt(ctrDelta, -10) && gt(cpcDelta, 10)) {
+    return {
+      label: 'POSIBLE SATURACIÓN / FATIGA',
+      tone: 'critical',
+      summary: 'Cuesta más conseguir impresiones, la frecuencia aumenta y la respuesta al anuncio cae.',
+      cause: 'El patrón es compatible con mayor repetición sobre la audiencia y deterioro creativo.',
+      action: 'Revisar reemplazo creativo y detener escalado si el CPA también se deteriora.'
+    };
+  }
+
+  if (gt(cpmDelta, 15) && stable(freqDelta, 10) && !lt(ctrDelta, -10)) {
+    return {
+      label: 'MAYOR COMPETENCIA POR LA AUDIENCIA',
+      tone: 'attention',
+      summary: `Conseguir 1.000 impresiones cuesta ${fmtNum(Math.abs(cpmDelta), 2)}% más, pero frecuencia y respuesta permanecen relativamente estables.`,
+      cause: 'El patrón es compatible con más presión competitiva por usuarios o ubicaciones similares; no demuestra saturación por sí solo.',
+      action: 'Mantener si CPA/CPC siguen controlados y vigilar la evolución.'
+    };
+  }
+
+  if (gt(cpmDelta, 15) && gt(ctrDelta, 0) && (!has(cpcDelta) || cpcDelta <= 10)) {
+    return {
+      label: 'CREATIVO RESISTE A MAYOR COSTO DE IMPRESIÓN',
+      tone: 'good',
+      summary: 'Las impresiones se encarecieron, pero el anuncio conserva o mejora la respuesta.',
+      cause: 'La fortaleza creativa está compensando parte del aumento del costo de exposición.',
+      action: 'No apagar por CPM. Mantener y vigilar CPA.'
+    };
+  }
+
+  const benchmarkReady = benchmark?.sampleDays > 0 && toNumber(benchmark?.cpm) > 0;
+  if (
+    benchmarkReady &&
+    toNumber(cpm) <= toNumber(benchmark.cpm) &&
+    toNumber(ctr) >= toNumber(benchmark.ctr) &&
+    toNumber(cpc) <= toNumber(benchmark.cpc)
+  ) {
+    return {
+      label: 'EXPOSICIÓN + RESPUESTA EFICIENTES',
+      tone: 'good',
+      summary: 'El anuncio consigue impresiones a buen costo y las convierte en clics eficientemente frente al benchmark rentable del producto.',
+      cause: 'CPM, CTR y CPC están alineados favorablemente.',
+      action: 'Mantener la estructura mientras el resultado comercial acompañe.'
+    };
+  }
+
+  if (
+    benchmarkReady &&
+    toNumber(cpm) < toNumber(benchmark.cpm) * 0.9 &&
+    toNumber(ctr) < toNumber(benchmark.ctr) * 0.85 &&
+    toNumber(cpc) > toNumber(benchmark.cpc) * 1.15
+  ) {
+    return {
+      label: 'IMPRESIONES ECONÓMICAS · RESPUESTA DÉBIL',
+      tone: 'alert',
+      summary: 'Meta consigue exposición barata, pero el anuncio transforma pocas impresiones en clics.',
+      cause: 'El problema parece más creativo que de costo de exposición.',
+      action: 'Trabajar creativo antes de atribuir el problema al mercado.'
+    };
+  }
+
+  return {
+    label: 'PRESIÓN DE AUDIENCIA ESTABLE',
+    tone: 'normal',
+    summary: 'No aparece una combinación suficientemente fuerte para diagnosticar competencia elevada o saturación.',
+    cause: 'Los cambios de CPM, frecuencia, CTR y CPC permanecen dentro de una lectura operativa moderada.',
+    action: 'Mantener y usar el resultado comercial como criterio principal.'
+  };
+}
+
+function messagePotentialDiagnosisCC(diag, benchmark, ad) {
+  const stats = diag?.scale3d || {};
+  const delta = diag?.scaleDelta3d || {};
+  const benchmarkReady = benchmark?.sampleDays > 0 && toNumber(benchmark?.cpc) > 0 && toNumber(benchmark?.ctr) > 0;
+  const hasClicks = stats?.clicks !== null && stats?.clicks !== undefined && toNumber(stats.clicks) > 0;
+
+  if (!hasClicks || !toNumber(stats?.days)) {
+    return {
+      label: 'NO CONCLUYENTE',
+      tone: 'neutral',
+      summary: 'No hay señal suficiente de clics para evaluar este creativo como candidato a mensajes.',
+      action: 'Acumular datos antes de reutilizarlo en Click-to-WhatsApp.'
+    };
+  }
+
+  const cpcStrong = benchmarkReady
+    ? toNumber(stats.cpc) > 0 && toNumber(stats.cpc) <= toNumber(benchmark.cpc) * 0.9
+    : delta.cpc !== null && delta.cpc !== undefined && delta.cpc <= -10;
+
+  const ctrStrong = benchmarkReady
+    ? toNumber(stats.ctr) >= toNumber(benchmark.ctr)
+    : delta.ctr !== null && delta.ctr !== undefined && delta.ctr >= 0;
+
+  const cpmControlled = benchmarkReady && toNumber(benchmark.cpm) > 0
+    ? toNumber(stats.cpm) <= toNumber(benchmark.cpm) * 1.15
+    : delta.cpm === null || delta.cpm === undefined || delta.cpm <= 15;
+
+  const fatigueBad = ['Fatiga probable', 'Fatiga confirmada'].includes(diag?.scaleDynamic3d);
+  const hh = diag?.hookHold3d;
+  const video = hh?.isVideo === true;
+  const videoCritical = video && (
+    ['CRÍTICO'].includes(hh?.hook?.level) ||
+    ['CRÍTICO'].includes(hh?.hold?.level)
+  );
+
+  if (cpcStrong && ctrStrong && cpmControlled && !fatigueBad && !videoCritical) {
+    return {
+      label: 'ALTO POTENCIAL PARA MENSAJES',
+      tone: 'good',
+      summary: `Consigue clics eficientemente, el CTR responde bien y el costo de exposición no invalida la señal.${video ? ' Hook/Hold no muestran una falla crítica.' : ''}`,
+      action: 'Candidato prioritario para probar como creativo en Click-to-WhatsApp. No predice el costo por mensaje.'
+    };
+  }
+
+  if (cpcStrong && (ctrStrong || cpmControlled) && !fatigueBad) {
+    return {
+      label: 'BUEN CANDIDATO PARA TEST',
+      tone: 'attention',
+      summary: `El CPC muestra una señal favorable${ctrStrong ? ' y el CTR acompaña' : ''}${video && hh?.isVideo ? `; ${hh.diagnosis.toLowerCase()}` : ''}.`,
+      action: 'Probar en mensajes con presupuesto controlado y validar allí el costo real por conversación.'
+    };
+  }
+
+  if (
+    benchmarkReady &&
+    toNumber(stats.cpc) > toNumber(benchmark.cpc) * 1.25 &&
+    toNumber(stats.ctr) < toNumber(benchmark.ctr) * 0.85
+  ) {
+    return {
+      label: 'BAJO POTENCIAL ACTUAL',
+      tone: 'alert',
+      summary: 'El anuncio está pagando más por el clic y obtiene menor respuesta que el benchmark rentable del producto.',
+      action: 'No priorizar para mensajes hasta mejorar la respuesta creativa.'
+    };
+  }
+
+  if (fatigueBad) {
+    return {
+      label: 'BAJO POTENCIAL ACTUAL',
+      tone: 'alert',
+      summary: 'Hay señales de deterioro creativo en 3D; reutilizarlo ahora en otro objetivo no es prioritario.',
+      action: 'Primero renovar el creativo.'
+    };
+  }
+
+  return {
+    label: 'POTENCIAL NO CONCLUYENTE',
+    tone: 'neutral',
+    summary: 'Las señales de CPC, CTR y CPM todavía no forman un patrón suficientemente fuerte.',
+    action: 'Mantener en observación y comparar contra más historial.'
+  };
+}
+
+function adReadingActionCC(diag, contribution, maxCpa) {
+  const actionText = String(diag?.operational3dAction || '').toLowerCase();
+  const spend = toNumber(diag?.scale3d?.spend);
+
+  if (
+    actionText.includes('apagar') ||
+    (contribution?.status === 'Drena la campaña' && spend >= Math.max(1, toNumber(maxCpa)))
+  ) {
+    return {
+      label: 'APAGAR',
+      tone: 'critical',
+      reason: contribution?.status === 'Drena la campaña'
+        ? contribution.cause
+        : diag.operational3dReason
+    };
+  }
+
+  if (diag?.canScale && toNumber(diag?.scale3d?.cpa) > 0 && toNumber(diag?.scale3d?.cpa) <= Math.max(1, toNumber(maxCpa)) * 0.8) {
+    return {
+      label: 'ESCALAR',
+      tone: 'good',
+      reason: diag.operational3dReason
+    };
+  }
+
+  if (diag?.operational3dPriority === 'critical' || diag?.operational3dPriority === 'alert' || contribution?.status === 'Bajo aporte / vigilar') {
+    return {
+      label: 'VIGILAR',
+      tone: diag?.operational3dPriority === 'critical' ? 'critical' : 'attention',
+      reason: diag.operational3dReason || contribution?.cause
+    };
+  }
+
+  return {
+    label: 'MANTENER',
+    tone: 'normal',
+    reason: diag?.operational3dReason || 'El anuncio permanece dentro de una lectura operativa estable.'
+  };
+}
+
+function readingActionClassesCC(tone) {
+  if (tone === 'critical') return {
+    border: '#e11d48', bg: '#fff1f2', badge: 'bg-rose-600 text-white', text: 'text-rose-700'
+  };
+  if (tone === 'attention' || tone === 'alert') return {
+    border: '#d97706', bg: '#fffbeb', badge: 'bg-amber-500 text-zinc-950', text: 'text-amber-700'
+  };
+  if (tone === 'good') return {
+    border: '#059669', bg: '#ecfdf5', badge: 'bg-emerald-500 text-zinc-950', text: 'text-emerald-700'
+  };
+  return {
+    border: '#2563eb', bg: '#eff6ff', badge: 'bg-blue-600 text-white', text: 'text-blue-700'
+  };
+}
+
+function QuickMetricCC({ label, value, delta, metric, sub }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+      <p className="text-[7px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+      <div className="flex items-end gap-2 mt-1">
+        <p className="text-sm font-black text-zinc-900">{value}</p>
+        <span className="text-[8px] mb-0.5"><Delta metric={metric} value={delta}/></span>
+      </div>
+      {sub ? <p className="text-[7px] text-slate-400 mt-1">{sub}</p> : null}
+    </div>
+  );
+}
+
+function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark }) {
+  const [expandedReadAds, setExpandedReadAds] = useState({});
+  const { currentStats: campaign3d, previousStats: campaignPrev3d } = splitPeriodRecords(campaignHistory, '3d');
+  const campaignDelta = {
+    cpa: pctChange(campaign3d.cpa, campaignPrev3d.cpa),
+    cpc: pctChange(campaign3d.cpc, campaignPrev3d.cpc),
+    ctr: pctChange(campaign3d.ctr, campaignPrev3d.ctr),
+    cpm: pctChange(campaign3d.cpm, campaignPrev3d.cpm)
+  };
+  const maxCpa = Math.max(1, toNumber(product?.maxCpa));
+
+  const rows = adRows.map(row => {
+    const action = adReadingActionCC(row.diag, row.contribution, maxCpa);
+    const audience = audiencePressureDiagnosisCC(row.diag.scale3d, row.diag.scalePrev3d, benchmark);
+    const messages = messagePotentialDiagnosisCC(row.diag, benchmark, row.ad);
+    return { ...row, action, audience, messages };
+  }).sort((a, b) => {
+    const order = { APAGAR: 0, VIGILAR: 1, ESCALAR: 2, MANTENER: 3 };
+    return (order[a.action.label] ?? 9) - (order[b.action.label] ?? 9);
+  });
+
+  const actionCounts = rows.reduce((acc, row) => {
+    acc[row.action.label] = (acc[row.action.label] || 0) + 1;
+    return acc;
+  }, {});
+
+  const campaignTone =
+    campaignDecision?.status === 'Escalable' ? 'good' :
+    ['Crítico', 'Fuera del objetivo · deteriorándose'].includes(campaignDecision?.status) ? 'critical' :
+    String(campaignDecision?.status || '').includes('Atención') || String(campaignDecision?.status || '').includes('revisar') ? 'attention' :
+    'normal';
+  const campaignColors = readingActionClassesCC(campaignTone);
+
+  return (
+    <div className="space-y-4">
+      <div
+        className="rounded-3xl border-2 bg-white p-4 md:p-5 shadow-sm"
+        style={{ borderColor: campaignColors.border, boxShadow: `0 10px 28px ${campaignColors.border}12` }}
+      >
+        <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${campaignColors.badge}`}>
+                {campaignDecision?.action || 'SIN ACCIÓN'}
+              </span>
+              <span className="px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">3D DECIDE</span>
+            </div>
+            <h3 className="text-xl font-black text-zinc-900 mt-3">{campaign.name}</h3>
+            <p className={`text-[10px] font-black mt-1 ${campaignColors.text}`}>{campaignDecision?.status}</p>
+            <p className="text-[9px] text-slate-600 mt-2 max-w-3xl leading-relaxed">{campaignDecision?.reason}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 min-w-full xl:min-w-[330px] xl:max-w-[390px]">
+            <QuickMetricCC label="CPA 3D" value={fmtCpa(campaign3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`máx. ${fmtMoney(maxCpa)}`}/>
+            <QuickMetricCC label="Compras 3D" value={fmtNum(campaign3d.purchases, 0)} delta={pctChange(campaign3d.purchases, campaignPrev3d.purchases)} metric="purchases"/>
+            <QuickMetricCC label="CPC 3D" value={fmtMoneyOrDashCC(campaign3d.cpc)} delta={campaignDelta.cpc} metric="cpc"/>
+            <QuickMetricCC label="CPM 3D" value={fmtMoneyOrDashCC(campaign3d.cpm)} delta={campaignDelta.cpm} metric="cpm"/>
+          </div>
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-slate-100">
+          <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Hoy debes hacer</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <span className="px-2.5 py-1.5 rounded-full bg-rose-50 text-rose-700 text-[8px] font-black">{actionCounts.APAGAR || 0} apagar</span>
+            <span className="px-2.5 py-1.5 rounded-full bg-amber-50 text-amber-700 text-[8px] font-black">{actionCounts.VIGILAR || 0} vigilar</span>
+            <span className="px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-[8px] font-black">{actionCounts.ESCALAR || 0} escalar</span>
+            <span className="px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-700 text-[8px] font-black">{actionCounts.MANTENER || 0} mantener</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-zinc-950 text-white p-3 md:p-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-wider text-emerald-400">Lectura instantánea</p>
+            <p className="text-[9px] text-zinc-300 mt-1">Primero decisión. Después causa. Finalmente detalle. Los números operativos siempre son 3D vs los 3 días activos completos anteriores.</p>
+          </div>
+          <span className="text-[8px] font-black uppercase text-zinc-400">Prioridad: Apagar → Vigilar → Escalar → Mantener</span>
+        </div>
+      </div>
+
+      {rows.length ? rows.map(({ ad, diag, contribution, action, audience, messages }) => {
+        const colors = readingActionClassesCC(action.tone);
+        const open = expandedReadAds[ad.id] === true;
+        const hh = diag.hookHold3d;
+        const contributionTone =
+          contribution?.status === 'Drena la campaña' ? 'critical' :
+          contribution?.status === 'Aporta fuertemente' || contribution?.status === 'Aporta' ? 'good' :
+          contribution?.status === 'Sin entrega de Meta' ? 'attention' : 'neutral';
+
+        return (
+          <div
+            key={ad.id}
+            className="rounded-3xl border-2 bg-white overflow-hidden shadow-sm"
+            style={{ borderColor: colors.border, boxShadow: `0 8px 24px ${colors.border}10` }}
+          >
+            <div className="p-4 md:p-5">
+              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${colors.badge}`}>{action.label}</span>
+                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase">
+                      {hh?.isVideo ? 'VIDEO' : 'IMAGEN / CREATIVO'}
+                    </span>
+                    {contribution ? (
+                      <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${toneBadge(contributionTone)}`}>
+                        {contribution.status}
+                      </span>
+                    ) : null}
+                  </div>
+                  <h4 className="text-base md:text-lg font-black text-zinc-900 mt-3">{ad.name}</h4>
+                  <p className={`text-[10px] font-black mt-1 ${colors.text}`}>{diag.operational3dDiagnosis}</p>
+                  <p className="text-[9px] text-slate-600 mt-2 leading-relaxed max-w-3xl">{action.reason}</p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 lg:min-w-[520px]">
+                  <QuickMetricCC label="CPA" value={fmtCpa(diag.scale3d.cpa)} delta={diag.scaleDelta3d.cpa} metric="cpa" sub={`máx. ${fmtMoney(maxCpa)}`}/>
+                  <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(diag.scale3d.cpc)} delta={diag.scaleDelta3d.cpc} metric="cpc" sub={benchmark?.sampleDays ? `bench. ${fmtMoneyOrDashCC(benchmark.cpc)}` : null}/>
+                  <QuickMetricCC label="CTR" value={fmtRate(diag.scale3d.ctr)} delta={diag.scaleDelta3d.ctr} metric="ctr" sub={benchmark?.sampleDays ? `bench. ${fmtRate(benchmark.ctr)}` : null}/>
+                  <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(diag.scale3d.cpm)} delta={diag.scaleDelta3d.cpm} metric="cpm" sub={benchmark?.sampleDays ? `bench. ${fmtMoneyOrDashCC(benchmark.cpm)}` : null}/>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Qué está pasando</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 mt-2">
+                  <div className={`rounded-xl border p-3 ${toneBg(
+                    diag.cpaObservation3d?.level === 'critical' ? 'critical' :
+                    diag.cpaObservation3d?.level === 'alert' ? 'alert' :
+                    diag.cpaObservation3d?.level === 'attention' ? 'attention' : 'normal'
+                  )}`}>
+                    <p className="text-[8px] font-black uppercase">Resultado comercial</p>
+                    <p className="text-[9px] font-black mt-1">{diag.cpaObservation3d?.title}</p>
+                  </div>
+
+                  <div className={`rounded-xl border p-3 ${toneBg(
+                    ['Fatiga confirmada'].includes(diag.scaleDynamic3d) ? 'critical' :
+                    ['Fatiga probable'].includes(diag.scaleDynamic3d) ? 'alert' :
+                    ['Fatiga temprana'].includes(diag.scaleDynamic3d) ? 'attention' : 'normal'
+                  )}`}>
+                    <p className="text-[8px] font-black uppercase">Respuesta creativa</p>
+                    <p className="text-[9px] font-black mt-1">{diag.scaleDynamic3d}</p>
+                  </div>
+
+                  <div className={`rounded-xl border p-3 ${toneBg(audience.tone)}`}>
+                    <p className="text-[8px] font-black uppercase">Audiencia / costo de impresiones</p>
+                    <p className="text-[9px] font-black mt-1">{audience.label}</p>
+                  </div>
+
+                  <div className={`rounded-xl border p-3 ${toneBg(
+                    ['Fuga clic → landing', 'Tráfico post-clic deteriorado'].includes(diag.scalePost3d) ? 'critical' :
+                    ['Calidad de tráfico cayendo', 'Fuga al cierre'].includes(diag.scalePost3d) ? 'alert' :
+                    String(diag.scalePost3d).includes('incomplet') || String(diag.scalePost3d).includes('FALT') ? 'attention' : 'normal'
+                  )}`}>
+                    <p className="text-[8px] font-black uppercase">Post-clic</p>
+                    <p className="text-[9px] font-black mt-1">{diag.scalePost3d}</p>
+                  </div>
+
+                  {hh?.isVideo ? (
+                    <div className={`rounded-xl border p-3 ${toneBg(hh.tone)}`}>
+                      <p className="text-[8px] font-black uppercase">Video · Hook / Hold</p>
+                      <p className="text-[9px] font-black mt-1">{hh.diagnosis}</p>
+                      <p className="text-[7px] text-slate-500 mt-1">Hook {fmtRate(diag.scale3d.hookRate)} · Hold {fmtRate(diag.scale3d.holdRate)}</p>
+                    </div>
+                  ) : null}
+
+                  <div className={`rounded-xl border p-3 ${toneBg(messages.tone)}`}>
+                    <p className="text-[8px] font-black uppercase">Potencial para mensajes</p>
+                    <p className="text-[9px] font-black mt-1">{messages.label}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-3">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Acción recomendada</p>
+                    <p className={`text-sm font-black mt-1 ${colors.text}`}>{diag.operational3dAction}</p>
+                    <p className="text-[8px] text-slate-600 mt-1 max-w-3xl">{diag.operational3dReason}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedReadAds(x => ({ ...x, [ad.id]: !open }))}
+                    className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-[8px] font-black uppercase text-slate-600 whitespace-nowrap"
+                  >
+                    {open ? 'Ocultar detalle' : 'Ver por qué'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {open && (
+              <div className="border-t border-slate-100 bg-slate-50/60 p-4 md:p-5">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                    <p className="text-[8px] font-black uppercase text-slate-500">Contribución 3D · lo que aporta / drena</p>
+                    <p className={`text-[11px] font-black mt-1 ${toneText(contributionTone)}`}>{contribution?.status || 'Sin lectura'}</p>
+                    <p className="text-[8px] text-slate-600 mt-2">{contribution?.cause || 'Sin diagnóstico de contribución.'}</p>
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      <MiniCard label="Gasto campaña" value={fmtRate(contribution?.spendShare)} />
+                      <MiniCard label="Compras campaña" value={fmtRate(contribution?.purchaseShare)} />
+                      <MiniCard label="CPA anuncio" value={fmtCpa(contribution?.cpa)} />
+                      <MiniCard label="CPA resto sin anuncio" value={fmtCpa(contribution?.cpaWithout)} />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                    <p className="text-[8px] font-black uppercase text-slate-500">Presión de audiencia</p>
+                    <p className={`text-[11px] font-black mt-1 ${toneText(audience.tone)}`}>{audience.label}</p>
+                    <p className="text-[8px] text-slate-600 mt-2">{audience.summary}</p>
+                    <p className="text-[8px] text-slate-500 mt-2"><strong>Posible causa:</strong> {audience.cause}</p>
+                    <p className="text-[8px] font-black text-zinc-800 mt-2">Acción: {audience.action}</p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                    <p className="text-[8px] font-black uppercase text-slate-500">Potencial para campañas de mensajes</p>
+                    <p className={`text-[11px] font-black mt-1 ${toneText(messages.tone)}`}>{messages.label}</p>
+                    <p className="text-[8px] text-slate-600 mt-2">{messages.summary}</p>
+                    <p className="text-[8px] font-black text-zinc-800 mt-2">Acción: {messages.action}</p>
+                    <p className="text-[7px] text-slate-400 mt-2">Esta señal no modifica CPA, ganador/perdedor ni guardrails. Solo prioriza creativos para probar en mensajes.</p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white border border-slate-200 p-3">
+                    <p className="text-[8px] font-black uppercase text-slate-500">Guardrails 3D</p>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <GuardrailPill ok={diag.guardrails.cpaMargin} label="Margen CPA"/>
+                      <GuardrailPill ok={diag.guardrails.stability} label="Estabilidad"/>
+                      <GuardrailPill ok={diag.guardrails.creative} label="Creativo"/>
+                      <GuardrailPill ok={diag.guardrails.postClick} label="Post-clic"/>
+                    </div>
+                    <p className="text-[8px] text-slate-500 mt-3">Volumen: {fmtNum(diag.volumeReference?.purchases, 0)} compras · confianza {diag.volumeReference?.confidence}. El volumen informa confianza; no bloquea por sí solo.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }) : <EmptyState>Sin anuncios activos con lectura 3D.</EmptyState>}
+    </div>
+  );
+}
+
 function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, allCampaigns, dailyAds, dailyCampaigns, budgetChanges, decisions, recommendations, period }) {
   const MONITOR_PERIODS = [
     { id: 'last', label: 'ÚLTIMO DÍA' },
@@ -4596,6 +5391,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   const [monitorPeriod, setMonitorPeriod] = useState(
     ['last', '3d', '7d', '14d', '30d'].includes(period) ? period : 'last'
   );
+  const [viewMode, setViewMode] = useState('reading');
 
   useEffect(() => {
     if (['last', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
@@ -4655,6 +5451,42 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+        <div className="px-2">
+          <p className="text-[9px] font-black uppercase text-zinc-900">Cómo quieres leer la campaña</p>
+          <p className="text-[8px] text-slate-500 mt-0.5">Modo lectura resume la decisión en segundos. Detalle técnico conserva todas las tablas y motores actuales.</p>
+        </div>
+        <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+          <button
+            type="button"
+            onClick={() => setViewMode('reading')}
+            className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'reading' ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500'}`}
+          >
+            Modo lectura
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('technical')}
+            className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition ${viewMode === 'technical' ? 'bg-zinc-950 text-white shadow-sm' : 'text-slate-500'}`}
+          >
+            Detalle técnico
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'reading' && (
+        <CampaignReadingView
+          campaign={campaign}
+          product={product}
+          adRows={adRows}
+          campaignHistory={campaignHistory}
+          campaignDecision={campaignDecision}
+          benchmark={benchmark}
+        />
+      )}
+
+      {viewMode === 'technical' && (
+        <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className={`rounded-2xl p-3 ${toneBg(
           campaignDecision.cpaObservation3d?.level === 'critical' ? 'critical' :
@@ -4683,7 +5515,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           )}
         </div>
         <div className="rounded-2xl p-3 bg-blue-50" style={{border:'2px solid #2563eb'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
-        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Motor de fatiga y saturación</p><p className="text-[9px] text-slate-600 mt-1">CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ = fatiga. CPM ↑ con CTR/CVR estables = subasta cara, no necesariamente fatiga.</p></div>
+        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Presión de audiencia y fatiga</p><p className="text-[9px] text-slate-600 mt-1">CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ = fatiga. CPM ↑ con CTR/CVR estables = cuesta más conseguir impresiones; puede haber mayor competencia por usuarios/ubicaciones similares, sin evidencia suficiente de saturación.</p></div>
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50" style={{border:'2px solid #0891b2'}}>
@@ -4735,6 +5567,59 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         ><td className="py-3 pl-3 font-black" style={{ color: ccVisualAccent(ad.id || ad.name).text }}>{ad.name}</td><td>{fmtCpa(diag.stats.cpa)}</td><td><Delta metric="cpa" value={diag.delta.cpa}/></td><td>{fmtNum(diag.stats.ctr,2)}%</td><td><Delta metric="ctr" value={diag.delta.ctr}/></td><td>{fmtMoney(diag.stats.cpc)}</td><td><Delta metric="cpc" value={diag.delta.cpc}/></td><td>{fmtMoney(diag.stats.cpm)}</td><td><Delta metric="cpm" value={diag.delta.cpm}/></td><td>{fmtNum(diag.stats.frequency,2)}</td><td><Delta metric="frequency" value={diag.delta.frequency}/></td><td>{fmtRate(diag.stats.visitToPurchase)}</td><td><Delta metric="visitToPurchase" value={diag.delta.visitToPurchase}/></td><td className={`font-black ${toneText(diag.dynamicTone)}`}>{diag.dynamicDiagnosis}</td><td className="font-black">{diag.dynamicAction}</td></tr>)}</tbody></table></div> : <EmptyState>No hay anuncios activos con datos para esta campaña.</EmptyState>}
       </div>
 
+      <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#f59e0b' }}>
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-2 mb-3 pb-3 border-b" style={{ borderColor: '#fde68a' }}>
+          <div>
+            <h4 className="text-xs font-black uppercase text-amber-800">Diagnóstico creativo · Hook Rate + Hold Rate</h4>
+            <p className="text-[8px] text-slate-500 mt-1">
+              Solo para video. Hook = primeros 0–3 s · Hold = continuidad 3–15 s. <strong>Diagnostica QUÉ variar; no convierte un anuncio en ganador/perdedor y no modifica los guardrails.</strong>
+            </p>
+          </div>
+          <span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">
+            {monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : `${monitorPeriod.toUpperCase()} VS PREVIO`}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-3">
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
+            <p className="text-[8px] font-black uppercase text-amber-800">Hook Rate</p>
+            <p className="text-[8px] text-slate-600 mt-1">Reproducciones 3 s ÷ impresiones × 100. Mide si la apertura detiene el scroll.</p>
+            <p className="text-[7px] text-slate-500 mt-1">Crítico &lt;15 · Bajo 15–19,9 · Aceptable 20–24,9 · Bueno 25–29,9 · Fuerte 30–39,9 · Excepcional ≥40.</p>
+          </div>
+          <div className="rounded-xl bg-orange-50 border border-orange-200 p-3">
+            <p className="text-[8px] font-black uppercase text-orange-800">Hold Rate</p>
+            <p className="text-[8px] text-slate-600 mt-1">15 s/ThruPlay ÷ reproducciones 3 s × 100. Mide cuánto conserva el cuerpo a quienes enganchó.</p>
+            <p className="text-[7px] text-slate-500 mt-1">Crítico &lt;10 · Bajo 10–14,9 · Aceptable 15–19,9 · Bueno 20–24,9 · Fuerte 25–29,9 · Excepcional ≥30.</p>
+          </div>
+        </div>
+
+        {adRows.filter(({diag}) => diag.hookHold?.isVideo).length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1500px] text-left text-[10px] border-separate border-spacing-y-1">
+              <thead><tr className="text-[8px] font-black uppercase text-slate-400">
+                <th className="py-2">Video</th><th>Hook</th><th>Nivel Hook</th><th>Δ Hook</th><th>Hold</th><th>Nivel Hold</th><th>Δ Hold</th><th>Muestra</th><th>Diagnóstico creativo</th><th>Variación recomendada</th>
+              </tr></thead>
+              <tbody>{adRows.filter(({diag}) => diag.hookHold?.isVideo).map(({ad,diag}) => {
+                const hh = diag.hookHold;
+                const accent = ccVisualAccent(ad.id || ad.name, 2);
+                return <tr key={ad.id} className="border-b-4 border-white" style={{backgroundColor: accent.soft, boxShadow:`inset 5px 0 0 ${accent.border}`}}>
+                  <td className="py-3 pl-3 font-black" style={{color:accent.text}}>{ad.name}</td>
+                  <td className="font-black">{fmtRate(diag.stats.hookRate)}</td>
+                  <td><span className={`px-2 py-1 rounded-full text-[8px] font-black ${toneBadge(hh.hook.tone)}`}>{hh.hook.level}</span><p className="text-[7px] text-slate-500 mt-1 max-w-[180px]">{hh.hook.reading}</p></td>
+                  <td><Delta metric="hookRate" value={hh.hookDelta}/></td>
+                  <td className="font-black">{fmtRate(diag.stats.holdRate)}</td>
+                  <td><span className={`px-2 py-1 rounded-full text-[8px] font-black ${toneBadge(hh.hold.tone)}`}>{hh.hold.level}</span><p className="text-[7px] text-slate-500 mt-1 max-w-[180px]">{hh.hold.reading}</p></td>
+                  <td><Delta metric="holdRate" value={hh.holdDelta}/></td>
+                  <td><span className={`px-2 py-1 rounded-full text-[8px] font-black ${hh.sampleOk?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>{hh.sampleLabel}</span><p className="text-[7px] text-slate-500 mt-1">Imp. {fmtNum(diag.stats.impressions,0)} · 3s est. {fmtNum(diag.stats.video3sPlaysEstimated,0)}</p></td>
+                  <td className={`font-black ${toneText(hh.tone)}`}>{hh.diagnosis}</td>
+                  <td className="font-black max-w-[260px]">{hh.action}</td>
+                </tr>
+              })}</tbody>
+            </table>
+          </div>
+        ) : <EmptyState>No hay anuncios de video con Hook/Hold disponibles en esta ventana. Reimporta los CSV históricos para cargar estas métricas.</EmptyState>}
+      </div>
+
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#7c3aed' }}>
         <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#ddd6fe' }}><h4 className="text-xs font-black uppercase text-violet-800">Embudo post-clic dinámico por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
         <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
@@ -4758,7 +5643,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#059669' }}>
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-2 mb-3 pb-3 border-b" style={{ borderColor: '#a7f3d0' }}>
           <div>
-            <h4 className="text-xs font-black uppercase text-emerald-800">Optimización por anuncio — diagnóstico consolidado</h4>
+            <h4 className="text-xs font-black uppercase text-emerald-800">Contribución por anuncio · qué aporta / qué drena</h4>
             <p className="text-[8px] text-slate-500 mt-1">
               Las columnas Dinámico y Post-clic respetan la ventana seleccionada. <strong>La decisión operativa, la acción y la contribución a campaña siempre se calculan en 3D fijo</strong>.
             </p>
@@ -4965,8 +5850,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="rounded-2xl p-3 bg-slate-50" style={{border:'2px solid #475569'}}><h4 className="text-xs font-black uppercase mb-2 text-slate-700">Cómo se dispara cada diagnóstico</h4><div className="space-y-2 text-[9px] text-slate-600"><p><strong>Fatiga:</strong> CPA ↑ + CTR ↓ + CPC ↑ + frecuencia ↑.</p><p><strong>Subasta cara:</strong> CPM ↑ mientras CTR/CVR permanecen estables.</p><p><strong>Fuga clic→landing:</strong> Clic→Landing cae con datos válidos; revisar carga, enlace y experiencia de la landing.</p><p><strong>Problema post-clic:</strong> CPA ↑ con CTR/CPC estables y conversión post-clic ↓.</p><p><strong>Fuga al cierre:</strong> intención inicial sana pero ATC→Compra y Visita→Compra caen.</p><p><strong>Datos faltantes:</strong> compras con Landing/ATC en 0 se marcan como tracking/importación incompleta y nunca como “Post-clic estable”.</p></div></div>
-        <div className="rounded-2xl p-3 bg-violet-50" style={{border:'2px solid #7c3aed'}}><h4 className="text-xs font-black uppercase mb-2 text-violet-800">Matriz de diagnóstico por combinación de métricas</h4><div className="space-y-2 text-[9px] text-slate-600"><p>CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ → <strong>Fatiga / saturación</strong></p><p>CPM ↑ + CTR estable + CVR estable → <strong>Subasta más cara</strong></p><p>CTR estable + CPC estable + CVR ↓ → <strong>Landing/oferta/cierre</strong></p><p>V→ATC ↓ + V→Compra ↓ → <strong>Calidad de tráfico deteriorada</strong></p></div></div>
+        <div className="rounded-2xl p-3 bg-slate-50" style={{border:'2px solid #475569'}}><h4 className="text-xs font-black uppercase mb-2 text-slate-700">Cómo se dispara cada diagnóstico</h4><div className="space-y-2 text-[9px] text-slate-600"><p><strong>Fatiga:</strong> CPA ↑ + CTR ↓ + CPC ↑ + frecuencia ↑.</p><p><strong>Subasta cara:</strong> CPM ↑ mientras CTR/CVR permanecen estables.</p><p><strong>Fuga clic→landing:</strong> Clic→Landing cae con datos válidos; revisar carga, enlace y experiencia de la landing.</p><p><strong>Problema post-clic:</strong> CPA ↑ con CTR/CPC estables y conversión post-clic ↓.</p><p><strong>Fuga al cierre:</strong> intención inicial sana pero ATC→Compra y Visita→Compra caen.</p><p><strong>Datos faltantes:</strong> compras con Landing/ATC en 0 se marcan como tracking/importación incompleta y nunca como “Post-clic estable”.</p><p><strong>Hook/Hold:</strong> solo diagnostican la apertura y el cuerpo del video. Nunca convierten por sí solos un anuncio en ganador/perdedor y no bloquean ni habilitan escala.</p></div></div>
+        <div className="rounded-2xl p-3 bg-violet-50" style={{border:'2px solid #7c3aed'}}><h4 className="text-xs font-black uppercase mb-2 text-violet-800">Matriz de diagnóstico por combinación de métricas</h4><div className="space-y-2 text-[9px] text-slate-600"><p>CTR ↓ + CPC ↑ + Frecuencia ↑ + CPA ↑ → <strong>Fatiga / saturación</strong></p><p>CPM ↑ + CTR estable + CVR estable → <strong>Mayor competencia por la audiencia / impresiones más costosas</strong></p><p>CTR estable + CPC estable + CVR ↓ → <strong>Landing/oferta/cierre</strong></p><p>V→ATC ↓ + V→Compra ↓ → <strong>Calidad de tráfico deteriorada</strong></p></div></div>
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-orange-50/40 shadow-sm" style={{border:'2px solid #ea580c'}}>
@@ -5062,6 +5947,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px]"><div className="bg-rose-50 rounded-xl p-3 border-2 border-rose-200"><strong className="text-rose-700">&lt;5 compras</strong><br/>Baja</div><div className="bg-amber-50 rounded-xl p-3 border-2 border-amber-200"><strong className="text-amber-700">5–14</strong><br/>Media</div><div className="bg-blue-50 rounded-xl p-3 border-2 border-blue-200"><strong className="text-blue-700">15–29</strong><br/>Alta</div><div className="bg-emerald-50 rounded-xl p-3 border-2 border-emerald-200"><strong className="text-emerald-700">30+</strong><br/>Muy alta</div></div>
         <p className="text-[8px] text-slate-500 mt-2">Referencia de volumen: 1–4 compras = Baja · 5–14 = Media · 15–29 = Alta · 30+ = Muy alta. Este nivel informa cuánta evidencia hay, pero NO bloquea una escala. La antigüedad sigue ayudando a interpretar la confianza general del diagnóstico.</p>
       </div>
+        </>
+      )}
     </div>
   );
 }
@@ -5238,7 +6125,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       await updateDoc(doc(db, COLLECTIONS.products, product.id), patch);
       showManagerMessage('success', `Fecha de "${product.name}" actualizada a ${newStart}.`);
     } catch (error) {
-      console.error('Campaign Control · editar fecha producto', error);
+      console.error('Lectura de Campañas · editar fecha producto', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo cambiar la fecha del producto'));
     }
   };
@@ -5336,7 +6223,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       setExpandedAds(x => ({ ...x, [ref.id]: false }));
       showManagerMessage('success', `Campaña "${name}" creada con fecha de inicio ${campaignStartDate}.`);
     } catch (error) {
-      console.error('Campaign Control · crear campaña', error);
+      console.error('Lectura de Campañas · crear campaña', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo crear la campaña'));
     } finally {
       setBusyKey('');
@@ -5392,7 +6279,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), patch);
       showManagerMessage('success', `Fecha de "${campaign.name}" actualizada a ${newStart}.`);
     } catch (error) {
-      console.error('Campaign Control · editar fecha campaña', error);
+      console.error('Lectura de Campañas · editar fecha campaña', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo cambiar la fecha de la campaña'));
     }
   };
@@ -5515,7 +6402,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     await addDecision(ownerUid, campaign, null, 'Campaña restaurada', 'Restaurada como apagada. Enciéndela cuando corresponda.');
   };
   const permanentDeleteCampaign = async campaign => {
-    if (!window.confirm(`ELIMINACIÓN DEFINITIVA: ¿borrar ${campaign.name} y todo su histórico Campaign Control?`)) return;
+    if (!window.confirm(`ELIMINACIÓN DEFINITIVA: ¿borrar ${campaign.name} y todo su histórico de Lectura de Campañas?`)) return;
     const targets = [...ads.filter(x => x.campaignId === campaign.id).map(x => [COLLECTIONS.ads,x.id]), ...dailyCampaigns.filter(x => x.campaignId === campaign.id).map(x => [COLLECTIONS.dailyCampaigns,x.id]), ...dailyAds.filter(x => x.campaignId === campaign.id).map(x => [COLLECTIONS.dailyAds,x.id]), ...budgetChanges.filter(x => x.campaignId === campaign.id).map(x => [COLLECTIONS.budgetChanges,x.id]), ...recommendations.filter(x => x.campaignId === campaign.id).map(x => [COLLECTIONS.recommendations,x.id]), ...decisions.filter(x => x.campaignId === campaign.id).map(x => [COLLECTIONS.decisions,x.id]), [COLLECTIONS.campaigns,campaign.id]];
     for (let i=0;i<targets.length;i+=400) { const batch=writeBatch(db); targets.slice(i,i+400).forEach(([col,id])=>batch.delete(doc(db,col,id))); await batch.commit(); }
   };
@@ -5572,7 +6459,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       setExpanded(x => ({ ...x, [campaign.id]: true }));
       showManagerMessage('success', `Anuncio "${name}" creado correctamente en "${campaign.name}".`);
     } catch (error) {
-      console.error('Campaign Control · crear anuncio', error);
+      console.error('Lectura de Campañas · crear anuncio', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo crear el anuncio'));
     } finally {
       setBusyKey('');
@@ -5594,8 +6481,8 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
 
   return <div className="space-y-5">
     {managerMessage && <div className={`rounded-2xl border p-3 text-[10px] font-black ${managerMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{managerMessage.type === 'success' ? '✓ ' : '⚠ '}{managerMessage.text}</div>}
-    <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto Campaign Control</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
-    {products.length===0?<EmptyState>No existen productos dentro de Campaign Control.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}>
+    <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto · Lectura de campañas</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
+    {products.length===0?<EmptyState>No existen productos en Lectura de Campañas.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}>
       <button
         type="button"
         aria-expanded={productOpen}
@@ -5877,7 +6764,7 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
         </div>
       </SectionCard>
 
-      {visibleProducts.length === 0 ? <EmptyState>No existen productos de Campaign Control para esta fecha.</EmptyState> :
+      {visibleProducts.length === 0 ? <EmptyState>No existen productos de Lectura de Campañas para esta fecha.</EmptyState> :
         visibleProducts.map(product => {
           const productCampaigns = campaigns
             .filter(c =>
@@ -6623,7 +7510,7 @@ function CsvPreview({ rows, onApply }) {
       <table className="w-full min-w-[900px] text-[10px]">
         <thead>
           <tr className="text-left text-[8px] uppercase text-slate-400">
-            <th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>Clics</th><th>Landing</th><th>C→Landing</th><th>ATC</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>ROAS</th>
+            <th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>Clics</th><th>Hook</th><th>Hold</th><th>Landing</th><th>C→Landing</th><th>ATC</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>ROAS</th>
           </tr>
         </thead>
         <tbody>
@@ -6659,6 +7546,8 @@ function CsvPreview({ rows, onApply }) {
             <td>{fmtMoney(r.metrics.spend)}</td>
             <td>{fmtNum(r.metrics.purchases, 2)}</td>
             <td>{r.metrics.clicksDataAvailable ? fmtNum(r.metrics.clicks, 2) : '—'}</td>
+            <td>{r.metrics.videoMetricAvailable && r.metrics.hookRateDataAvailable ? fmtRate(r.metrics.hookRate) : '—'}</td>
+            <td>{r.metrics.videoMetricAvailable && r.metrics.holdRateDataAvailable ? fmtRate(r.metrics.holdRate) : '—'}</td>
             <td className={r.metrics.purchases > 0 && (!r.metrics.landingViewsDataAvailable || r.metrics.landingViews <= 0) ? 'font-black text-rose-600' : ''}>
               {r.metrics.landingViewsDataAvailable ? fmtNum(r.metrics.landingViews, 2) : '—'}
             </td>
@@ -6750,7 +7639,7 @@ export default function App() {
     { id: 'records', icon: ClipboardList, label: 'Cierres' },
     { id: 'config', icon: Settings, label: 'Estrategias' },
     { id: 'agenda', icon: CalendarDays, label: 'Agenda' },
-    { id: 'campaignControl', icon: BarChart3, label: 'Campaign Control' }
+    { id: 'campaignControl', icon: BarChart3, label: 'Lectura de Campañas' }
   ];
 
   return (
