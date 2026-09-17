@@ -3621,12 +3621,35 @@ function reportBudgetChangeImpactCC(change, campaignHistory = []) {
   const beforeStats = aggregateRecords(before);
   const afterStats = aggregateRecords(after);
   const cpaDelta = pctChange(afterStats.cpa, beforeStats.cpa);
+
+  const beforeSpendDay = beforeStats.days > 0 ? beforeStats.spend / beforeStats.days : null;
+  const afterSpendDay = afterStats.days > 0 ? afterStats.spend / afterStats.days : null;
   const beforePurchasesDay = beforeStats.days > 0 ? beforeStats.purchases / beforeStats.days : null;
   const afterPurchasesDay = afterStats.days > 0 ? afterStats.purchases / afterStats.days : null;
+
   const volumeDelta = pctChange(afterPurchasesDay, beforePurchasesDay);
-  const extraSpend = afterStats.spend - beforeStats.spend;
-  const extraPurchases = afterStats.purchases - beforeStats.purchases;
-  const marginalCpa = extraSpend > 0 && extraPurchases > 0 ? extraSpend / extraPurchases : null;
+
+  // CPA marginal normalizado por día:
+  // cuánto gasto diario adicional se necesitó por cada compra diaria adicional.
+  // Así no depende de que el bloque anterior y posterior tengan exactamente
+  // la misma cantidad de días.
+  const extraSpendDay =
+    beforeSpendDay !== null && afterSpendDay !== null
+      ? afterSpendDay - beforeSpendDay
+      : null;
+
+  const extraPurchasesDay =
+    beforePurchasesDay !== null && afterPurchasesDay !== null
+      ? afterPurchasesDay - beforePurchasesDay
+      : null;
+
+  const marginalCpa =
+    extraSpendDay !== null &&
+    extraPurchasesDay !== null &&
+    extraSpendDay > 0 &&
+    extraPurchasesDay > 0
+      ? extraSpendDay / extraPurchasesDay
+      : null;
 
   return {
     beforeStats,
@@ -3635,7 +3658,13 @@ function reportBudgetChangeImpactCC(change, campaignHistory = []) {
     afterDates: after.map(r => r.date),
     cpaDelta,
     volumeDelta,
-    marginalCpa
+    marginalCpa,
+    beforeSpendDay,
+    afterSpendDay,
+    beforePurchasesDay,
+    afterPurchasesDay,
+    extraSpendDay,
+    extraPurchasesDay
   };
 }
 
@@ -7943,6 +7972,17 @@ function buildScaleChangeImpactDiagnosisCC(
   };
 }
 
+function currentScaleStatusMarginalNoGainCC(scaleStatus) {
+  return (
+    scaleStatus?.marginalExtraSpendDay !== null &&
+    scaleStatus?.marginalExtraSpendDay !== undefined &&
+    toNumber(scaleStatus.marginalExtraSpendDay) > 0 &&
+    scaleStatus?.marginalExtraPurchasesDay !== null &&
+    scaleStatus?.marginalExtraPurchasesDay !== undefined &&
+    toNumber(scaleStatus.marginalExtraPurchasesDay) <= 0
+  );
+}
+
 function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa, budgetChanges = [], changeSafety = null) {
   const max = Math.max(1, toNumber(maxCpa));
   const historyWithBudget = (campaignHistory || [])
@@ -8018,6 +8058,10 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
     currentBudget,
     cpa: currentRow.cpa,
     marginalCpa: currentRow.marginalCpa,
+    marginalExtraSpendDay: currentRow.marginalExtraSpendDay,
+    marginalExtraPurchasesDay: currentRow.marginalExtraPurchasesDay,
+    spendDay: currentRow.spendDay,
+    purchasesDay: currentRow.purchasesDay,
     days: currentRow.days,
     purchases: currentRow.purchases,
     profitableCeilingBudget: profitableCeiling?.budget || null,
@@ -8032,8 +8076,9 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
       status: 'ESCALA INEFICIENTE',
       tone: 'critical',
       summary:
-        `El presupuesto actual de ${fmtMoney(currentBudget)} presenta un CPA marginal de ${fmtCpa(currentRow.marginalCpa)}, ` +
-        `por encima del CPA máximo de ${fmtMoney(max)}. El gasto adicional de este nivel está perdiendo eficiencia.`,
+        currentRow.marginalCpa !== null && currentRow.marginalCpa !== undefined
+          ? `El presupuesto actual de ${fmtMoney(currentBudget)} presenta un CPA marginal de ${fmtCpa(currentRow.marginalCpa)}, por encima del CPA máximo de ${fmtMoney(max)}. El gasto adicional de este nivel está perdiendo eficiencia.`
+          : `El presupuesto actual de ${fmtMoney(currentBudget)} aumentó el gasto diario frente al nivel anterior, pero no produjo compras diarias adicionales. No existe un CPA marginal positivo calculable porque la respuesta incremental fue nula o negativa.`,
       action:
         profitableCeiling
           ? `No continuar escalando. El último nivel rentable observado es ${fmtMoney(profitableCeiling.budget)}, pero la reducción solo se habilita si el diagnóstico causal cumple todas las condiciones estrictas.`
@@ -8176,8 +8221,18 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
           'CPA marginal',
           scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
             ? fmtMoney(scaleStatus.marginalCpa)
-            : '—',
-          'Costo de las compras adicionales al subir de nivel'
+            : (
+                currentScaleStatusMarginalNoGainCC(scaleStatus)
+                  ? 'SIN GANANCIA'
+                  : '—'
+              ),
+          scaleStatus.marginalCpa !== null && scaleStatus.marginalCpa !== undefined
+            ? 'Costo por cada compra diaria adicional'
+            : (
+                currentScaleStatusMarginalNoGainCC(scaleStatus)
+                  ? 'Subió el gasto diario, pero no aumentaron las compras/día'
+                  : 'Aún no hay nivel anterior comparable'
+              )
         )}
 
         {valueBox(
@@ -9202,7 +9257,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'2px solid #059669'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1000px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? '—' : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+        {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1180px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>Gasto/día</th><th>Compras/día</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{r.spendDay === null ? '—' : fmtMoney(r.spendDay)}</td><td>{r.purchasesDay === null ? '—' : fmtNum(r.purchasesDay, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? (r.marginalExtraSpendDay > 0 && r.marginalExtraPurchasesDay <= 0 ? 'SIN GANANCIA' : '—') : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'2px solid #6366f1'}}>
@@ -9390,30 +9445,97 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
 function buildScaleHistory(records, maxCpa) {
   const groups = new Map();
+
   (records || []).forEach(r => {
     const budget = toNumber(r.budget);
     if (budget <= 0) return;
     if (!groups.has(budget)) groups.set(budget, []);
     groups.get(budget).push(r);
   });
-  const rows = [...groups.entries()].map(([budget, recs]) => {
-    const stats = aggregateRecords(recs);
-    return { budget, days: recs.length, spend: stats.spend, purchases: stats.purchases, cpa: stats.cpa, roas: stats.roas, marginalCpa: null };
-  }).sort((a, b) => a.budget - b.budget);
+
+  const rows = [...groups.entries()]
+    .map(([budget, recs]) => {
+      const stats = aggregateRecords(recs);
+      const days = Math.max(0, toNumber(stats.days) || recs.length);
+      const spendDay = days > 0 ? stats.spend / days : null;
+      const purchasesDay = days > 0 ? stats.purchases / days : null;
+
+      return {
+        budget,
+        days,
+        spend: stats.spend,
+        purchases: stats.purchases,
+        spendDay,
+        purchasesDay,
+        cpa: stats.cpa,
+        roas: stats.roas,
+        marginalCpa: null,
+        marginalExtraSpendDay: null,
+        marginalExtraPurchasesDay: null
+      };
+    })
+    .sort((a, b) => a.budget - b.budget);
+
   rows.forEach((r, idx) => {
     if (idx === 0) return;
+
     const prev = rows[idx - 1];
-    const extraSpend = r.spend - prev.spend;
-    const extraPurchases = r.purchases - prev.purchases;
-    r.marginalCpa = extraSpend > 0 && extraPurchases > 0 ? extraSpend / extraPurchases : null;
+
+    const extraSpendDay =
+      r.spendDay !== null && prev.spendDay !== null
+        ? r.spendDay - prev.spendDay
+        : null;
+
+    const extraPurchasesDay =
+      r.purchasesDay !== null && prev.purchasesDay !== null
+        ? r.purchasesDay - prev.purchasesDay
+        : null;
+
+    r.marginalExtraSpendDay = extraSpendDay;
+    r.marginalExtraPurchasesDay = extraPurchasesDay;
+
+    r.marginalCpa =
+      extraSpendDay !== null &&
+      extraPurchasesDay !== null &&
+      extraSpendDay > 0 &&
+      extraPurchasesDay > 0
+        ? extraSpendDay / extraPurchasesDay
+        : null;
   });
+
   const max = Math.max(1, toNumber(maxCpa));
+
   return rows.map(r => {
     let status = 'Observación', action = 'Mantener';
-    if (r.cpa > 0 && r.cpa <= max * 0.8) { status = 'Rentable'; action = 'Escala candidata'; }
-    else if (r.cpa > 0 && r.cpa <= max) { status = 'Límite rentable'; action = 'Mantener'; }
-    else if (r.cpa > 0) { status = 'Sobreescalado'; action = 'Reducir'; }
-    if (r.marginalCpa !== null && r.marginalCpa > max) { status = 'Escala ineficiente'; action = 'Volver al nivel anterior'; }
+
+    if (r.cpa > 0 && r.cpa <= max * 0.8) {
+      status = 'Rentable';
+      action = 'Escala candidata';
+    } else if (r.cpa > 0 && r.cpa <= max) {
+      status = 'Límite rentable';
+      action = 'Mantener';
+    } else if (r.cpa > 0) {
+      status = 'Sobreescalado';
+      action = 'Reducir';
+    }
+
+    if (r.marginalCpa !== null && r.marginalCpa > max) {
+      status = 'Escala ineficiente';
+      action = 'Volver al nivel anterior';
+    }
+
+    // Si aumentó el gasto diario pero NO aumentaron las compras diarias,
+    // no existe un CPA marginal positivo calculable: la señal es peor.
+    if (
+      r.marginalExtraSpendDay !== null &&
+      r.marginalExtraSpendDay > 0 &&
+      r.marginalExtraPurchasesDay !== null &&
+      r.marginalExtraPurchasesDay <= 0
+    ) {
+      status = 'Escala ineficiente';
+      action = 'No seguir escalando';
+    }
+
     return { ...r, status, action };
   });
 }
