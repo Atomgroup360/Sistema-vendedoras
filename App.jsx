@@ -6057,8 +6057,11 @@ function QuickMetricCC({
         </span>
       </div>
 
-      <div className="mt-2.5 min-h-[28px] flex items-center min-w-0 overflow-hidden">
-        <p className="max-w-full text-[17px] sm:text-[18px] 2xl:text-[19px] font-black leading-none tracking-[-0.02em] tabular-nums text-zinc-900 whitespace-nowrap">
+      <div className="mt-2.5 min-h-[26px] flex items-center min-w-0 w-full overflow-hidden">
+        <p
+          className="min-w-0 max-w-full font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+          style={{ fontSize: 'clamp(13px, 1.15vw, 16px)' }}
+        >
           {value}
         </p>
       </div>
