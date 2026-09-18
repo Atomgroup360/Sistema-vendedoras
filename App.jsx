@@ -1313,6 +1313,7 @@ const COLLECTIONS = {
   budgetChanges: 'campaign_control_budget_changes',
   recommendations: 'campaign_control_recommendations',
   decisions: 'campaign_control_decisions',
+  actionItems: 'campaign_control_action_items',
   imports: 'campaign_control_imports'
 };
 
@@ -4455,6 +4456,284 @@ function CampaignReportCenter({
 }
 
 
+
+function campaignActionCreatedMsCC(item) {
+  return (
+    toNumber(item?.clientRecordedAtMs) ||
+    firestoreTimeMsCC(item?.createdAt) ||
+    firestoreTimeMsCC(item?.updatedAt) ||
+    0
+  );
+}
+
+function campaignActionApprovedMsCC(item) {
+  return (
+    toNumber(item?.approvedClientAtMs) ||
+    firestoreTimeMsCC(item?.approvedAt) ||
+    0
+  );
+}
+
+function CampaignActionBoardCC({
+  ownerUid,
+  actionItems = [],
+  campaigns = [],
+  products = [],
+  ads = []
+}) {
+  const [view, setView] = useState('pending');
+  const [campaignFilter, setCampaignFilter] = useState('all');
+  const [busyId, setBusyId] = useState('');
+  const [message, setMessage] = useState('');
+
+  const pending = useMemo(
+    () => actionItems.filter(x => x.status !== 'approved'),
+    [actionItems]
+  );
+
+  const approved = useMemo(
+    () => actionItems.filter(x => x.status === 'approved'),
+    [actionItems]
+  );
+
+  const source = view === 'pending' ? pending : approved;
+
+  const rows = useMemo(() => {
+    const filtered = source.filter(item =>
+      campaignFilter === 'all' || item.campaignId === campaignFilter
+    );
+
+    return [...filtered].sort((a, b) => {
+      if (view === 'pending') {
+        return campaignActionCreatedMsCC(a) - campaignActionCreatedMsCC(b);
+      }
+      return campaignActionApprovedMsCC(b) - campaignActionApprovedMsCC(a);
+    });
+  }, [source, campaignFilter, view]);
+
+  const approve = async item => {
+    if (!item?.id || busyId) return;
+    const ok = window.confirm(
+      `¿Marcar esta acción como APROBADA?\n\n${item.actionText}\n\n` +
+      `Se quitará de Pendientes y quedará guardada en Historial aprobadas.`
+    );
+    if (!ok) return;
+
+    setBusyId(item.id);
+    setMessage('');
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.actionItems, item.id), {
+        status: 'approved',
+        approvedDate: todayColombiaCC(),
+        approvedClientAtMs: Date.now(),
+        approvedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      setMessage('Acción aprobada. Se movió al historial.');
+    } catch (error) {
+      console.error('Lectura de Campañas · aprobar acción', error);
+      setMessage(error?.message || 'No fue posible aprobar la acción.');
+    } finally {
+      setBusyId('');
+      window.setTimeout(() => setMessage(''), 3500);
+    }
+  };
+
+  const pendingCampaigns = useMemo(() => {
+    const ids = new Set(actionItems.map(x => x.campaignId).filter(Boolean));
+    return campaigns
+      .filter(c => ids.has(c.id))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }, [actionItems, campaigns]);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                <ListChecks size={17}/>
+              </div>
+              <div>
+                <p className="text-[10px] sm:text-xs font-black uppercase text-zinc-900">
+                  Cuadro de acciones
+                </p>
+                <p className="text-[8px] sm:text-[9px] text-slate-500 mt-0.5 leading-relaxed">
+                  Agenda operativa de campañas. Las pendientes permanecen visibles hasta que las apruebes.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 min-w-[120px]">
+              <p className="text-[7px] font-black uppercase text-amber-700">Pendientes</p>
+              <p className="text-lg font-black text-amber-800 mt-1 tabular-nums">{pending.length}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 min-w-[120px]">
+              <p className="text-[7px] font-black uppercase text-emerald-700">Aprobadas</p>
+              <p className="text-lg font-black text-emerald-800 mt-1 tabular-nums">{approved.length}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col lg:flex-row lg:items-center gap-2">
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-fit">
+            <button
+              type="button"
+              onClick={() => setView('pending')}
+              className={`flex-1 sm:flex-none px-3 py-2 rounded-lg text-[8px] font-black uppercase ${
+                view === 'pending' ? 'bg-amber-500 text-zinc-950 shadow-sm' : 'text-slate-500'
+              }`}
+            >
+              Pendientes · {pending.length}
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('approved')}
+              className={`flex-1 sm:flex-none px-3 py-2 rounded-lg text-[8px] font-black uppercase ${
+                view === 'approved' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500'
+              }`}
+            >
+              Historial aprobadas
+            </button>
+          </div>
+
+          <select
+            value={campaignFilter}
+            onChange={e => setCampaignFilter(e.target.value)}
+            className="w-full lg:w-auto lg:min-w-[260px] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[9px] font-bold text-zinc-700 outline-none"
+          >
+            <option value="all">Todas las campañas</option>
+            {pendingCampaigns.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {message ? (
+          <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[8px] font-black text-emerald-700">
+            {message}
+          </div>
+        ) : null}
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+          <CheckCircle2 size={28} className="mx-auto text-emerald-500"/>
+          <p className="text-[10px] font-black uppercase text-zinc-900 mt-3">
+            {view === 'pending' ? 'No hay acciones pendientes' : 'No hay acciones aprobadas'}
+          </p>
+          <p className="text-[8px] text-slate-500 mt-1">
+            {view === 'pending'
+              ? 'Las acciones que registres desde la revisión de una campaña aparecerán aquí.'
+              : 'Las acciones aprobadas permanecerán aquí como historial.'
+            }
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {rows.map(item => {
+            const campaign = campaigns.find(c => c.id === item.campaignId);
+            const product = products.find(p => p.id === item.productId);
+            const ad =
+              ads.find(a => a.id === item.adId) ||
+              (item.adId ? { name: item.adNameSnapshot || 'Anuncio relacionado' } : null);
+
+            return (
+              <div
+                key={item.id}
+                className={`rounded-2xl border-2 bg-white p-3 sm:p-4 ${
+                  view === 'pending'
+                    ? 'border-amber-200'
+                    : 'border-emerald-200'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${
+                        view === 'pending'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}>
+                        {view === 'pending' ? 'Pendiente' : 'Aprobada'}
+                      </span>
+
+                      {ad ? (
+                        <span className="max-w-full px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[7px] font-black uppercase">
+                          {ad.name}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <p className="text-[11px] sm:text-xs font-black text-zinc-900 mt-2 leading-relaxed break-words">
+                      {item.actionText}
+                    </p>
+
+                    {item.note ? (
+                      <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">
+                        {item.note}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="shrink-0 text-left sm:text-right">
+                    <p className="text-[7px] font-black uppercase text-slate-400">Registrada</p>
+                    <p className="text-[8px] font-bold text-slate-600 mt-1">
+                      {decisionDateTimeLabelCC(item)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[6.5px] font-black uppercase text-slate-400">Campaña</p>
+                      <p className="text-[8px] font-bold text-zinc-800 mt-1 break-words">
+                        {campaign?.name || item.campaignNameSnapshot || 'Campaña'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[6.5px] font-black uppercase text-slate-400">Producto</p>
+                      <p className="text-[8px] font-bold text-zinc-800 mt-1 break-words">
+                        {product?.name || item.productNameSnapshot || '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {view === 'pending' ? (
+                  <button
+                    type="button"
+                    disabled={busyId === item.id}
+                    onClick={() => approve(item)}
+                    className="w-full mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-[9px] font-black uppercase disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={14}/>
+                    {busyId === item.id ? 'Aprobando...' : 'Aprobar y quitar de pendientes'}
+                  </button>
+                ) : (
+                  <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-emerald-50 px-3 py-2">
+                    <span className="text-[7px] font-black uppercase text-emerald-700">
+                      Acción cerrada
+                    </span>
+                    <span className="text-[7px] text-emerald-700">
+                      {item.approvedDate ? formatIsoDateCC(item.approvedDate) : 'Aprobada'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CampaignControlModule() {
   const { user } = useAuth();
   const ownerUid = user?.uid || null;
@@ -4468,6 +4747,7 @@ function CampaignControlModule() {
   const [budgetChanges, setBudgetChanges] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [decisions, setDecisions] = useState([]);
+  const [actionItems, setActionItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [period, setPeriod] = useState('last');
@@ -4492,6 +4772,7 @@ function CampaignControlModule() {
     listen(COLLECTIONS.budgetChanges, setBudgetChanges);
     listen(COLLECTIONS.recommendations, setRecommendations);
     listen(COLLECTIONS.decisions, setDecisions);
+    listen(COLLECTIONS.actionItems, setActionItems);
     return () => listeners.forEach(unsub => unsub());
   }, [ownerUid]);
 
@@ -4517,6 +4798,10 @@ function CampaignControlModule() {
   }, [ads, campaigns, products, dailyAds]);
 
   const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId) || activeCampaigns[0] || null;
+  const pendingActionItems = useMemo(
+    () => actionItems.filter(x => x.status !== 'approved'),
+    [actionItems]
+  );
 
   useEffect(() => {
     if (!selectedCampaignId && activeCampaigns.length) setSelectedCampaignId(activeCampaigns[0].id);
@@ -4528,6 +4813,7 @@ function CampaignControlModule() {
     { id: 'dashboard', label: 'Resumen', icon: BarChart3 },
     { id: 'campaigns', label: 'Campañas', icon: Layers },
     { id: 'register', label: 'Registro diario', icon: CalendarDays },
+    { id: 'actions', label: 'Acciones', icon: ListChecks, count: pendingActionItems.length },
     { id: 'reports', label: 'Informe IA', icon: FileText }
   ];
 
@@ -4547,7 +4833,7 @@ function CampaignControlModule() {
         </div>
         <div className="max-w-full overflow-x-auto pb-1 xl:pb-0">
           <div className="flex w-max min-w-full xl:min-w-0 bg-zinc-950 p-1 rounded-2xl">
-            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-2.5 sm:px-3 md:px-4 py-2.5 rounded-xl text-[8px] sm:text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}</button>)}
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-2.5 sm:px-3 md:px-4 py-2.5 rounded-xl text-[8px] sm:text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}{t.count > 0 ? <span className={`min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
       </div>
@@ -4563,6 +4849,7 @@ function CampaignControlModule() {
           budgetChanges={budgetChanges}
           decisions={decisions}
           recommendations={recommendations}
+          actionItems={actionItems}
           attentionRows={attentionRows}
           activeProducts={activeProducts}
           activeCampaigns={activeCampaigns}
@@ -4586,6 +4873,16 @@ function CampaignControlModule() {
           dailyAds={dailyAds}
           recommendations={recommendations}
           decisions={decisions}
+        />
+      )}
+
+      {subTab === 'actions' && (
+        <CampaignActionBoardCC
+          ownerUid={ownerUid}
+          actionItems={actionItems}
+          campaigns={campaigns}
+          products={products}
+          ads={ads}
         />
       )}
 
@@ -4674,7 +4971,7 @@ function CampaignCpaMiniChart({ campaign, product, dailyCampaigns }) {
 }
 
 function CampaignDashboard({
-  ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, decisions, recommendations,
+  ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, decisions, recommendations, actionItems,
   attentionRows, activeProducts, activeCampaigns, activeAds, latestDate,
   period, setPeriod, selectedCampaign, setSelectedCampaignId, setSubTab
 }) {
@@ -5047,6 +5344,7 @@ function CampaignDashboard({
                 budgetChanges={budgetChanges}
                 decisions={decisions}
                 recommendations={recommendations}
+                actionItems={actionItems}
                 period={drawerPeriod}
               />
             </div>
@@ -8875,7 +9173,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
   );
 }
 
-function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, allCampaigns, dailyAds, dailyCampaigns, budgetChanges, decisions, recommendations, period }) {
+function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, allCampaigns, dailyAds, dailyCampaigns, budgetChanges, decisions, recommendations, actionItems = [], period }) {
   const MONITOR_PERIODS = [
     { id: 'last', label: 'ÚLTIMO DÍA' },
     { id: '3d', label: '3D' },
@@ -8891,6 +9189,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   const [adActionReason, setAdActionReason] = useState('');
   const [adActionBusyId, setAdActionBusyId] = useState('');
   const [adActionMessage, setAdActionMessage] = useState('');
+  const [planActionOpen, setPlanActionOpen] = useState(false);
+  const [planActionText, setPlanActionText] = useState('');
+  const [planActionNote, setPlanActionNote] = useState('');
+  const [planActionAdId, setPlanActionAdId] = useState('');
+  const [planActionBusy, setPlanActionBusy] = useState(false);
+  const [planActionMessage, setPlanActionMessage] = useState('');
 
   useEffect(() => {
     if (['last', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
@@ -8947,6 +9251,54 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     () => buildCurrentScaleStatusCC(campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety),
     [campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety]
   );
+
+  const campaignPendingActions = actionItems.filter(
+    x => x.campaignId === campaign.id && x.status !== 'approved'
+  );
+
+  const savePlannedAction = async () => {
+    const actionText = String(planActionText || '').trim();
+    const note = String(planActionNote || '').trim();
+    const relatedAd = ads.find(a => a.id === planActionAdId) || null;
+
+    if (!actionText) {
+      setPlanActionMessage('Escribe la acción que deseas registrar.');
+      return;
+    }
+
+    setPlanActionBusy(true);
+    setPlanActionMessage('');
+
+    try {
+      await addDoc(collection(db, COLLECTIONS.actionItems), {
+        ownerUid,
+        productId: campaign.productId || product?.id || null,
+        productNameSnapshot: product?.name || null,
+        campaignId: campaign.id,
+        campaignNameSnapshot: campaign.name || null,
+        adId: relatedAd?.id || null,
+        adNameSnapshot: relatedAd?.name || null,
+        actionText,
+        note,
+        status: 'pending',
+        createdDate: todayColombiaCC(),
+        source: 'campaign_review',
+        clientRecordedAtMs: Date.now(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      setPlanActionOpen(false);
+      setPlanActionText('');
+      setPlanActionNote('');
+      setPlanActionAdId('');
+    } catch (error) {
+      console.error('Lectura de Campañas · registrar acción', error);
+      setPlanActionMessage(error?.message || 'No fue posible registrar la acción.');
+    } finally {
+      setPlanActionBusy(false);
+    }
+  };
 
   const requestAdAction = (mode, ad) => {
     if (!ad?.id) return;
@@ -9092,6 +9444,36 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
   return (
     <div className="space-y-5">
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 sm:p-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[8px] font-black uppercase tracking-wide text-indigo-700">Agenda de esta campaña</p>
+            <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">
+              Registra una acción mientras analizas la campaña y revísala después desde el Cuadro de acciones.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {campaignPendingActions.length > 0 ? (
+              <span className="px-2.5 py-2 rounded-xl bg-amber-100 text-amber-800 text-[8px] font-black uppercase">
+                {campaignPendingActions.length} pendiente{campaignPendingActions.length === 1 ? '' : 's'}
+              </span>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => {
+                setPlanActionOpen(true);
+                setPlanActionMessage('');
+              }}
+              className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm"
+            >
+              <Plus size={14}/> Registrar acción
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="px-1 md:px-2">
           <p className="text-[9px] font-black uppercase text-zinc-900">Cómo quieres leer la campaña</p>
@@ -9667,6 +10049,118 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
         </>
       )}
+      {planActionOpen ? (
+        <div className="fixed inset-0 z-[145] bg-zinc-950/55 backdrop-blur-[1px] flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-xl rounded-3xl bg-white border border-slate-200 shadow-2xl p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[8px] font-black uppercase tracking-wide text-indigo-600">
+                  Nueva acción pendiente
+                </p>
+                <h4 className="text-base sm:text-lg font-black text-zinc-900 mt-1 break-words">
+                  {campaign.name}
+                </h4>
+                <p className="text-[8px] text-slate-500 mt-1">
+                  Fecha de registro: {formatIsoDateCC(todayColombiaCC())}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => !planActionBusy && setPlanActionOpen(false)}
+                disabled={planActionBusy}
+                className="shrink-0 p-2 rounded-xl bg-slate-100 text-slate-500 disabled:opacity-40"
+              >
+                <X size={15}/>
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <label className="text-[8px] font-black uppercase text-slate-500">
+                Acción por realizar · obligatoria
+              </label>
+              <textarea
+                value={planActionText}
+                onChange={e => setPlanActionText(e.target.value)}
+                placeholder="Ej: Apagar anuncio Video 1 después de completar la ventana de seguridad"
+                className="w-full min-h-[92px] mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-zinc-800 outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="text-[8px] font-black uppercase text-slate-500">
+                  Anuncio relacionado · opcional
+                </label>
+                <select
+                  value={planActionAdId}
+                  onChange={e => setPlanActionAdId(e.target.value)}
+                  className="w-full mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[9px] font-bold text-zinc-700 outline-none"
+                >
+                  <option value="">Acción general de campaña</option>
+                  {ads.filter(a => a.deleted !== true).map(ad => (
+                    <option key={ad.id} value={ad.id}>
+                      {ad.name}{ad.active === false ? ' · OFF' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[8px] font-black uppercase text-slate-500">
+                  Estado inicial
+                </label>
+                <div className="mt-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                  <p className="text-[9px] font-black text-amber-800">PENDIENTE</p>
+                  <p className="text-[7px] text-amber-700 mt-0.5">
+                    Permanecerá en Acciones hasta aprobarla.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <label className="text-[8px] font-black uppercase text-slate-500">
+                Nota / criterio · opcional
+              </label>
+              <textarea
+                value={planActionNote}
+                onChange={e => setPlanActionNote(e.target.value)}
+                placeholder="Ej: Revisar 3D y confirmar que no exista recuperación antes de ejecutar"
+                className="w-full min-h-[72px] mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[9px] text-zinc-700 outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            {planActionMessage ? (
+              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[8px] font-black text-rose-700">
+                {planActionMessage}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => !planActionBusy && setPlanActionOpen(false)}
+                disabled={planActionBusy}
+                className="px-3 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-[9px] font-black uppercase disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={savePlannedAction}
+                disabled={planActionBusy || !String(planActionText || '').trim()}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase disabled:opacity-40"
+              >
+                <Save size={13}/>
+                {planActionBusy ? 'Guardando...' : 'Guardar pendiente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {adActionModal ? (
         <div className="fixed inset-0 z-[140] bg-zinc-950/55 backdrop-blur-[1px] flex items-center justify-center p-3 sm:p-4">
           <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 shadow-2xl p-4 sm:p-5">
