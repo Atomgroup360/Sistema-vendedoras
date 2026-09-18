@@ -3217,7 +3217,7 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
         : 'bg-white border-slate-100';
 
   return (
-    <div className={`min-w-0 overflow-hidden rounded-2xl border px-2 py-3 sm:px-2.5 ${toneClass}`}>
+    <div className={`min-w-0 rounded-2xl border px-3 py-3.5 sm:px-3.5 lg:px-4 lg:py-4 ${toneClass}`}>
       <p
         className="min-w-0 text-[7px] sm:text-[8px] font-black uppercase tracking-wide leading-tight text-slate-400"
         style={{ overflowWrap: 'anywhere' }}
@@ -3225,10 +3225,10 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
         {label}
       </p>
 
-      <div className="min-w-0 mt-1.5 overflow-hidden">
+      <div className="min-w-0 mt-2">
         <div
-          className="max-w-full font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
-          style={{ fontSize: 'clamp(10px, 0.78vw, 13px)' }}
+          className="max-w-full font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900"
+          style={{ fontSize: 'clamp(17px, 1.45vw, 23px)', overflowWrap: 'anywhere' }}
         >
           {value}
         </div>
@@ -4002,7 +4002,9 @@ function buildDetailedCampaignReportCC({
       lines.push('');
       lines.push('CAPA 1 · PROTOCOLO LA PODA CBO');
       lines.push('-'.repeat(78));
-      if (reportPoda.active) {
+      if (reportPoda.eligible === false) {
+        lines.push('No aplica: La Poda solo se evalúa en campañas cuyo nombre contiene ESCALA.');
+      } else if (reportPoda.active) {
         lines.push(`Estado: ${reportPoda.status}`);
         lines.push(`Lectura: ${reportPoda.summary}`);
         lines.push(`Evidencia: ${reportPoda.evidence || '—'}`);
@@ -4066,7 +4068,7 @@ function buildDetailedCampaignReportCC({
         const spentVsMax = maxCpa > 0 ? (ad3.currentStats.spend / maxCpa) * 100 : null;
         const relational = buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad, benchmark);
         const readingAction = adReadingActionCC(diag, contribution, maxCpa);
-        const playbook = buildPlaybookProtocolCC(diag, maxCpa, reportChangeSafety, ad);
+        const playbook = buildPlaybookProtocolCC(diag, maxCpa, reportChangeSafety, ad, campaign);
 
         lines.push('');
         lines.push('-'.repeat(78));
@@ -4101,7 +4103,9 @@ function buildDetailedCampaignReportCC({
         lines.push(`EN PALABRAS SIMPLES: ${relational.general.simpleStory}`);
         lines.push('');
         lines.push('CAPA PLAYBOOK · 3D');
-        if (playbook.active) {
+        if (playbook.eligible === false) {
+          lines.push('No aplica: el nombre de la campaña no contiene ESCALA.');
+        } else if (playbook.active) {
           lines.push(`Estado: ${playbook.label}`);
           lines.push(`Severidad: ${playbook.severity.toUpperCase()}`);
           lines.push(`Filtro económico: ${playbook.economicGate?.label || '—'}`);
@@ -4109,7 +4113,8 @@ function buildDetailedCampaignReportCC({
           lines.push(`Evidencia: ${playbook.evidence}`);
           lines.push(`Acción recomendada: ${playbook.action}`);
         } else {
-          lines.push('Sin protocolo Playbook activo.');
+          lines.push('Evaluado — sin protocolo Playbook activo.');
+          lines.push(`Lectura: ${playbook.summary || 'No coincide con Protocolo A/B.'}`);
         }
         lines.push('');
         lines.push('PROTECCIÓN DE PRESUPUESTO · PAUSA 3D');
@@ -4897,7 +4902,7 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
               >
                 {hasData ? fmtMoney(totalSpend) : '—'}
               </p>
@@ -4912,7 +4917,7 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
               >
                 {hasData ? fmtNum(totalPurchases, 0) : '—'}
               </p>
@@ -4927,7 +4932,7 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
               >
                 {hasData && globalCpa !== null ? fmtMoney(globalCpa) : '—'}
               </p>
@@ -5027,41 +5032,207 @@ function CampaignControlModule() {
   ];
 
   return (
-    <div className="space-y-5 anim-fade min-w-0 cc-mobile-readable">
+    <div className="space-y-5 anim-fade min-w-0 cc-mobile-readable cc-ui-shell">
       <style>{`
-        @media (max-width: 639px) {
-          .cc-mobile-readable [class~="text-[5.5px]"],
-          .cc-mobile-readable [class~="text-[6px]"],
-          .cc-mobile-readable [class~="text-[6.5px]"],
-          .cc-mobile-readable [class~="text-[7px]"] {
-            font-size: 8.5px !important;
-            line-height: 1.35 !important;
-          }
+        /*
+         * LECTURA DE CAMPAÑAS · SISTEMA VISUAL RESPONSIVE
+         * Mantiene la lógica intacta y normaliza la legibilidad en móvil, tablet y PC.
+         */
 
-          .cc-mobile-readable [class~="text-[7.5px]"],
-          .cc-mobile-readable [class~="text-[8px]"] {
-            font-size: 9px !important;
+        .cc-ui-shell {
+          --cc-body: 13px;
+          --cc-small: 11px;
+          --cc-label: 10px;
+          --cc-control: 12px;
+          --cc-value: 20px;
+        }
+
+        .cc-ui-shell,
+        .cc-ui-shell * {
+          box-sizing: border-box;
+        }
+
+        .cc-ui-shell p,
+        .cc-ui-shell span,
+        .cc-ui-shell label,
+        .cc-ui-shell button,
+        .cc-ui-shell th,
+        .cc-ui-shell td {
+          overflow-wrap: anywhere;
+        }
+
+        /* Controles coherentes en todos los módulos. */
+        .cc-ui-shell input,
+        .cc-ui-shell select,
+        .cc-ui-shell textarea {
+          line-height: 1.35 !important;
+        }
+
+        .cc-ui-shell button {
+          line-height: 1.25;
+        }
+
+        /* MÓVIL */
+        @media (max-width: 639px) {
+          .cc-ui-shell [class*="text-[5.5px]"],
+          .cc-ui-shell [class*="text-[6px]"],
+          .cc-ui-shell [class*="text-[6.5px]"],
+          .cc-ui-shell [class*="text-[7px]"] {
+            font-size: 10px !important;
             line-height: 1.4 !important;
           }
 
-          .cc-mobile-readable [class~="text-[9px]"] {
+          .cc-ui-shell [class*="text-[7.5px]"],
+          .cc-ui-shell [class*="text-[8px]"],
+          .cc-ui-shell [class*="text-[8.5px]"] {
+            font-size: 10.5px !important;
+            line-height: 1.42 !important;
+          }
+
+          .cc-ui-shell [class*="text-[9px]"],
+          .cc-ui-shell [class*="text-[9.5px]"] {
+            font-size: 11.5px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[10px]"] {
+            font-size: 12px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[11px]"] {
+            font-size: 13px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[12px]"],
+          .cc-ui-shell [class*="text-[13px]"] {
+            font-size: 14px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell button[class*="text-["] {
+            min-height: 40px;
+          }
+
+          .cc-ui-shell input,
+          .cc-ui-shell select,
+          .cc-ui-shell textarea {
+            font-size: 13px !important;
+            min-height: 42px;
+          }
+        }
+
+        /* TABLET */
+        @media (min-width: 640px) and (max-width: 1023px) {
+          .cc-ui-shell [class*="text-[5.5px]"],
+          .cc-ui-shell [class*="text-[6px]"],
+          .cc-ui-shell [class*="text-[6.5px]"] {
+            font-size: 9.5px !important;
+            line-height: 1.4 !important;
+          }
+
+          .cc-ui-shell [class*="text-[7px]"],
+          .cc-ui-shell [class*="text-[7.5px]"] {
+            font-size: 10.5px !important;
+            line-height: 1.42 !important;
+          }
+
+          .cc-ui-shell [class*="text-[8px]"],
+          .cc-ui-shell [class*="text-[8.5px]"] {
+            font-size: 11.5px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[9px]"],
+          .cc-ui-shell [class*="text-[9.5px]"] {
+            font-size: 12px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[10px]"] {
+            font-size: 13px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[11px]"] {
+            font-size: 14px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[12px]"],
+          .cc-ui-shell [class*="text-[13px]"] {
+            font-size: 15px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell input,
+          .cc-ui-shell select,
+          .cc-ui-shell textarea {
+            font-size: 13px !important;
+          }
+        }
+
+        /* PC / ESCRITORIO */
+        @media (min-width: 1024px) {
+          .cc-ui-shell [class*="text-[5.5px]"],
+          .cc-ui-shell [class*="text-[6px]"],
+          .cc-ui-shell [class*="text-[6.5px]"] {
             font-size: 10px !important;
-            line-height: 1.45 !important;
+            line-height: 1.4 !important;
           }
 
-          .cc-mobile-readable [class~="text-[10px]"] {
+          .cc-ui-shell [class*="text-[7px]"],
+          .cc-ui-shell [class*="text-[7.5px]"] {
             font-size: 11px !important;
+            line-height: 1.42 !important;
+          }
+
+          .cc-ui-shell [class*="text-[8px]"],
+          .cc-ui-shell [class*="text-[8.5px]"] {
+            font-size: 12px !important;
             line-height: 1.45 !important;
           }
 
-          .cc-mobile-readable button[class*="text-["] {
+          .cc-ui-shell [class*="text-[9px]"],
+          .cc-ui-shell [class*="text-[9.5px]"] {
+            font-size: 13px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[10px]"] {
+            font-size: 14px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[11px]"] {
+            font-size: 15px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[12px]"] {
+            font-size: 16px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell [class*="text-[13px]"] {
+            font-size: 17px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-ui-shell button[class*="text-["] {
             min-height: 38px;
           }
 
-          .cc-mobile-readable input,
-          .cc-mobile-readable select,
-          .cc-mobile-readable textarea {
-            font-size: 12px !important;
+          .cc-ui-shell input,
+          .cc-ui-shell select,
+          .cc-ui-shell textarea {
+            font-size: 14px !important;
+          }
+
+          /* Más aire horizontal en tarjetas de escritorio. */
+          .cc-ui-shell .cc-pro-card {
+            padding: 18px !important;
           }
         }
       `}</style>
@@ -5079,7 +5250,7 @@ function CampaignControlModule() {
         </div>
         <div className="max-w-full overflow-x-auto pb-1 xl:pb-0">
           <div className="flex w-max min-w-full xl:min-w-0 bg-zinc-950 p-1 rounded-2xl">
-            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-2.5 sm:px-3 md:px-4 py-2.5 rounded-xl text-[8px] sm:text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-500'}`}><t.icon size={13} />{t.label}{t.count > 0 ? <span className={`min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-3 sm:px-3.5 md:px-4.5 lg:px-5 py-2.5 lg:py-3 rounded-xl text-[8px] sm:text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-400 hover:text-white'}`}><t.icon size={13} />{t.label}{t.count > 0 ? <span className={`min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
       </div>
@@ -5450,7 +5621,7 @@ function CampaignDashboard({
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
               >
                 {fmtMoney(totalSpend)}
               </p>
@@ -5465,7 +5636,7 @@ function CampaignDashboard({
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
               >
                 {fmtNum(totalPurchases, 0)}
               </p>
@@ -5480,7 +5651,7 @@ function CampaignDashboard({
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
               >
                 {globalCpa !== null ? fmtMoney(globalCpa) : '—'}
               </p>
@@ -5574,7 +5745,7 @@ function CampaignDashboard({
                           <Paintbrush size={13}/>
                         </button>
 
-                        <span className={`px-2 py-1 rounded-full font-black whitespace-nowrap ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>
+                        <span className={`px-2.5 py-1.5 rounded-full font-black text-center leading-tight ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>
                           ● {r.state}
                         </span>
                       </div>
@@ -6332,6 +6503,90 @@ function videoTrendHealthTextCC(name, levelObj, delta) {
 }
 
 
+
+function isPlaybookEligibleCampaignCC(campaign) {
+  return String(campaign?.name || '').toUpperCase().includes('ESCALA');
+}
+
+function playbookCampaignEvaluationCC(campaign, rows = []) {
+  const eligible = isPlaybookEligibleCampaignCC(campaign);
+
+  if (!eligible) {
+    return {
+      eligible: false,
+      tone: 'neutral',
+      label: 'PLAYBOOK NO APLICA',
+      summary: 'Esta capa solo evalúa campañas cuyo nombre contiene “ESCALA”. El motor general de diagnóstico continúa funcionando normalmente.',
+      protocolA: 'No evaluado: la campaña no está identificada como campaña de escala.',
+      protocolB: 'No evaluado: la campaña no está identificada como campaña de escala.',
+      dataNote: 'Para activar Playbook, incluye ESCALA en el nombre de la campaña.'
+    };
+  }
+
+  if (!rows.length) {
+    return {
+      eligible: true,
+      tone: 'neutral',
+      label: 'PLAYBOOK · SIN DATOS EVALUABLES',
+      summary: 'La campaña está habilitada para Playbook, pero todavía no hay anuncios activos con datos suficientes para evaluar los protocolos.',
+      protocolA: 'Pendiente de datos.',
+      protocolB: 'Pendiente de datos.',
+      dataNote: 'Registra cierres diarios para construir la ventana de análisis.'
+    };
+  }
+
+  const activeRows = rows.filter(r => r.playbook?.active);
+  if (activeRows.length) {
+    return {
+      eligible: true,
+      tone: activeRows.some(r => r.playbook?.severity === 'confirmed') ? 'critical' : 'attention',
+      label: 'PLAYBOOK · SEÑALES DETECTADAS',
+      summary: 'La campaña fue evaluada y al menos un anuncio coincide con un patrón operativo del Playbook.',
+      protocolA: activeRows.some(r => r.playbook?.code === 'A')
+        ? 'Se detectó señal compatible con deterioro post-clic.'
+        : 'Sin señal A activa.',
+      protocolB: activeRows.some(r => r.playbook?.code === 'B' || r.playbook?.code === 'B0')
+        ? 'Se detectó señal de frecuencia/fatiga en al menos un anuncio.'
+        : 'Sin señal B activa.',
+      dataNote: 'La severidad final sigue subordinada al CPA de seguridad y a la ventana 3D.'
+    };
+  }
+
+  const evaluations = rows.map(r => r.playbook?.evaluation).filter(Boolean);
+  const current3dReady = evaluations.some(e => e.enough3d);
+  const previousComparable = evaluations.some(e => e.previousComparable);
+  const frequencyAvailable = evaluations.some(e => e.frequencyAvailable);
+  const cvrAvailable = evaluations.some(e => e.cvrAvailable);
+
+  let label = 'PLAYBOOK · EVALUADO — SIN PROTOCOLO ACTIVO';
+  let summary = 'La campaña sí fue evaluada. Ningún anuncio cumple actualmente el patrón completo requerido para activar Protocolo A o B.';
+  let dataNote = 'El diagnóstico general de campaña y anuncios continúa activo aunque Playbook no encuentre un protocolo específico.';
+
+  if (!current3dReady) {
+    label = 'PLAYBOOK PARCIAL · FALTA VENTANA 3D';
+    summary = 'La campaña está habilitada, pero todavía no existe una ventana 3D completa para una confirmación estricta.';
+    dataNote = 'Las señales pueden observarse, pero no deben convertirse en protocolo confirmado todavía.';
+  } else if (!previousComparable) {
+    label = 'PLAYBOOK PARCIAL · SIN BLOQUE ANTERIOR COMPARABLE';
+    summary = 'Existe información actual, pero falta un bloque anterior suficiente para medir correctamente el deterioro relativo.';
+    dataNote = 'Sin comparación previa no se puede demostrar una caída porcentual confiable.';
+  }
+
+  return {
+    eligible: true,
+    tone: 'neutral',
+    label,
+    summary,
+    protocolA: cvrAvailable
+      ? 'No activo: no coincide la combinación CVR ↓ marcada + CPM/CTR/CPC relativamente estables.'
+      : 'No evaluable todavía: falta CVR comparable.',
+    protocolB: frequencyAvailable
+      ? 'No activo: no coincide la combinación frecuencia alta/subiendo + CTR ↓ + presión CPC/CPM + impacto económico.'
+      : 'No evaluable todavía: falta Frecuencia registrada.',
+    dataNote
+  };
+}
+
 function fmtFrequencyCC(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
   return fmtNum(value, 2);
@@ -6394,7 +6649,28 @@ function playbookEconomicGateCC(stats3d, maxCpa) {
   };
 }
 
-function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null) {
+function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null, campaign = null) {
+  if (!isPlaybookEligibleCampaignCC(campaign)) {
+    return {
+      active: false,
+      eligible: false,
+      severity: 'none',
+      tone: 'neutral',
+      code: null,
+      label: 'PLAYBOOK NO APLICA',
+      summary: 'La campaña no contiene “ESCALA” en su nombre.',
+      evidence: '',
+      action: '',
+      secondary: [],
+      evaluation: {
+        enough3d: false,
+        previousComparable: false,
+        frequencyAvailable: false,
+        cvrAvailable: false
+      }
+    };
+  }
+
   const s3 = diag?.scale3d || {};
   const p3 = diag?.scalePrev3d || {};
   const d3 = diag?.scaleDelta3d || {};
@@ -6563,6 +6839,7 @@ function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null) {
   if (!candidates.length) {
     return {
       active: false,
+      eligible: true,
       severity: 'none',
       tone: 'neutral',
       label: 'SIN PROTOCOLO PLAYBOOK ACTIVO',
@@ -6570,7 +6847,15 @@ function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null) {
       evidence: '',
       action: '',
       economicGate: gate,
-      secondary: []
+      secondary: [],
+      evaluation: {
+        enough3d,
+        previousComparable: toNumber(p3?.days) > 0,
+        frequencyAvailable: has(frequency),
+        cvrAvailable: has(s3.visitToPurchase) && has(cvrDelta),
+        protocolAPattern,
+        protocolBPattern
+      }
     };
   }
 
@@ -6579,6 +6864,7 @@ function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null) {
 
   return {
     active: true,
+    eligible: true,
     ...primary,
     economicGate: gate,
     secondary: candidates.slice(1),
@@ -6586,7 +6872,15 @@ function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null) {
     frequencyDelta: freqDelta,
     cvrDelta,
     cpaDelta,
-    strictAllowed: gate.strictAllowed && enough3d
+    strictAllowed: gate.strictAllowed && enough3d,
+    evaluation: {
+      enough3d,
+      previousComparable: toNumber(p3?.days) > 0,
+      frequencyAvailable: has(frequency),
+      cvrAvailable: has(s3.visitToPurchase) && has(cvrDelta),
+      protocolAPattern,
+      protocolBPattern
+    }
   };
 }
 
@@ -6600,6 +6894,18 @@ function buildCampaignPruningProtocolCC({
   changeSafety = null,
   nowMs = Date.now()
 }) {
+  if (!isPlaybookEligibleCampaignCC(campaign)) {
+    return {
+      active: false,
+      eligible: false,
+      phase: 'not_applicable',
+      status: 'LA PODA NO APLICA',
+      tone: 'neutral',
+      canExecute: false,
+      summary: 'La Poda forma parte de la capa Playbook y solo se evalúa en campañas cuyo nombre contiene “ESCALA”.'
+    };
+  }
+
   const max = Math.max(1, toNumber(product?.maxCpa));
   const today = todayColombiaCC();
 
@@ -7517,7 +7823,7 @@ function CampaignChangeSafetyCardCC({ safety, currentBudget = null }) {
     : null;
 
   return (
-    <div className={`rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(safety.tone || 'neutral')}`}>
+    <div className={`rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(safety.tone || 'neutral')}`}>
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -8146,11 +8452,11 @@ function QuickMetricCC({
   const prevLabel = previousPeriodLabel || periodLabel;
 
   return (
-    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 sm:px-3.5 sm:py-3.5">
+    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3.5 sm:px-4 sm:py-4 lg:px-4.5 lg:py-4 cc-pro-card">
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0">
-          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">{label}</p>
-          <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-300 mt-0.5 whitespace-nowrap">
+          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 leading-snug">{label}</p>
+          <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-300 mt-0.5 leading-snug">
             Actual · {periodLabel}
           </p>
         </div>
@@ -8160,10 +8466,10 @@ function QuickMetricCC({
         </span>
       </div>
 
-      <div className="mt-2.5 min-h-[26px] flex items-center min-w-0 w-full overflow-hidden">
+      <div className="mt-3 min-h-[30px] flex items-center min-w-0 w-full">
         <p
-          className="min-w-0 max-w-full font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
-          style={{ fontSize: 'clamp(13px, 1.15vw, 16px)' }}
+          className="min-w-0 max-w-full font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900"
+          style={{ fontSize: 'clamp(17px, 1.45vw, 23px)', overflowWrap: 'anywhere' }}
         >
           {value}
         </p>
@@ -8181,10 +8487,10 @@ function QuickMetricCC({
       ) : null}
 
       <div className="mt-2.5 pt-2 border-t border-slate-200/80 min-w-0">
-        <p className="text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase tracking-wide text-slate-400 whitespace-nowrap">
+        <p className="text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase tracking-wide text-slate-400 leading-snug">
           Anterior · {prevLabel}
         </p>
-        <p className="text-[10px] sm:text-[11px] font-black tabular-nums text-slate-600 mt-1 whitespace-nowrap overflow-hidden text-ellipsis">
+        <p className="text-[10px] sm:text-[11px] font-black tabular-nums text-slate-600 mt-1 leading-snug break-words">
           {hasPrevious ? previousValue : 'Sin dato comparable'}
         </p>
       </div>
@@ -8616,7 +8922,7 @@ function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
     <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5">
       <p className="text-[6.5px] font-black uppercase tracking-wide leading-tight text-slate-400" style={{ overflowWrap: 'anywhere' }}>{label}</p>
 
-      <p className="text-[12px] sm:text-[13px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 whitespace-nowrap overflow-hidden text-ellipsis">
+      <p className="text-[12px] sm:text-[13px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 leading-tight break-words">
         {value}
       </p>
 
@@ -9525,7 +9831,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   const marginalDisplay = marginalCpaDisplayCC(scaleStatus, maxCpa);
 
   const valueBox = (label, value, sub = null) => (
-    <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-2.5 py-2.5 sm:px-3 sm:py-3">
+    <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-3 py-3 sm:px-3.5 sm:py-3.5 lg:px-4 lg:py-4">
       <p
         className="text-[6px] sm:text-[6.5px] lg:text-[7.5px] font-black uppercase leading-tight tracking-wide text-slate-400"
         style={{ overflowWrap: 'anywhere' }}
@@ -9534,8 +9840,8 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
       </p>
 
       <p
-        className="mt-1.5 font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
-        style={{ fontSize: 'clamp(11px, 1vw, 17px)' }}
+        className="mt-2 font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 break-words"
+        style={{ fontSize: 'clamp(17px, 1.35vw, 23px)', overflowWrap: 'anywhere' }}
       >
         {value}
       </p>
@@ -9611,8 +9917,8 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
           </div>
 
           <p
-            className="mt-1.5 font-black leading-none tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
-            style={{ fontSize: 'clamp(12px, 1.05vw, 18px)' }}
+            className="mt-2 font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 break-words"
+            style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', overflowWrap: 'anywhere' }}
           >
             {marginalDisplay.value}
           </p>
@@ -9705,6 +10011,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
 
 function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null, onAdAction = null, adActionBusyId = '', onRegisterPlaybookAction = null, campaignPoda = null, onExecutePoda = null }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
+  const [playbookHelpOpen, setPlaybookHelpOpen] = useState(false);
   const periodLabel = periodLabelCC(analysisPeriod);
   const periodCardLabel = periodCardLabelCC(analysisPeriod, false);
   const previousPeriodCardLabel = periodCardLabelCC(analysisPeriod, true);
@@ -9742,7 +10049,8 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       row.diag,
       maxCpa,
       changeSafety,
-      row.ad
+      row.ad,
+      campaign
     );
 
     return {
@@ -9776,6 +10084,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
   const playbookConfirmedCount = playbookRows.filter(r => r.playbook?.severity === 'confirmed').length;
   const playbookAlertCount = playbookRows.filter(r => r.playbook?.severity === 'alert').length;
   const topPlaybook = playbookRows[0] || null;
+  const playbookEvaluation = playbookCampaignEvaluationCC(campaign, rows);
 
   const campaignOverview = buildCampaignLayerDiagnosticCC(
     campaign3d,
@@ -9866,7 +10175,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           />
 
           {campaignPoda?.active ? (
-            <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(campaignPoda.tone)}`}>
+            <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(campaignPoda.tone)}`}>
               <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3.5">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -9952,45 +10261,142 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             </div>
           ) : null}
 
-          {topPlaybook ? (
-            <div className={`mt-4 rounded-2xl border-2 p-3 sm:p-3.5 ${toneBg(topPlaybook.playbook.tone)}`}>
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
-                      Capa Playbook · 3D
+          <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${
+            !playbookEvaluation.eligible
+              ? 'border-slate-200 bg-slate-50'
+              : topPlaybook
+                ? toneBg(topPlaybook.playbook.tone)
+                : 'border-indigo-200 bg-indigo-50/45'
+          }`}>
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${
+                    playbookEvaluation.eligible
+                      ? 'bg-zinc-950 text-white'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    Capa Playbook · 3D
+                  </span>
+
+                  {playbookEvaluation.eligible ? (
+                    <span className="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-[7px] font-black uppercase">
+                      Campaña ESCALA
                     </span>
-                    {playbookConfirmedCount > 0 ? (
-                      <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-[7px] font-black uppercase">
-                        {playbookConfirmedCount} confirmado{playbookConfirmedCount === 1 ? '' : 's'}
-                      </span>
-                    ) : null}
-                    {playbookAlertCount > 0 ? (
-                      <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[7px] font-black uppercase">
-                        {playbookAlertCount} alerta{playbookAlertCount === 1 ? '' : 's'}
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="text-[11px] font-black text-zinc-900 mt-2">
-                    {topPlaybook.playbook.label}
-                  </p>
-                  <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">
-                    Principal señal: <strong>{topPlaybook.ad.name}</strong>. {topPlaybook.playbook.summary}
-                  </p>
+                  ) : (
+                    <span className="px-2 py-1 rounded-full bg-white border border-slate-200 text-slate-500 text-[7px] font-black uppercase">
+                      No aplica
+                    </span>
+                  )}
+
+                  {playbookConfirmedCount > 0 ? (
+                    <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-[7px] font-black uppercase">
+                      {playbookConfirmedCount} confirmado{playbookConfirmedCount === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+
+                  {playbookAlertCount > 0 ? (
+                    <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[7px] font-black uppercase">
+                      {playbookAlertCount} alerta{playbookAlertCount === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
                 </div>
 
-                <div className="lg:w-[300px] lg:shrink-0 rounded-xl bg-white/70 border border-white p-2.5">
-                  <p className="text-[7px] font-black uppercase text-slate-400">Filtro económico</p>
-                  <p className={`text-[9px] font-black mt-1 ${toneText(topPlaybook.playbook.economicGate?.tone)}`}>
-                    {topPlaybook.playbook.economicGate?.label}
-                  </p>
-                  <p className="text-[8px] text-slate-500 mt-1 leading-relaxed">
-                    El Playbook no confirma protocolos estrictos mientras el CPA permanezca dentro del límite rentable.
+                <p className="text-[11px] font-black text-zinc-900 mt-2">
+                  {topPlaybook ? topPlaybook.playbook.label : playbookEvaluation.label}
+                </p>
+
+                <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">
+                  {topPlaybook
+                    ? <>Principal señal: <strong>{topPlaybook.ad.name}</strong>. {topPlaybook.playbook.summary}</>
+                    : playbookEvaluation.summary
+                  }
+                </p>
+
+                {!topPlaybook ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mt-3">
+                    <div className="rounded-xl border border-white/80 bg-white/70 p-3">
+                      <p className="text-[7px] font-black uppercase text-slate-400">Protocolo A · Post-clic</p>
+                      <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1 leading-relaxed">
+                        {playbookEvaluation.protocolA}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/80 bg-white/70 p-3">
+                      <p className="text-[7px] font-black uppercase text-slate-400">Protocolo B · Fatiga</p>
+                      <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1 leading-relaxed">
+                        {playbookEvaluation.protocolB}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                <p className="text-[8px] text-slate-500 mt-2 leading-relaxed">
+                  {topPlaybook
+                    ? 'La severidad Playbook siempre está subordinada al CPA de seguridad y a la evidencia 3D.'
+                    : playbookEvaluation.dataNote
+                  }
+                </p>
+              </div>
+
+              <div className="lg:w-[310px] lg:shrink-0 space-y-2">
+                {topPlaybook ? (
+                  <div className="rounded-xl bg-white/75 border border-white p-3">
+                    <p className="text-[7px] font-black uppercase text-slate-400">Filtro económico</p>
+                    <p className={`text-[9px] font-black mt-1 ${toneText(topPlaybook.playbook.economicGate?.tone)}`}>
+                      {topPlaybook.playbook.economicGate?.label}
+                    </p>
+                    <p className="text-[8px] text-slate-500 mt-1 leading-relaxed">
+                      Mientras el CPA siga dentro del límite rentable, Playbook solo puede emitir señal temprana o alerta; no un protocolo estricto.
+                    </p>
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => setPlaybookHelpOpen(v => !v)}
+                  className="w-full inline-flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-[8px] sm:text-[9px] font-black uppercase"
+                >
+                  <span className="inline-flex items-center gap-2"><Info size={13}/> Cómo funcionan los protocolos</span>
+                  {playbookHelpOpen ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+                </button>
+              </div>
+            </div>
+
+            {playbookHelpOpen ? (
+              <div className="mt-3 pt-3 border-t border-slate-200/80">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
+                  <div className="rounded-xl border border-blue-200 bg-white/80 p-3.5">
+                    <p className="text-[8px] font-black uppercase text-blue-700">A · Deterioro post-clic</p>
+                    <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">
+                      Busca una caída marcada del CVR mientras CPM, CTR y CPC permanecen relativamente estables. Si el CPA sigue rentable, solo alerta. Si el CPA supera seguridad y 3D confirma, habilita el protocolo post-clic.
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-amber-200 bg-white/80 p-3.5">
+                    <p className="text-[8px] font-black uppercase text-amber-700">B · Fatiga creativa</p>
+                    <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">
+                      Frecuencia 2,5–3,0 es vigilancia, no sentencia. La fatiga necesita repetición alta/subiendo + CTR deteriorándose + presión de CPC/CPM. Solo se confirma estrictamente cuando también existe impacto económico.
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-rose-200 bg-white/80 p-3.5">
+                    <p className="text-[8px] font-black uppercase text-rose-700">La Poda · Capa 1</p>
+                    <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">
+                      Se evalúa cuando un anuncio concentra la mayor parte del gasto y cumple pausa 3D, mientras otro anuncio rentable puede actuar como receptor. Después de apagar solo el dominante, se observa 48–72 h para distinguir Poda exitosa de Efecto Espejismo.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-2.5 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+                  <p className="text-[8px] font-black uppercase text-indigo-700">Regla de aplicación</p>
+                  <p className="text-[9px] text-slate-700 mt-1 leading-relaxed">
+                    Esta capa se ejecuta únicamente cuando el nombre de la campaña contiene <strong>ESCALA</strong>. Campañas de testeo siguen usando el motor general, pero Playbook A/B y La Poda quedan desactivados.
                   </p>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
+
 
           {/* Lectura ejecutiva */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-4">
@@ -10162,7 +10568,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               </div>
 
               {playbook?.active ? (
-                <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(playbook.tone)}`}>
+                <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(playbook.tone)}`}>
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -10223,7 +10629,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   </span>
                 </div>
 
-                <div className={`mt-2.5 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(relational.general.tone)}`}>
+                <div className={`mt-2.5 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(relational.general.tone)}`}>
                   <p className="text-[8px] font-black uppercase">Diagnóstico general</p>
                   <p className="text-[12px] font-black mt-1">{relational.general.title}</p>
                   <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1.5 leading-relaxed">{relational.general.interpretation}</p>
@@ -11187,7 +11593,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3">
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CPA ponderado</p>
-              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 whitespace-nowrap overflow-hidden text-ellipsis">{benchmark.sampleDays ? fmtCpa(benchmark.cpa) : '—'}</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 leading-tight break-words">{benchmark.sampleDays ? fmtCpa(benchmark.cpa) : '—'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CTR</p>
@@ -11195,7 +11601,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">CPC</p>
-              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 whitespace-nowrap overflow-hidden text-ellipsis">{benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}</p>
+              <p className="text-sm sm:text-base font-black tabular-nums text-slate-900 mt-2 leading-tight break-words">{benchmark.sampleDays ? fmtMoney(benchmark.cpc) : '—'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3 min-h-[86px]">
               <p className="text-[9px] font-bold text-slate-500">Visita → Compra</p>
@@ -11730,9 +12136,103 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     setProductForm({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
   };
   const editProduct = async product => {
-    const name = window.prompt('Nombre del producto:', product.name); if (!name) return;
-    const maxCpa = window.prompt('CPA máximo Meta:', String(product.maxCpa || 20000)); if (!maxCpa || toNumber(maxCpa) <= 0) return;
-    await updateDoc(doc(db, COLLECTIONS.products, product.id), { name: name.trim(), maxCpa: toNumber(maxCpa), updatedAt: serverTimestamp() });
+    const name = window.prompt('Nombre del producto:', product.name);
+    if (name === null) return;
+    const cleanName = name.trim();
+    if (!cleanName) {
+      showManagerMessage('error', 'El nombre del producto no puede quedar vacío.');
+      return;
+    }
+
+    const maxCpa = window.prompt('CPA máximo Meta:', String(product.maxCpa || 20000));
+    if (maxCpa === null) return;
+    if (toNumber(maxCpa) <= 0) {
+      showManagerMessage('error', 'El CPA máximo debe ser mayor que 0.');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.products, product.id), {
+        name: cleanName,
+        maxCpa: toNumber(maxCpa),
+        updatedAt: serverTimestamp()
+      });
+      showManagerMessage('success', `Producto actualizado: "${cleanName}".`);
+    } catch (error) {
+      console.error('Lectura de Campañas · editar producto', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo editar el producto'));
+    }
+  };
+
+  const editCampaignName = async campaign => {
+    const value = window.prompt('Nombre de la campaña:', campaign.name || '');
+    if (value === null) return;
+    const name = value.trim();
+
+    if (!name) {
+      showManagerMessage('error', 'El nombre de la campaña no puede quedar vacío.');
+      return;
+    }
+
+    const duplicated = campaigns.some(c =>
+      c.id !== campaign.id &&
+      c.productId === campaign.productId &&
+      !c.archived &&
+      String(c.name || '').trim().toLowerCase() === name.toLowerCase()
+    );
+
+    if (duplicated) {
+      showManagerMessage('error', `Ya existe una campaña llamada "${name}" dentro de este producto.`);
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), {
+        name,
+        updatedAt: serverTimestamp()
+      });
+      showManagerMessage(
+        'success',
+        `Campaña renombrada a "${name}". ${isPlaybookEligibleCampaignCC({ name }) ? 'Playbook ESCALA habilitado.' : 'Playbook no aplica mientras el nombre no contenga ESCALA.'}`
+      );
+    } catch (error) {
+      console.error('Lectura de Campañas · editar nombre campaña', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo editar la campaña'));
+    }
+  };
+
+  const editAdName = async (ad, campaign) => {
+    const value = window.prompt('Nombre del anuncio:', ad.name || '');
+    if (value === null) return;
+    const name = value.trim();
+
+    if (!name) {
+      showManagerMessage('error', 'El nombre del anuncio no puede quedar vacío.');
+      return;
+    }
+
+    const duplicated = ads.some(a =>
+      a.id !== ad.id &&
+      a.campaignId === campaign.id &&
+      a.deleted !== true &&
+      String(a.name || '').trim().toLowerCase() === name.toLowerCase()
+    );
+
+    if (duplicated) {
+      showManagerMessage('error', `Ya existe un anuncio llamado "${name}" dentro de esta campaña.`);
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.ads, ad.id), {
+        name,
+        updatedAt: serverTimestamp()
+      });
+      showManagerMessage('success', `Anuncio renombrado a "${name}".`);
+    } catch (error) {
+      console.error('Lectura de Campañas · editar nombre anuncio', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo editar el anuncio'));
+    }
   };
 
   const editProductStartDate = async product => {
@@ -12244,7 +12744,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
             </p>
           </div>
           <div className="flex gap-1">
-            <button title="Editar nombre y CPA" onClick={()=>editProduct(product)} className="p-2 rounded-xl bg-slate-100 text-slate-600"><Settings2 size={14}/></button>
+            <button title="Editar nombre y CPA" onClick={()=>editProduct(product)} className="px-2.5 py-2 rounded-xl bg-slate-100 text-slate-600 text-[8px] font-black uppercase inline-flex items-center gap-1.5"><Pencil size={13}/> Editar</button>
             <button title="Editar fecha de creación / inicio" onClick={()=>editProductStartDate(product)} className="p-2 rounded-xl bg-blue-50 text-blue-600"><CalendarDays size={14}/></button>
             <button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button>
             <button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button>
@@ -12310,6 +12810,13 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                   <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-slate-200 text-[8px] font-black text-slate-500">
                     {campaignAds.length} anuncio(s)
                   </span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[8px] font-black ${
+                    isPlaybookEligibleCampaignCC(campaign)
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {isPlaybookEligibleCampaignCC(campaign) ? 'PLAYBOOK ESCALA' : 'PLAYBOOK NO APLICA'}
+                  </span>
                 </div>
                 <p className="text-[8px] text-slate-400 mt-2">
                   inicio campaña {campaign.effectiveStartDate||campaign.createdDate||'—'} · fecha independiente del producto · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}{campaign.active===false ? ` · apagada desde ${campaign.deactivatedDate||campaign.stateChangedDate||'—'}` : ''}
@@ -12317,6 +12824,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
               </div>
 
               <div className="flex gap-1 flex-wrap">
+                <button title="Editar nombre de campaña" onClick={()=>editCampaignName(campaign)} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={11}/> Editar</button>
                 <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
                 {!campaign.archived&&<button
                   onClick={()=>campaign.active===false ? toggleCampaign(campaign) : requestCampaignOff(campaign)}
@@ -12398,7 +12906,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           </div>
 
           {adsOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffff'}}>
-          {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar de la configuración activa conservando histórico y bitácora" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
+          {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5 flex-wrap justify-end"><StateBadge active={ad.active!==false}/><button title="Editar nombre del anuncio" onClick={()=>editAdName(ad,campaign)} className="px-2 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={10}/> Editar</button><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar de la configuración activa conservando histórico y bitácora" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
         </div>}
       </div>})}</div>
       </div>}
