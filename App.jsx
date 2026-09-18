@@ -4467,7 +4467,7 @@ function CampaignReportCenter({
       </SectionCard>
 
       {reportSummary && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6 gap-2.5">
+        <div className="cc-grid-kpi">
           <MiniCard label="Productos" value={reportSummary.products} />
           <MiniCard label="Campañas" value={reportSummary.campaigns} />
           <MiniCard label="Escalables" value={reportSummary.scalable} tone="good" />
@@ -4895,14 +4895,14 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2 flex-1 min-w-0">
+          <div className="cc-grid-close flex-1 min-w-0">
             <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
               <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
                 Gasto total
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
+                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
               >
                 {hasData ? fmtMoney(totalSpend) : '—'}
               </p>
@@ -4917,7 +4917,7 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
+                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
               >
                 {hasData ? fmtNum(totalPurchases, 0) : '—'}
               </p>
@@ -4932,7 +4932,7 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
+                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
               >
                 {hasData && globalCpa !== null ? fmtMoney(globalCpa) : '—'}
               </p>
@@ -5337,6 +5337,58 @@ function CampaignControlModule() {
 
         .cc-ui-shell .cc-data-table tbody tr:last-child td { border-bottom: 0; }
 
+        /* Anchos de tabla para evitar encabezados y dinero comprimidos */
+        .cc-ui-shell .cc-data-table th,
+        .cc-ui-shell .cc-data-table td {
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+
+        .cc-ui-shell .cc-data-table th:nth-child(1),
+        .cc-ui-shell .cc-data-table td:nth-child(1) { min-width: 150px; }
+
+        .cc-ui-shell .cc-data-table th:nth-child(2),
+        .cc-ui-shell .cc-data-table td:nth-child(2) { min-width: 235px; }
+
+        .cc-ui-shell .cc-data-table th:nth-child(3),
+        .cc-ui-shell .cc-data-table td:nth-child(3),
+        .cc-ui-shell .cc-data-table th:nth-child(4),
+        .cc-ui-shell .cc-data-table td:nth-child(4),
+        .cc-ui-shell .cc-data-table th:nth-child(5),
+        .cc-ui-shell .cc-data-table td:nth-child(5),
+        .cc-ui-shell .cc-data-table th:nth-child(6),
+        .cc-ui-shell .cc-data-table td:nth-child(6),
+        .cc-ui-shell .cc-data-table th:nth-child(7),
+        .cc-ui-shell .cc-data-table td:nth-child(7),
+        .cc-ui-shell .cc-data-table th:nth-child(8),
+        .cc-ui-shell .cc-data-table td:nth-child(8) {
+          min-width: 112px;
+          white-space: nowrap;
+        }
+
+        .cc-ui-shell .cc-data-table th:nth-child(9),
+        .cc-ui-shell .cc-data-table td:nth-child(9),
+        .cc-ui-shell .cc-data-table th:nth-child(10),
+        .cc-ui-shell .cc-data-table td:nth-child(10) {
+          min-width: 92px;
+          white-space: nowrap;
+        }
+
+        .cc-ui-shell .cc-data-table th:nth-child(11),
+        .cc-ui-shell .cc-data-table td:nth-child(11) { min-width: 190px; }
+
+        .cc-ui-shell .cc-data-table th:nth-child(12),
+        .cc-ui-shell .cc-data-table td:nth-child(12) { min-width: 245px; }
+
+        .cc-ui-shell .cc-data-table th:nth-child(13),
+        .cc-ui-shell .cc-data-table td:nth-child(13) { min-width: 235px; }
+
+        .cc-ui-shell .cc-data-table thead th {
+          white-space: normal;
+          overflow-wrap: normal;
+          word-break: normal;
+        }
+
         .cc-ui-shell .cc-manager-ad {
           box-shadow: 0 2px 8px rgba(15, 23, 42, .025);
         }
@@ -5344,11 +5396,80 @@ function CampaignControlModule() {
         .cc-ui-shell .cc-metric-form > div { min-width: 0; }
         .cc-ui-shell .cc-metric-form input { min-height: 40px; }
 
+        /* Grillas por ancho REAL disponible, no por ancho de ventana */
+        .cc-ui-shell .cc-grid-kpi,
+        .cc-ui-shell .cc-grid-close,
+        .cc-ui-shell .cc-grid-metrics,
+        .cc-ui-shell .cc-grid-diagnostic,
+        .cc-ui-shell .cc-grid-mini,
+        .cc-ui-shell .cc-grid-form,
+        .cc-ui-shell .cc-grid-weekday {
+          display: grid !important;
+          align-items: stretch;
+        }
+
+        .cc-ui-shell .cc-grid-kpi {
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+          gap: 12px !important;
+        }
+
+        .cc-ui-shell .cc-grid-close {
+          grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+          gap: 10px !important;
+        }
+
+        .cc-ui-shell .cc-grid-metrics {
+          grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)) !important;
+          gap: 12px !important;
+        }
+
+        .cc-ui-shell .cc-grid-diagnostic {
+          grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)) !important;
+          gap: 12px !important;
+        }
+
+        .cc-ui-shell .cc-grid-mini {
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+          gap: 10px !important;
+        }
+
+        .cc-ui-shell .cc-grid-form {
+          grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)) !important;
+          gap: 10px !important;
+        }
+
+        .cc-ui-shell .cc-grid-weekday {
+          grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)) !important;
+          gap: 10px !important;
+        }
+
+        .cc-ui-shell .cc-grid-metrics > *,
+        .cc-ui-shell .cc-grid-kpi > *,
+        .cc-ui-shell .cc-grid-close > *,
+        .cc-ui-shell .cc-grid-diagnostic > *,
+        .cc-ui-shell .cc-grid-mini > *,
+        .cc-ui-shell .cc-grid-weekday > * {
+          min-width: 0;
+        }
+
+        /* Métricas: compactas, proporcionadas y sin columnas kilométricas */
+        .cc-ui-shell .cc-metric-card {
+          min-height: 164px !important;
+          max-width: none;
+        }
+
+        .cc-ui-shell .cc-metric-card .cc-value {
+          font-size: clamp(17px, 1.1vw, 22px) !important;
+        }
+
+        .cc-ui-shell .cc-mini-card .cc-value {
+          font-size: clamp(16px, 1vw, 20px) !important;
+        }
+
         @media (min-width: 1024px) {
           .cc-ui-shell .cc-module-view { font-size: 12px; }
           .cc-ui-shell .cc-section-card { padding: 18px !important; }
           .cc-ui-shell .cc-metric-card { min-height: 176px; }
-          .cc-ui-shell .cc-mini-card { min-height: 92px; }
         }
 
         @media (max-width: 639px) {
@@ -5363,6 +5484,34 @@ function CampaignControlModule() {
           .cc-ui-shell .cc-data-table thead th {
             padding-top: 9px;
             padding-bottom: 9px;
+          }
+
+          .cc-ui-shell .cc-grid-kpi,
+          .cc-ui-shell .cc-grid-close,
+          .cc-ui-shell .cc-grid-metrics,
+          .cc-ui-shell .cc-grid-diagnostic,
+          .cc-ui-shell .cc-grid-mini,
+          .cc-ui-shell .cc-grid-form,
+          .cc-ui-shell .cc-grid-weekday {
+            grid-template-columns: 1fr !important;
+          }
+
+          .cc-ui-shell .cc-metric-card {
+            min-height: auto !important;
+          }
+        }
+
+        @media (min-width: 480px) and (max-width: 639px) {
+          .cc-ui-shell .cc-grid-kpi,
+          .cc-ui-shell .cc-grid-close,
+          .cc-ui-shell .cc-grid-mini,
+          .cc-ui-shell .cc-grid-form,
+          .cc-ui-shell .cc-grid-weekday {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+
+          .cc-ui-shell .cc-grid-metrics {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
       `}</style>
@@ -5725,7 +5874,7 @@ function CampaignDashboard({
 
       {/* KPIs · RESUMEN OPERATIVO */}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 sm:gap-3">
+      <div className="cc-grid-kpi">
         <MiniCard label="Productos activos" value={activeProducts.length} />
         <MiniCard label="Escalables" value={scalableCount} tone={scalableCount?'good':'default'} />
         <MiniCard label="Mantener" value={maintainCount} />
@@ -5744,14 +5893,14 @@ function CampaignDashboard({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2 flex-1 min-w-0">
+          <div className="cc-grid-close flex-1 min-w-0">
             <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
               <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
                 Gasto total
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
+                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
               >
                 {fmtMoney(totalSpend)}
               </p>
@@ -5766,7 +5915,7 @@ function CampaignDashboard({
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
+                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
               >
                 {fmtNum(totalPurchases, 0)}
               </p>
@@ -5781,7 +5930,7 @@ function CampaignDashboard({
               </p>
               <p
                 className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', lineHeight: 1.15 }}
+                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
               >
                 {globalCpa !== null ? fmtMoney(globalCpa) : '—'}
               </p>
@@ -5799,7 +5948,7 @@ function CampaignDashboard({
             <p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p>
             <p className="text-[8px] text-slate-500 mt-1">Solo informativo. Estos datos NO participan en diagnósticos, alertas, fatiga, guardrails ni decisiones de escala.</p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-full lg:min-w-[440px]">
+          <div className="cc-grid-kpi min-w-full lg:min-w-[440px]">
             <MiniCard label="Gasto hoy" value={fmtMoney(provisionalToday.spend)} />
             <MiniCard label="Compras hoy" value={fmtNum(provisionalToday.purchases, 2)} />
             <MiniCard label="CPA provisional" value={provisionalToday.purchases > 0 ? fmtMoney(provisionalToday.cpa) : '—'} />
@@ -5838,7 +5987,7 @@ function CampaignDashboard({
         </div>
 
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="cc-data-table w-full min-w-[1480px] text-[9px] lg:text-[10px]">
+          <table className="cc-data-table w-full min-w-[1800px] text-[9px] lg:text-[10px]">
             <thead className="bg-slate-50">
               <tr className="text-left uppercase text-[7px] lg:text-[8px] text-slate-400">
                 <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA último día</th>
@@ -5946,7 +6095,7 @@ function CampaignDashboard({
               )}
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+            <div className="cc-grid-kpi mt-4">
               <MiniCard label="CPA último día" value={drawerLastComplete?fmtCpa(drawerCurrent.cpa):'—'} />
               <MiniCard label="CPA 3 días anteriores" value={drawerPrev3.purchases>0?fmtCpa(drawerPrev3.cpa):'—'} />
               <MiniCard label="Variación vs prev. 3D" value={<span className={metricDirectionClass('cpa', drawerDelta)}>{drawerDelta===null?'—':`${drawerDelta>0?'+':''}${fmtNum(drawerDelta, 2)}%`}</span>} />
@@ -8608,7 +8757,7 @@ function QuickMetricCC({
       {healthStatus ? (
         <div className="mt-2 min-w-0">
           <span
-            className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[6px] font-black uppercase leading-tight text-center ${toneBadge(healthStatus.combinedTone || healthStatus.tone || 'neutral')}`}
+            className={`inline-flex max-w-full px-2 py-1 rounded-md text-[6px] font-black uppercase leading-tight text-center ${toneBadge(healthStatus.combinedTone || healthStatus.tone || 'neutral')}`}
             style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
           >
             {healthStatus.combinedLabel || healthStatus.level}
@@ -9162,7 +9311,7 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
 
               <p className="text-[9px] sm:text-[10px] text-slate-700 mt-3 leading-relaxed">{row.summary}</p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
+              <div className="cc-grid-weekday mt-4">
                 <WeekdayMetricMiniCC label="CPA" value={fmtCpa(row.stats.cpa)} delta={row.signals.cpa.delta} lowerIsBetter />
                 <WeekdayMetricMiniCC label="CVR" value={fmtRate(row.stats.visitToPurchase)} delta={row.signals.cvr.delta} />
                 <WeekdayMetricMiniCC label="CPC" value={fmtMoneyOrDashCC(row.stats.cpc)} delta={row.signals.cpc.delta} lowerIsBetter />
@@ -10290,7 +10439,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           </div>
 
           {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
+          <div className="cc-grid-metrics mt-5">
             <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpa}/>
             <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpm}/>
             <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.ctr}/>
@@ -10529,7 +10678,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
 
 
           {/* Lectura ejecutiva */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-4">
+          <div className="cc-grid-diagnostic mt-4">
             <div className={`rounded-2xl border p-3.5 ${toneBg(campaignOverview.scopeTone)}`}>
               <p className="text-[8px] font-black uppercase text-slate-500">Alcance del problema</p>
               <p className="text-[12px] font-black mt-1">{campaignOverview.scope}</p>
@@ -10557,7 +10706,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                 <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Anuncios que más explican el deterioro</p>
                 <p className="text-[8px] text-slate-400">Ordenados por impacto económico</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-2.5">
+              <div className="cc-grid-diagnostic mt-2.5">
                 {campaignOverview.topProblems.map((item, index) => (
                   <div key={item.id || index} className="min-w-0 rounded-xl bg-slate-50 border border-slate-100 p-3">
                     <div className="flex items-start justify-between gap-2">
@@ -10688,7 +10837,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               </div>
 
               {/* Métricas principales */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
+              <div className="cc-grid-metrics mt-5">
                 <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpa}/>
                 <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={relational.metricStatus?.cpc?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpc}/>
                 <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={relational.metricStatus?.ctr?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.ctr}/>
@@ -10765,7 +10914,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1.5 leading-relaxed">{relational.general.interpretation}</p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-2.5">
+                <div className="cc-grid-diagnostic mt-2.5">
                   {[
                     ['1 · Resultado', relational.result],
                     ['2 · Impacto presupuesto', relational.impact],
@@ -10860,7 +11009,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     <p className="text-[8px] font-black uppercase text-slate-500">Contribución {periodLabel} · lo que aporta / drena</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(contributionTone)}`}>{analysisContribution?.status || 'Sin lectura'}</p>
                     <p className="text-[9px] text-slate-600 mt-2">{analysisContribution?.cause || 'Sin diagnóstico de contribución.'}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-3">
+                    <div className="cc-grid-mini mt-3">
                       <MiniCard label="Gasto campaña" value={fmtRate(analysisContribution?.spendShare)} />
                       <MiniCard label="Compras campaña" value={fmtRate(analysisContribution?.purchaseShare)} />
                       <MiniCard label="CPA anuncio" value={fmtCpa(analysisContribution?.cpa)} />
@@ -14036,7 +14185,7 @@ function MetricForm({ form, setForm, includeBudget = false, disabled = false }) 
     setForm(prev => ({ ...(prev || {}), [key]: value }));
   };
   return (
-    <div className="cc-metric-form grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-2.5">
+    <div className="cc-metric-form cc-grid-form">
       {fields.map(([key, label]) => (
         <div key={key} className="min-w-0">
           <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight text-slate-400 mb-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
