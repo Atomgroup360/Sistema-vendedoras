@@ -3305,7 +3305,7 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
 
     const deliveryRaw = String(resolveCsvValue(row, META_CSV_ALIASES.delivery) || '').trim();
     const deliveryStatus = normalizeMetaDeliveryStatusCC(deliveryRaw);
-    const ignoredFromImport = isMetaAdExplicitlyInactiveCC(deliveryRaw);
+    const ignoredByMeta = isMetaAdExplicitlyInactiveCC(deliveryRaw);
 
     const normalizedName = normalizeAdName(adName);
     const spend = toNumber(resolveCsvValue(row, META_CSV_ALIASES.spend));
@@ -3344,14 +3344,19 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
       dateToIso(resolveCsvValue(row, META_CSV_ALIASES.startDate)) ||
       selectedDate;
 
+    const existingAd = existingMap.get(normalizedName) || null;
+    const ignoredByPlatformState = existingAd ? !entityActiveOnDate(existingAd, reportDate) : false;
+    const ignoredFromImport = ignoredByMeta || ignoredByPlatformState;
+
     return {
       adName,
       normalizedName,
-      existingAd: existingMap.get(normalizedName) || null,
+      existingAd,
       reportDate,
       deliveryRaw,
       deliveryStatus,
       ignoredFromImport,
+      ignoredByPlatformState,
       syntheticZero: false,
       metrics: {
         spend,
@@ -4492,13 +4497,13 @@ function CampaignControlModule() {
 
   const activeProducts = useMemo(() => products.filter(p => p.active !== false), [products]);
   const activeCampaigns = useMemo(() => campaigns.filter(c => !c.archived), [campaigns]);
-  const activeAds = useMemo(() => ads.filter(a => a.active !== false && campaigns.some(c => c.id === a.campaignId && c.active !== false && !c.archived) && products.some(p => p.id === a.productId && p.active !== false)), [ads, campaigns, products]);
+  const activeAds = useMemo(() => ads.filter(a => a.deleted !== true && a.active !== false && campaigns.some(c => c.id === a.campaignId && c.active !== false && !c.archived) && products.some(p => p.id === a.productId && p.active !== false)), [ads, campaigns, products]);
 
   const latestDate = todayColombiaCC();
 
   const attentionRows = useMemo(() => {
     const rows = [];
-    for (const ad of ads.filter(a => a.active !== false)) {
+    for (const ad of ads.filter(a => a.deleted !== true && a.active !== false)) {
       const campaign = campaigns.find(c => c.id === ad.campaignId && c.active !== false && !c.archived);
       if (!campaign) continue;
       const product = products.find(p => p.id === ad.productId && p.active !== false);
@@ -4580,6 +4585,7 @@ function CampaignControlModule() {
           dailyCampaigns={dailyCampaigns}
           dailyAds={dailyAds}
           recommendations={recommendations}
+          decisions={decisions}
         />
       )}
 
@@ -4701,7 +4707,7 @@ function CampaignDashboard({
     const delta7 = pctChange(split7.currentStats.cpa, split7.previousStats.cpa);
 
     const maxCpa = Math.max(1,toNumber(product?.maxCpa));
-    const campaignAds = ads.filter(a => a.campaignId === c.id && a.active !== false);
+    const campaignAds = ads.filter(a => a.campaignId === c.id && a.deleted !== true && a.active !== false);
     const adDiags = campaignAds.map(ad => diagnoseAd(
       dailyAds.filter(r=>r.adId===ad.id), product, ad, 'last', c
     )).filter(d => d.scale3d?.days > 0);
@@ -8384,7 +8390,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   );
 }
 
-function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null }) {
+function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null, onAdAction = null, adActionBusyId = '' }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const periodLabel = periodLabelCC(analysisPeriod);
   const periodCardLabel = periodCardLabelCC(analysisPeriod, false);
@@ -8659,6 +8665,28 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   <p className="text-[8px] font-black text-zinc-700 mt-3">
                     Prioridad: {relational.impact.level}
                   </p>
+
+                  {onAdAction ? (
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-200/70">
+                      <button
+                        type="button"
+                        disabled={adActionBusyId === ad.id}
+                        onClick={() => onAdAction('off', ad)}
+                        className="inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-amber-100 text-amber-800 text-[8px] font-black uppercase disabled:opacity-50"
+                      >
+                        <PowerOff size={12}/> Apagar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={adActionBusyId === ad.id}
+                        onClick={() => onAdAction('delete', ad)}
+                        className="inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-rose-100 text-rose-700 text-[8px] font-black uppercase disabled:opacity-50"
+                        title="Eliminar de la configuración activa conservando histórico y bitácora"
+                      >
+                        <Trash2 size={12}/> Eliminar
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -8859,12 +8887,16 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     ['last', '3d', '7d', '14d', '30d'].includes(period) ? period : 'last'
   );
   const [viewMode, setViewMode] = useState('reading');
+  const [adActionModal, setAdActionModal] = useState(null);
+  const [adActionReason, setAdActionReason] = useState('');
+  const [adActionBusyId, setAdActionBusyId] = useState('');
+  const [adActionMessage, setAdActionMessage] = useState('');
 
   useEffect(() => {
     if (['last', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
   }, [period]);
 
-  const visibleAds = ads.filter(a => a.active !== false && campaign.active !== false && !campaign.archived);
+  const visibleAds = ads.filter(a => a.deleted !== true && a.active !== false && campaign.active !== false && !campaign.archived);
 
   const contribution3d = useMemo(
     () => buildCampaignContribution3D(
@@ -8915,6 +8947,123 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     () => buildCurrentScaleStatusCC(campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety),
     [campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety]
   );
+
+  const requestAdAction = (mode, ad) => {
+    if (!ad?.id) return;
+    setAdActionModal({ mode, ad });
+    setAdActionReason('');
+    setAdActionMessage('');
+  };
+
+  const closeAdActionModal = () => {
+    if (adActionBusyId) return;
+    setAdActionModal(null);
+    setAdActionReason('');
+  };
+
+  const applyAdAction = async () => {
+    const mode = adActionModal?.mode;
+    const ad = adActionModal?.ad;
+    const reason = String(adActionReason || '').trim();
+
+    if (!ad?.id || !mode) return;
+    if (!reason) {
+      setAdActionMessage('Escribe la razón del cambio para guardarla en la bitácora.');
+      return;
+    }
+
+    if (changeSafety?.active && changeSafety?.canStructuralNow === false) {
+      const ok = window.confirm(
+        `MARGEN DE SEGURIDAD ACTIVO\n\n` +
+        `Todavía faltan ${fmtHoursRemainingCC(changeSafety.structuralRemainingHours)} para completar la ventana interna de 48 horas.\n\n` +
+        `El cambio quedará registrado en la bitácora si decides continuar.\n\n` +
+        `¿Deseas continuar de todas formas?`
+      );
+      if (!ok) return;
+    }
+
+    setAdActionBusyId(ad.id);
+    setAdActionMessage('');
+
+    try {
+      const todayAction = todayColombiaCC();
+      const batch = writeBatch(db);
+
+      if (mode === 'off') {
+        batch.update(doc(db, COLLECTIONS.ads, ad.id), {
+          active: false,
+          savedActiveBeforeCampaignOff: false,
+          disabledByCampaign: false,
+          stateChangedDate: todayAction,
+          stateHistory: terminalStateHistoryCC(ad.stateHistory, todayAction, false),
+          stateChangedAt: serverTimestamp()
+        });
+
+        await batch.commit();
+
+        await addDecision(
+          ownerUid,
+          campaign,
+          ad,
+          'Anuncio apagado',
+          `Apagado desde Análisis de métricas. Razón: ${reason}`,
+          {
+            changeType: 'ad_state',
+            safetyHours: 48,
+            reason,
+            source: 'ad_metrics_analysis'
+          }
+        );
+      } else {
+        batch.update(doc(db, COLLECTIONS.ads, ad.id), {
+          active: false,
+          deleted: true,
+          deletedDate: todayAction,
+          deletedReason: reason,
+          savedActiveBeforeCampaignOff: false,
+          disabledByCampaign: false,
+          stateChangedDate: todayAction,
+          stateHistory: terminalStateHistoryCC(ad.stateHistory, todayAction, false),
+          deletedAt: serverTimestamp(),
+          stateChangedAt: serverTimestamp()
+        });
+
+        (recommendations || [])
+          .filter(r => r.adId === ad.id && r.status === 'active')
+          .forEach(r => batch.update(doc(db, COLLECTIONS.recommendations, r.id), {
+            status: 'cancelled',
+            cancelledReason: 'ad_deleted',
+            cancelledDate: todayAction,
+            updatedAt: serverTimestamp()
+          }));
+
+        await batch.commit();
+
+        await addDecision(
+          ownerUid,
+          campaign,
+          ad,
+          'Anuncio eliminado',
+          `Eliminado de la configuración activa desde Análisis de métricas. Histórico conservado. Razón: ${reason}`,
+          {
+            changeType: 'ad_deleted',
+            safetyHours: 48,
+            reason,
+            source: 'ad_metrics_analysis'
+          }
+        );
+      }
+
+      setAdActionModal(null);
+      setAdActionReason('');
+    } catch (error) {
+      console.error('Lectura de Campañas · acción anuncio', error);
+      setAdActionMessage(error?.message || 'No fue posible guardar el cambio.');
+    } finally {
+      setAdActionBusyId('');
+    }
+  };
+
   const benchmark = useMemo(
     () => buildProductBenchmark(product?.id, dailyAds, dailyCampaigns, product?.maxCpa, allAds || ads, allCampaigns || [campaign]),
     [product?.id, product?.maxCpa, dailyAds, dailyCampaigns, allAds, allCampaigns, ads, campaign]
@@ -9022,6 +9171,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           analysisPeriod={monitorPeriod}
           changeSafety={changeSafety}
           currentScaleStatus={currentScaleStatus}
+          onAdAction={requestAdAction}
+          adActionBusyId={adActionBusyId}
         />
       )}
 
@@ -9516,6 +9667,94 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       </div>
         </>
       )}
+      {adActionModal ? (
+        <div className="fixed inset-0 z-[140] bg-zinc-950/55 backdrop-blur-[1px] flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 shadow-2xl p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">
+                  Cambio operativo · anuncio
+                </p>
+                <h4 className="text-base sm:text-lg font-black text-zinc-900 mt-1 break-words">
+                  {adActionModal.mode === 'delete' ? 'Eliminar anuncio' : 'Apagar anuncio'} · {adActionModal.ad?.name}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={closeAdActionModal}
+                disabled={!!adActionBusyId}
+                className="shrink-0 p-2 rounded-xl bg-slate-100 text-slate-500 disabled:opacity-40"
+              >
+                <X size={15}/>
+              </button>
+            </div>
+
+            <div className={`mt-4 rounded-xl border p-3 ${adActionModal.mode === 'delete' ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'}`}>
+              <p className="text-[8px] font-black uppercase text-slate-600">
+                {adActionModal.mode === 'delete' ? 'Qué ocurrirá' : 'Fecha efectiva'}
+              </p>
+              <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">
+                {adActionModal.mode === 'delete'
+                  ? 'El anuncio desaparecerá de la configuración activa y del Registro diario desde hoy. Sus datos históricos y la bitácora se conservarán.'
+                  : `El anuncio quedará OFF desde ${formatIsoDateCC(todayColombiaCC())} y dejará de aparecer en Registro diario desde esta fecha.`
+                }
+              </p>
+            </div>
+
+            {changeSafety?.active && changeSafety?.canStructuralNow === false ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-[8px] font-black uppercase text-amber-700">Margen de seguridad activo</p>
+                <p className="text-[8px] text-amber-700 mt-1">
+                  Faltan {fmtHoursRemainingCC(changeSafety.structuralRemainingHours)} para completar la ventana interna de 48 h.
+                </p>
+              </div>
+            ) : null}
+
+            <div className="mt-4">
+              <label className="text-[8px] font-black uppercase text-slate-500">
+                Razón del cambio · obligatoria
+              </label>
+              <textarea
+                value={adActionReason}
+                onChange={e => setAdActionReason(e.target.value)}
+                placeholder="Ej: CPA alto después del escalamiento / deterioro de CVR / creativo agotado"
+                className="w-full min-h-[95px] mt-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-zinc-800 outline-none focus:border-emerald-400"
+              />
+            </div>
+
+            {adActionMessage ? (
+              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[8px] font-black text-rose-700">
+                {adActionMessage}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button
+                type="button"
+                onClick={closeAdActionModal}
+                disabled={!!adActionBusyId}
+                className="px-3 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-[9px] font-black uppercase disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={applyAdAction}
+                disabled={!!adActionBusyId || !String(adActionReason || '').trim()}
+                className={`px-3 py-2.5 rounded-xl text-white text-[9px] font-black uppercase disabled:opacity-40 ${
+                  adActionModal.mode === 'delete' ? 'bg-rose-600' : 'bg-amber-600'
+                }`}
+              >
+                {adActionBusyId
+                  ? 'Guardando...'
+                  : adActionModal.mode === 'delete'
+                    ? 'Eliminar anuncio'
+                    : 'Apagar anuncio'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -9944,7 +10183,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   };
 
   const toggleCampaign = async (campaign, requestedOffDate = null) => {
-    const campaignAds = ads.filter(a => a.campaignId === campaign.id);
+    const campaignAds = ads.filter(a => a.campaignId === campaign.id && a.deleted !== true);
     const batch = writeBatch(db);
 
     if (campaign.active !== false) {
@@ -10043,7 +10282,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   };
   const archiveCampaign = async campaign => {
     if (!window.confirm(`¿Archivar ${campaign.name}? Se conserva todo el histórico.`)) return;
-    const campaignAds = ads.filter(a => a.campaignId === campaign.id); const batch = writeBatch(db);
+    const campaignAds = ads.filter(a => a.campaignId === campaign.id && a.deleted !== true); const batch = writeBatch(db);
     batch.update(doc(db, COLLECTIONS.campaigns, campaign.id), { archived: true, active: false, archivedDate: today, deactivatedDate: campaign.deactivatedDate || today, stateChangedDate: today, stateHistory: [...(campaign.stateHistory || []), { date: today, active: false }], archivedAt: serverTimestamp() });
     campaignAds.forEach(a => batch.update(doc(db, COLLECTIONS.ads, a.id), { active: false, savedActiveBeforeCampaignOff: a.active !== false, disabledByCampaign: true, stateChangedDate: today, stateHistory: [...(a.stateHistory || []), { date: today, active: false }], stateChangedAt: serverTimestamp() }));
     await batch.commit(); await addDecision(ownerUid, campaign, null, 'Campaña archivada', 'Histórico conservado; excluida del análisis activo.');
@@ -10077,7 +10316,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     }
 
     const normalizedName = normalizeAdName(name);
-    if (ads.some(a => a.campaignId === campaign.id && normalizeAdName(a.name) === normalizedName)) {
+    if (ads.some(a => a.campaignId === campaign.id && a.deleted !== true && normalizeAdName(a.name) === normalizedName)) {
       showManagerMessage('error', `Ya existe un anuncio llamado "${name}" dentro de esta campaña.`);
       return;
     }
@@ -10129,12 +10368,20 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     if (!confirmStructuralChangeSafety(campaign)) return;
 
     const next=ad.active===false;
+    const promptText = next
+      ? `Motivo para encender "${ad.name}":`
+      : `Razón para apagar "${ad.name}":`;
+    const rawReason = window.prompt(promptText, next ? 'Reactivación manual' : '');
+    if (rawReason === null) return;
+    const reason = String(rawReason || '').trim();
+    if (!reason) return alert('Debes registrar una razón para guardar el cambio en la bitácora.');
+
     await updateDoc(doc(db,COLLECTIONS.ads,ad.id),{
       active:next,
       savedActiveBeforeCampaignOff:next,
       disabledByCampaign:false,
       stateChangedDate:today,
-      stateHistory:[...(ad.stateHistory||[]),{date:today,active:next}],
+      stateHistory:terminalStateHistoryCC(ad.stateHistory,today,next),
       stateChangedAt:serverTimestamp()
     });
     await addDecision(
@@ -10142,16 +10389,61 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       campaign,
       ad,
       next?'Anuncio encendido':'Anuncio apagado',
-      `Estado cambiado manualmente: ${ad.name}`,
-      { changeType: 'ad_state', safetyHours: 48 }
+      `${next ? 'Encendido' : 'Apagado'} manualmente. Razón: ${reason}`,
+      { changeType: 'ad_state', safetyHours: 48, reason, source: 'campaign_manager' }
     );
   };
   const deleteAd = async (ad,campaign) => {
-    const relatedDaily=dailyAds.filter(x=>x.adId===ad.id); const relatedDecisions=decisions.filter(x=>x.adId===ad.id); const relatedRecommendations=recommendations.filter(x=>x.adId===ad.id);
-    const ok=window.confirm(`¿Eliminar definitivamente el anuncio "${ad.name}" de "${campaign.name}"?\n\nSe eliminarán también ${relatedDaily.length} registro(s) diarios y sus decisiones/recomendaciones asociadas. La campaña y los demás anuncios NO se modificarán.`);
+    if (!confirmStructuralChangeSafety(campaign)) return;
+
+    const rawReason = window.prompt(
+      `Razón para eliminar "${ad.name}" de la configuración activa:\n\nEl histórico NO se borrará y el cambio quedará en la bitácora.`,
+      ''
+    );
+    if (rawReason === null) return;
+    const reason = String(rawReason || '').trim();
+    if (!reason) return alert('Debes registrar una razón para eliminar el anuncio.');
+
+    const ok=window.confirm(
+      `¿Eliminar "${ad.name}" de la configuración activa de "${campaign.name}"?\n\n` +
+      `Dejará de aparecer en Campañas y Registro diario desde hoy. ` +
+      `Los registros históricos y la bitácora se conservarán.`
+    );
     if(!ok) return;
-    const targets=[...relatedDaily.map(x=>[COLLECTIONS.dailyAds,x.id]),...relatedDecisions.map(x=>[COLLECTIONS.decisions,x.id]),...relatedRecommendations.map(x=>[COLLECTIONS.recommendations,x.id]),[COLLECTIONS.ads,ad.id]];
-    for(let i=0;i<targets.length;i+=400){const batch=writeBatch(db);targets.slice(i,i+400).forEach(([col,id])=>batch.delete(doc(db,col,id)));await batch.commit();}
+
+    const batch = writeBatch(db);
+    batch.update(doc(db,COLLECTIONS.ads,ad.id), {
+      active:false,
+      deleted:true,
+      deletedDate:today,
+      deletedReason:reason,
+      savedActiveBeforeCampaignOff:false,
+      disabledByCampaign:false,
+      stateChangedDate:today,
+      stateHistory:terminalStateHistoryCC(ad.stateHistory,today,false),
+      deletedAt:serverTimestamp(),
+      stateChangedAt:serverTimestamp()
+    });
+
+    recommendations
+      .filter(x=>x.adId===ad.id && x.status==='active')
+      .forEach(x=>batch.update(doc(db,COLLECTIONS.recommendations,x.id),{
+        status:'cancelled',
+        cancelledReason:'ad_deleted',
+        cancelledDate:today,
+        updatedAt:serverTimestamp()
+      }));
+
+    await batch.commit();
+
+    await addDecision(
+      ownerUid,
+      campaign,
+      ad,
+      'Anuncio eliminado',
+      `Eliminado de la configuración activa. Histórico conservado. Razón: ${reason}`,
+      { changeType:'ad_deleted', safetyHours:48, reason, source:'campaign_manager' }
+    );
   };
 
   return <div className="space-y-5">
@@ -10226,7 +10518,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           <button type="button" onClick={()=>collapseAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronUp size={11}/> Contraer campañas</button>
         </div>
       </div>}
-      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}>
+      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id&&a.deleted!==true);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}>
         <button
           type="button"
           aria-expanded={isOpen}
@@ -10334,7 +10626,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           </div>
 
           {adsOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffff'}}>
-          {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar anuncio definitivamente" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
+          {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5"><StateBadge active={ad.active!==false}/><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar de la configuración activa conservando histórico y bitácora" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
         </div>}
       </div>})}</div>
       </div>}
@@ -10343,12 +10635,143 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   </div>;
 }
 
+
+function decisionDateTimeLabelCC(item) {
+  const ms = changeEventTimeMsCC(item);
+  if (ms) {
+    return new Intl.DateTimeFormat('es-CO', {
+      timeZone: 'America/Bogota',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(new Date(ms));
+  }
+  return formatIsoDateCC(item?.date);
+}
+
+function changeLogToneCC(item) {
+  const action = String(item?.action || '').toLowerCase();
+  if (action.includes('eliminado') || action.includes('apagado')) return 'critical';
+  if (action.includes('presupuesto') || action.includes('escala')) return 'attention';
+  if (action.includes('encendido') || action.includes('creado') || action.includes('restaurada')) return 'good';
+  return 'neutral';
+}
+
+function isCampaignChangeLogEventCC(item) {
+  const type = String(item?.changeType || '');
+  if ([
+    'ad_state',
+    'ad_deleted',
+    'ad_added',
+    'campaign_state',
+    'budget_scale_safe',
+    'budget_change_major'
+  ].includes(type)) return true;
+
+  const action = String(item?.action || '');
+  return /anuncio|campaña|presupuesto|archivada|restaurada/i.test(action);
+}
+
+function CampaignChangeLogCC({ campaign, decisions = [], ads = [] }) {
+  const rows = (decisions || [])
+    .filter(d => d.campaignId === campaign.id && isCampaignChangeLogEventCC(d))
+    .sort((a, b) => {
+      const aMs = changeEventTimeMsCC(a) || 0;
+      const bMs = changeEventTimeMsCC(b) || 0;
+      if (aMs !== bMs) return bMs - aMs;
+      return String(b.date || '').localeCompare(String(a.date || ''));
+    });
+
+  if (!rows.length) {
+    return (
+      <div className="p-4 bg-white">
+        <EmptyState>Esta campaña todavía no tiene cambios registrados en la bitácora.</EmptyState>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 sm:p-4 bg-white">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <div>
+          <p className="text-[9px] font-black uppercase text-zinc-900">Bitácora de cambios</p>
+          <p className="text-[8px] text-slate-500 mt-1">
+            Historial operativo de la campaña: anuncios apagados/encendidos/eliminados, altas y cambios de presupuesto.
+          </p>
+        </div>
+        <span className="w-fit px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[7px] font-black uppercase">
+          {rows.length} cambio{rows.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map((item, idx) => {
+          const tone = changeLogToneCC(item);
+          const adName =
+            item.adNameSnapshot ||
+            ads.find(a => a.id === item.adId)?.name ||
+            (item.adId ? 'Anuncio' : null);
+          const reason = String(item.reason || '').trim();
+          const detail = String(item.detail || '').trim();
+
+          return (
+            <div
+              key={item.id || `${item.date || 'date'}_${idx}`}
+              className={`rounded-xl border p-3 ${toneBg(tone)}`}
+            >
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${toneBadge(tone)}`}>
+                      {item.action || 'Cambio'}
+                    </span>
+                    {adName ? (
+                      <span className="px-2 py-1 rounded-full bg-white/80 border border-white text-[7px] font-black uppercase text-slate-600">
+                        {adName}
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 rounded-full bg-white/80 border border-white text-[7px] font-black uppercase text-slate-600">
+                        Campaña
+                      </span>
+                    )}
+                  </div>
+
+                  {reason ? (
+                    <p className="text-[8px] sm:text-[9px] font-semibold text-zinc-800 mt-2 leading-relaxed">
+                      <strong>Razón:</strong> {reason}
+                    </p>
+                  ) : null}
+
+                  {detail ? (
+                    <p className="text-[7.5px] sm:text-[8px] text-slate-600 mt-1.5 leading-relaxed">
+                      {detail}
+                    </p>
+                  ) : null}
+                </div>
+
+                <p className="shrink-0 text-[7px] font-black text-slate-400 md:text-right">
+                  {decisionDateTimeLabelCC(item)}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 async function addDecision(ownerUid, campaign, ad, action, detail, meta = {}) {
   await addDoc(collection(db, COLLECTIONS.decisions), {
     ownerUid,
     productId: campaign?.productId || ad?.productId || null,
     campaignId: campaign?.id || ad?.campaignId || null,
     adId: ad?.id || null,
+    campaignNameSnapshot: campaign?.name || meta?.campaignNameSnapshot || null,
+    adNameSnapshot: ad?.name || meta?.adNameSnapshot || null,
     date: todayColombiaCC(),
     action,
     detail,
@@ -10359,10 +10782,11 @@ async function addDecision(ownerUid, campaign, ad, action, detail, meta = {}) {
 }
 
 
-function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, recommendations }) {
+function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, recommendations, decisions = [] }) {
   const [date, setDate] = useState(todayColombiaCC());
   const [expandedProducts, setExpandedProducts] = useState({});
   const [expandedCampaigns, setExpandedCampaigns] = useState({});
+  const [campaignPane, setCampaignPane] = useState({});
   const [colombiaClock, setColombiaClock] = useState(colombiaDateTimeLabelCC());
 
   useEffect(() => {
@@ -10609,16 +11033,64 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
                       </div>
                       {campaignOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                     </button>
-                    {campaignOpen && <CampaignDailyEditor
-                      ownerUid={ownerUid}
-                      date={date}
-                      product={product}
-                      campaign={campaign}
-                      ads={ads.filter(a => a.campaignId === campaign.id)}
-                      dailyCampaigns={dailyCampaigns}
-                      dailyAds={dailyAds}
-                      recommendations={recommendations}
-                    />}
+                    {campaignOpen && (() => {
+                      const pane = campaignPane[campaign.id] || 'register';
+                      const campaignLogCount = decisions.filter(d => d.campaignId === campaign.id && isCampaignChangeLogEventCC(d)).length;
+
+                      return (
+                        <div className="bg-white border-t" style={{ borderColor: campaignAccent.border }}>
+                          <div className="flex gap-1 p-2 bg-slate-50/80 overflow-x-auto">
+                            <button
+                              type="button"
+                              onClick={() => setCampaignPane(x => ({ ...x, [campaign.id]: 'register' }))}
+                              className={`shrink-0 px-3 py-2 rounded-lg text-[8px] font-black uppercase ${
+                                pane === 'register'
+                                  ? 'bg-zinc-950 text-white'
+                                  : 'bg-white border border-slate-200 text-slate-500'
+                              }`}
+                            >
+                              Registro del día
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setCampaignPane(x => ({ ...x, [campaign.id]: 'log' }))}
+                              className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[8px] font-black uppercase ${
+                                pane === 'log'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-white border border-slate-200 text-slate-500'
+                              }`}
+                            >
+                              Bitácora de cambios
+                              <span className={`px-1.5 py-0.5 rounded-full text-[6px] ${
+                                pane === 'log' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {campaignLogCount}
+                              </span>
+                            </button>
+                          </div>
+
+                          {pane === 'log' ? (
+                            <CampaignChangeLogCC
+                              campaign={campaign}
+                              decisions={decisions}
+                              ads={ads.filter(a => a.campaignId === campaign.id)}
+                            />
+                          ) : (
+                            <CampaignDailyEditor
+                              ownerUid={ownerUid}
+                              date={date}
+                              product={product}
+                              campaign={campaign}
+                              ads={ads.filter(a => a.campaignId === campaign.id)}
+                              dailyCampaigns={dailyCampaigns}
+                              dailyAds={dailyAds}
+                              recommendations={recommendations}
+                            />
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>;
                 })
               }
@@ -10632,6 +11104,10 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
 }
 
 function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCampaigns, dailyAds, recommendations }) {
+  const adsForDate = ads.filter(ad =>
+    entityActiveOnDate(ad, date) &&
+    entityActiveOnDate(campaign, date)
+  );
   const existingCampaignRecord = dailyCampaigns.find(r => r.campaignId === campaign.id && r.date === date);
   const [editing, setEditing] = useState(!existingCampaignRecord);
   const [campaignForm, setCampaignForm] = useState({});
@@ -10704,7 +11180,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       updatedAt: serverTimestamp()
     }, { merge: true });
 
-    for (const ad of ads) {
+    for (const ad of adsForDate) {
       const f = adForms[ad.id] || {};
       const hasAny = Object.values(f).some(v => v !== '' && v !== null && v !== undefined);
       if (!hasAny) continue;
@@ -10838,7 +11314,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
     setMessage(
       `CSV importado: ${metaRowsCount} anuncio(s) procesados` +
       `${zeroFilledCount > 0 ? ` + ${zeroFilledCount} activo(s) sin entrega guardados en cero` : ''}` +
-      `${ignoredInactiveCount > 0 ? ` · ${ignoredInactiveCount} desactivado(s) en Meta ignorados y NO creados` : ''}.`
+      `${ignoredInactiveCount > 0 ? ` · ${ignoredInactiveCount} desactivado(s) o fuera de vigencia ignorados y NO registrados` : ''}.`
     );
     setTimeout(() => setMessage(''), 4000);
   };
@@ -10914,8 +11390,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
     <div className="rounded-2xl p-3 bg-emerald-50/40" style={{border:'2px solid #059669'}}>
       <p className="font-black text-xs uppercase mb-3 text-emerald-800">Anuncios de la campaña</p>
-      {ads.length === 0 ? <EmptyState>No hay anuncios. Puedes crearlos en Ver campañas o importarlos desde un CSV.</EmptyState> :
-        <div className="space-y-3">{ads.map(ad => {
+      {adsForDate.length === 0 ? <EmptyState>No hay anuncios activos para esta fecha. Los anuncios apagados/eliminados se consultan en la Bitácora de cambios.</EmptyState> :
+        <div className="space-y-3">{adsForDate.map(ad => {
           const f = adForms[ad.id] || {};
           const activeThisDate = entityActiveOnDate(ad, date) && entityActiveOnDate(campaign, date);
           const adAccent = ccVisualAccent(ad.id || ad.name, 4);
