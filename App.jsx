@@ -12,7 +12,7 @@ import {
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
   Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,
   Archive, ArchiveRestore, CircleDollarSign, FileUp, Gauge, RefreshCcw,
-  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download, Paintbrush
+  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download, Paintbrush, Scissors
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
@@ -3787,6 +3787,11 @@ function buildDetailedCampaignReportCC({
   lines.push('• CVR = Visita → Compra. Es una métrica principal para localizar deterioro post-clic.');
   lines.push('• HECHO, INTERPRETACIÓN e HIPÓTESIS se separan: una hipótesis nunca se presenta como causa demostrada.');
   lines.push('• TENDENCIA y SALUD ACTUAL son distintas: una métrica puede deteriorarse frente al bloque anterior y seguir saludable/aceptable por estándar operativo.');
+  lines.push('• CAPA PLAYBOOK: frecuencia 2,5–3,0 es una alerta diagnóstica, no una ley universal. Fatiga exige repetición + deterioro de respuesta + impacto económico.');
+  lines.push('• Los protocolos Playbook estrictos solo se confirman cuando el CPA 3D ya está fuera del límite rentable (o existe gasto ≥ CPA máximo sin compras). Si el CPA sigue rentable, la salida es señal temprana/alerta, no protocolo confirmado.');
+  lines.push('• Protocolo A: CVR cae de forma marcada mientras CPM/CTR/CPC permanecen relativamente estables. Protocolo B: frecuencia elevada/subiendo + CTR cae + CPC/CPM presionan + CPA empeora.');
+  lines.push('• LA PODA CBO · CAPA 1: solo se propone cuando un anuncio concentra ≥55% del gasto y aventaja al segundo por ≥20 puntos, cumple pausa 3D y existe otro anuncio activo con CPA rentable y mejor señal. El receptor con muestra baja se considera candidato, NO ganador confirmado.');
+  lines.push('• Después de La Poda se observa 48–72 h: si el receptor absorbe ≥60% del gasto y mantiene CPA rentable = Poda exitosa; si absorbe volumen pero pierde rentabilidad = Efecto Espejismo y se recomienda relevo completo.');
   lines.push('• Estándares operativos actuales: CTR saludable ≥2%, aceptable 1,2–1,99%; CVR saludable ≥3%, aceptable 2–2,99%; CPM saludable ≤$10.000; CPC máximo rentable ≈ CPA máximo × CVR.');
   lines.push('• CPC para mensajes usa una escala separada: <500 excelente; 500–599 sobresaliente; 600–799 muy bueno; 800–999 bueno; 1.000–1.200 aceptable; >1.200 no apto actualmente.');
   lines.push('• Margen operativo de cambios: 48 h entre cambios estructurales; escalamiento de presupuesto hasta +20% puede repetirse tras 24 h. Son reglas internas de seguridad, no umbrales oficiales universales publicados por Meta.');
@@ -3969,13 +3974,46 @@ function buildDetailedCampaignReportCC({
         });
       }
 
+      const reportChangeSafety = buildCampaignChangeSafetyCC(
+        campaign,
+        budgetRows,
+        decisionRows,
+        Date.now()
+      );
+
       const reportScaleStatus = buildCurrentScaleStatusCC(
         campaignHistory,
         scaleRows,
         maxCpa,
         budgetRows,
-        buildCampaignChangeSafetyCC(campaign, budgetRows, decisionRows, Date.now())
+        reportChangeSafety
       );
+
+      const reportPoda = buildCampaignPruningProtocolCC({
+        campaign,
+        product,
+        allAds: ads,
+        dailyAds,
+        decisions: decisionRows,
+        changeSafety: reportChangeSafety,
+        nowMs: Date.now()
+      });
+
+      lines.push('');
+      lines.push('CAPA 1 · PROTOCOLO LA PODA CBO');
+      lines.push('-'.repeat(78));
+      if (reportPoda.active) {
+        lines.push(`Estado: ${reportPoda.status}`);
+        lines.push(`Lectura: ${reportPoda.summary}`);
+        lines.push(`Evidencia: ${reportPoda.evidence || '—'}`);
+        lines.push(`Acción recomendada: ${reportPoda.action || '—'}`);
+        if (reportPoda.dominantAd) lines.push(`Anuncio dominante: ${reportPoda.dominantAd.name}`);
+        if (reportPoda.candidateAd) lines.push(`Anuncio receptor: ${reportPoda.candidateAd.name}`);
+        if (reportPoda.candidateConfidence) lines.push(`Confianza receptor: ${reportPoda.candidateConfidence}`);
+        if (reportPoda.spendShare !== undefined) lines.push(`Participación de gasto post-poda del receptor: ${fmtRate(reportPoda.spendShare)}`);
+      } else {
+        lines.push('Sin escenario de Poda CBO activo.');
+      }
 
       lines.push('');
       lines.push('DIAGNÓSTICO CAUSAL DE ESCALA');
@@ -4028,6 +4066,7 @@ function buildDetailedCampaignReportCC({
         const spentVsMax = maxCpa > 0 ? (ad3.currentStats.spend / maxCpa) * 100 : null;
         const relational = buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad, benchmark);
         const readingAction = adReadingActionCC(diag, contribution, maxCpa);
+        const playbook = buildPlaybookProtocolCC(diag, maxCpa, reportChangeSafety, ad);
 
         lines.push('');
         lines.push('-'.repeat(78));
@@ -4060,6 +4099,18 @@ function buildDetailedCampaignReportCC({
         lines.push(`Comparación con otros anuncios: ${relational.postClick.peerInterpretation}`);
         lines.push(`Confianza: ${relational.confidence.label} · ${relational.confidence.summary}`);
         lines.push(`EN PALABRAS SIMPLES: ${relational.general.simpleStory}`);
+        lines.push('');
+        lines.push('CAPA PLAYBOOK · 3D');
+        if (playbook.active) {
+          lines.push(`Estado: ${playbook.label}`);
+          lines.push(`Severidad: ${playbook.severity.toUpperCase()}`);
+          lines.push(`Filtro económico: ${playbook.economicGate?.label || '—'}`);
+          lines.push(`Lectura: ${playbook.summary}`);
+          lines.push(`Evidencia: ${playbook.evidence}`);
+          lines.push(`Acción recomendada: ${playbook.action}`);
+        } else {
+          lines.push('Sin protocolo Playbook activo.');
+        }
         lines.push('');
         lines.push('PROTECCIÓN DE PRESUPUESTO · PAUSA 3D');
         lines.push(`Decisión: ${readingAction.label}`);
@@ -4976,7 +5027,44 @@ function CampaignControlModule() {
   ];
 
   return (
-    <div className="space-y-5 anim-fade min-w-0">
+    <div className="space-y-5 anim-fade min-w-0 cc-mobile-readable">
+      <style>{`
+        @media (max-width: 639px) {
+          .cc-mobile-readable [class~="text-[5.5px]"],
+          .cc-mobile-readable [class~="text-[6px]"],
+          .cc-mobile-readable [class~="text-[6.5px]"],
+          .cc-mobile-readable [class~="text-[7px]"] {
+            font-size: 8.5px !important;
+            line-height: 1.35 !important;
+          }
+
+          .cc-mobile-readable [class~="text-[7.5px]"],
+          .cc-mobile-readable [class~="text-[8px]"] {
+            font-size: 9px !important;
+            line-height: 1.4 !important;
+          }
+
+          .cc-mobile-readable [class~="text-[9px]"] {
+            font-size: 10px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-mobile-readable [class~="text-[10px]"] {
+            font-size: 11px !important;
+            line-height: 1.45 !important;
+          }
+
+          .cc-mobile-readable button[class*="text-["] {
+            min-height: 38px;
+          }
+
+          .cc-mobile-readable input,
+          .cc-mobile-readable select,
+          .cc-mobile-readable textarea {
+            font-size: 12px !important;
+          }
+        }
+      `}</style>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
@@ -6241,6 +6329,696 @@ function videoTrendHealthTextCC(name, levelObj, delta) {
     return `${name} cayó ${fmtNum(trend.magnitude, 1)}% y permanece aceptable; vigilar antes de intervenir.`;
   }
   return `${name} cayó ${fmtNum(trend.magnitude, 1)}% y ya está en nivel ${String(levelObj.level).toLowerCase()}.`;
+}
+
+
+function fmtFrequencyCC(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) <= 0) return '—';
+  return fmtNum(value, 2);
+}
+
+function playbookEconomicGateCC(stats3d, maxCpa) {
+  const max = Math.max(1, toNumber(maxCpa));
+  const spend = toNumber(stats3d?.spend);
+  const purchases = toNumber(stats3d?.purchases);
+  const cpa = stats3d?.cpa;
+  const hasCpa = cpa !== null && cpa !== undefined && toNumber(cpa) > 0;
+  const noPurchaseDamage = purchases <= 0 && spend >= max;
+
+  if (noPurchaseDamage) {
+    return {
+      zone: 'outside',
+      label: 'FUERA DE SEGURIDAD',
+      tone: 'critical',
+      strictAllowed: true,
+      summary: `Se gastaron ${fmtMoney(spend)} sin compras en la ventana 3D; el resultado económico ya está fuera del margen de seguridad.`
+    };
+  }
+
+  if (!hasCpa) {
+    return {
+      zone: 'unknown',
+      label: 'SIN CPA COMPARABLE',
+      tone: 'neutral',
+      strictAllowed: false,
+      summary: 'Todavía no existe un CPA 3D suficiente para habilitar un protocolo estricto.'
+    };
+  }
+
+  if (toNumber(cpa) <= max * 0.8) {
+    return {
+      zone: 'strong',
+      label: 'CPA CON MARGEN',
+      tone: 'good',
+      strictAllowed: false,
+      summary: `CPA ${fmtCpa(cpa)} · permanece por debajo del 80% del máximo de ${fmtMoney(max)}.`
+    };
+  }
+
+  if (toNumber(cpa) <= max) {
+    return {
+      zone: 'limit',
+      label: 'RENTABLE · CERCA DEL LÍMITE',
+      tone: 'attention',
+      strictAllowed: false,
+      summary: `CPA ${fmtCpa(cpa)} · sigue rentable frente al máximo de ${fmtMoney(max)}, pero tiene menos margen.`
+    };
+  }
+
+  return {
+    zone: 'outside',
+    label: 'CPA FUERA DEL LÍMITE',
+    tone: 'critical',
+    strictAllowed: true,
+    summary: `CPA ${fmtCpa(cpa)} · supera el máximo permitido de ${fmtMoney(max)}.`
+  };
+}
+
+function buildPlaybookProtocolCC(diag, maxCpa, changeSafety = null, ad = null) {
+  const s3 = diag?.scale3d || {};
+  const p3 = diag?.scalePrev3d || {};
+  const d3 = diag?.scaleDelta3d || {};
+  const gate = playbookEconomicGateCC(s3, maxCpa);
+
+  const cpaDelta = d3.cpa;
+  const ctrDelta = d3.ctr;
+  const cpcDelta = d3.cpc;
+  const cpmDelta = d3.cpm;
+  const cvrDelta = d3.visitToPurchase;
+  const freqDelta = d3.frequency;
+  const frequency = s3.frequency;
+
+  const has = v => v !== null && v !== undefined && Number.isFinite(Number(v));
+  const abs = v => has(v) ? Math.abs(Number(v)) : null;
+  const enough3d = toNumber(s3.days) >= 3;
+
+  // Playbook A: deterioro post-clic.
+  // La caída de CVR debe ser marcada mientras pre-clic permanece relativamente estable.
+  const cvrDrop = has(cvrDelta) && Number(cvrDelta) <= -20;
+  const ctrStable = !has(ctrDelta) || abs(ctrDelta) <= 15;
+  const cpcStable = !has(cpcDelta) || abs(cpcDelta) <= 15;
+  const cpmStable = !has(cpmDelta) || abs(cpmDelta) <= 15;
+  const preClickStable = ctrStable && cpcStable && cpmStable;
+  const protocolAPattern = cvrDrop && preClickStable;
+
+  // Playbook B: fatiga creativa.
+  // Frecuencia 2,5–3,0 es una alerta diagnóstica, no una ley universal.
+  const frequencyWatch = has(frequency) && Number(frequency) >= 2.5;
+  const frequencyHigh = has(frequency) && Number(frequency) >= 3;
+  const frequencyRising = has(freqDelta) && Number(freqDelta) >= 10;
+  const ctrResponseDrop = has(ctrDelta) && Number(ctrDelta) <= -15;
+  const costPressure =
+    (has(cpcDelta) && Number(cpcDelta) >= 10) ||
+    (has(cpmDelta) && Number(cpmDelta) >= 10);
+  const cpaPressure =
+    gate.zone === 'outside' ||
+    (has(cpaDelta) && Number(cpaDelta) >= 10);
+  const protocolBPattern =
+    frequencyWatch &&
+    (frequencyHigh || frequencyRising) &&
+    ctrResponseDrop &&
+    costPressure;
+
+  const candidates = [];
+
+  const safetyBlocked =
+    changeSafety?.active &&
+    changeSafety?.canStructuralNow === false;
+  const safetyWait = safetyBlocked
+    ? fmtHoursRemainingCC(changeSafety.structuralRemainingHours)
+    : null;
+
+  if (protocolAPattern) {
+    if (gate.strictAllowed && enough3d && cpaPressure) {
+      candidates.push({
+        code: 'A',
+        severity: 'confirmed',
+        priority: 40,
+        tone: 'critical',
+        label: 'PROTOCOLO A · DETERIORO POST-CLIC CONFIRMADO',
+        summary:
+          `El CVR cayó ${fmtNum(Math.abs(cvrDelta), 1)}% mientras CPM, CTR y CPC permanecen relativamente estables. ` +
+          `${gate.summary}`,
+        evidence:
+          `CVR ${fmtRate(s3.visitToPurchase)} (${cvrDelta > 0 ? '+' : ''}${fmtNum(cvrDelta, 1)}%) · ` +
+          `CTR ${fmtRate(s3.ctr)} · CPC ${fmtMoneyOrDashCC(s3.cpc)} · CPM ${fmtMoneyOrDashCC(s3.cpm)} · CPA ${fmtCpa(s3.cpa)}.`,
+        action:
+          safetyBlocked
+            ? `Preparar el protocolo post-clic, pero no ejecutar otro cambio estructural todavía: faltan ${safetyWait}. Revisar landing móvil, checkout/COD, variantes, precio, inventario, tracking y calidad del tráfico. Si no existe una falla operativa, dejar registrado el micro-ajuste CBO de 15–20% para ejecutarlo cuando termine la ventana y observar 48–72 h. Si no recupera, preparar relevo con ganadores frescos.`
+            : 'Revisar primero landing móvil, checkout/COD, variantes, precio, inventario, tracking y calidad del tráfico. Si no existe una falla operativa, considerar micro-ajuste CBO de 15–20% y observar 48–72 h evitando cambios repetidos. Si no recupera, preparar relevo con ganadores frescos.',
+        agendaAction: 'Ejecutar protocolo post-clic: revisar landing/checkout y evaluar micro-ajuste CBO 15–20%',
+        agendaNote:
+          `Playbook A confirmado en 3D. CVR ${fmtRate(s3.visitToPurchase)} · CPA ${fmtCpa(s3.cpa)} vs máximo ${fmtMoney(maxCpa)}.`
+      });
+    } else {
+      candidates.push({
+        code: 'A',
+        severity: gate.zone === 'limit' ? 'alert' : 'watch',
+        priority: gate.zone === 'limit' ? 22 : 14,
+        tone: 'attention',
+        label:
+          gate.zone === 'limit'
+            ? 'ALERTA POST-CLIC · RENTABILIDAD CONSERVADA'
+            : 'SEÑAL TEMPRANA POST-CLIC · CPA CON MARGEN',
+        summary:
+          `El CVR cayó ${fmtNum(Math.abs(cvrDelta), 1)}% con pre-clic relativamente estable, pero el CPA todavía no habilita un protocolo estricto. ${gate.summary}`,
+        evidence:
+          `CVR ${fmtRate(s3.visitToPurchase)} · CTR ${fmtRate(s3.ctr)} · CPC ${fmtMoneyOrDashCC(s3.cpc)} · CPA ${fmtCpa(s3.cpa)}.`,
+        action:
+          gate.zone === 'limit'
+            ? 'No reducir ni relevar todavía. Vigilar CVR y CPA en el próximo cierre, revisar preventivamente landing/checkout y actuar solo si el CPA cruza el límite y el 3D mantiene el patrón.'
+            : 'No intervenir. Vigilar CVR, CPA y salud de página. La caída merece atención, pero la campaña conserva margen rentable.',
+        agendaAction: 'Vigilar señal post-clic y revisar salud de landing/checkout',
+        agendaNote:
+          `Señal Playbook A sin protocolo estricto porque el CPA sigue rentable. CVR ${fmtRate(s3.visitToPurchase)} · CPA ${fmtCpa(s3.cpa)}.`
+      });
+    }
+  }
+
+  if (protocolBPattern) {
+    if (gate.strictAllowed && enough3d && cpaPressure) {
+      candidates.push({
+        code: 'B',
+        severity: 'confirmed',
+        priority: 45,
+        tone: 'critical',
+        label: 'PROTOCOLO B · FATIGA CREATIVA CONFIRMADA',
+        summary:
+          `Frecuencia ${fmtFrequencyCC(frequency)} con deterioro de respuesta: CTR ${ctrDelta > 0 ? '+' : ''}${fmtNum(ctrDelta, 1)}% y presión de CPC/CPM. ${gate.summary}`,
+        evidence:
+          `Frecuencia ${fmtFrequencyCC(frequency)}${has(freqDelta) ? ` (${freqDelta > 0 ? '+' : ''}${fmtNum(freqDelta, 1)}%)` : ''} · ` +
+          `CTR ${fmtRate(s3.ctr)} · CPC ${fmtMoneyOrDashCC(s3.cpc)} · CPM ${fmtMoneyOrDashCC(s3.cpm)} · CPA ${fmtCpa(s3.cpa)}.`,
+        action:
+          safetyBlocked
+            ? `Preparar relevo creativo ahora, pero esperar ${safetyWait} antes de otro cambio estructural. Crear un conjunto nuevo en la CBO con ganadores frescos/Post IDs; cuando el relevo esté listo y termine la ventana, pausar el conjunto viejo y vigilar CPA, CVR, CTR, CPC, CPM y distribución.`
+            : 'Preparar relevo creativo: crear un conjunto nuevo dentro de la CBO con ganadores frescos/Post IDs. Cuando el relevo esté listo, pausar el conjunto viejo, publicar y vigilar CPA, CVR, CTR, CPC, CPM y distribución de gasto.',
+        agendaAction: `Preparar relevo creativo${ad?.name ? ` para ${ad.name}` : ''} por fatiga confirmada`,
+        agendaNote:
+          `Playbook B confirmado en 3D. Frecuencia ${fmtFrequencyCC(frequency)} · CTR ${fmtRate(s3.ctr)} · CPA ${fmtCpa(s3.cpa)}.`
+      });
+    } else {
+      candidates.push({
+        code: 'B',
+        severity: gate.zone === 'limit' ? 'alert' : 'watch',
+        priority: gate.zone === 'limit' ? 25 : 16,
+        tone: 'attention',
+        label:
+          gate.zone === 'limit'
+            ? 'ALERTA DE FATIGA · CAMPAÑA AÚN RENTABLE'
+            : 'POSIBLE DESGASTE CREATIVO · SIN IMPACTO ECONÓMICO',
+        summary:
+          `La frecuencia está en ${fmtFrequencyCC(frequency)} y la respuesta creativa se deterioró, pero el CPA todavía no habilita fatiga confirmada. ${gate.summary}`,
+        evidence:
+          `Frecuencia ${fmtFrequencyCC(frequency)} · CTR ${fmtRate(s3.ctr)} (${ctrDelta > 0 ? '+' : ''}${fmtNum(ctrDelta, 1)}%) · ` +
+          `CPC ${fmtMoneyOrDashCC(s3.cpc)} · CPA ${fmtCpa(s3.cpa)}.`,
+        action:
+          gate.zone === 'limit'
+            ? 'No relevar todavía. Preparar creativos de respaldo y vigilar frecuencia, CTR, CPC y CPA. Confirmar fatiga solo si el deterioro llega al resultado económico.'
+            : 'No intervenir todavía. Mantener el ganador activo y vigilar frecuencia, CTR, CPC y CPA; preparar variantes solo como prevención.',
+        agendaAction: `Preparar creativo de respaldo${ad?.name ? ` para ${ad.name}` : ''}`,
+        agendaNote:
+          `Alerta temprana de fatiga sin impacto económico confirmado. Frecuencia ${fmtFrequencyCC(frequency)} · CPA ${fmtCpa(s3.cpa)}.`
+      });
+    }
+  } else if (frequencyWatch) {
+    candidates.push({
+      code: 'B0',
+      severity: 'watch',
+      priority: 8,
+      tone: 'attention',
+      label: 'FRECUENCIA ALTA · SIN FATIGA CONFIRMADA',
+      summary:
+        `La frecuencia está en ${fmtFrequencyCC(frequency)}, zona de vigilancia del Playbook, pero no aparece todavía la combinación completa de deterioro creativo y económico.`,
+      evidence:
+        `Frecuencia ${fmtFrequencyCC(frequency)}${has(freqDelta) ? ` · Δ ${freqDelta > 0 ? '+' : ''}${fmtNum(freqDelta, 1)}%` : ''} · ` +
+        `CTR ${fmtRate(s3.ctr)} · CPC ${fmtMoneyOrDashCC(s3.cpc)} · CPA ${fmtCpa(s3.cpa)}.`,
+      action:
+        'Vigilar. No apagar, relevar ni reducir únicamente por frecuencia. La fatiga se confirma solo cuando la repetición coincide con deterioro de respuesta y del resultado económico.',
+      agendaAction: `Vigilar frecuencia${ad?.name ? ` de ${ad.name}` : ''}`,
+      agendaNote:
+        `Frecuencia ${fmtFrequencyCC(frequency)} en zona de vigilancia sin fatiga confirmada.`
+    });
+  }
+
+  if (!candidates.length) {
+    return {
+      active: false,
+      severity: 'none',
+      tone: 'neutral',
+      label: 'SIN PROTOCOLO PLAYBOOK ACTIVO',
+      summary: 'No se detecta un patrón Playbook que requiera una alerta adicional.',
+      evidence: '',
+      action: '',
+      economicGate: gate,
+      secondary: []
+    };
+  }
+
+  candidates.sort((a, b) => b.priority - a.priority);
+  const primary = candidates[0];
+
+  return {
+    active: true,
+    ...primary,
+    economicGate: gate,
+    secondary: candidates.slice(1),
+    frequency,
+    frequencyDelta: freqDelta,
+    cvrDelta,
+    cpaDelta,
+    strictAllowed: gate.strictAllowed && enough3d
+  };
+}
+
+
+function buildCampaignPruningProtocolCC({
+  campaign,
+  product,
+  allAds = [],
+  dailyAds = [],
+  decisions = [],
+  changeSafety = null,
+  nowMs = Date.now()
+}) {
+  const max = Math.max(1, toNumber(product?.maxCpa));
+  const today = todayColombiaCC();
+
+  const campaignAds = (allAds || []).filter(
+    ad => ad.campaignId === campaign?.id && ad.deleted !== true
+  );
+
+  const activeAds = campaignAds.filter(
+    ad => ad.active !== false && campaign?.active !== false && !campaign?.archived
+  );
+
+  const contribution3d = buildCampaignContribution3D(
+    campaign,
+    product,
+    campaignAds,
+    dailyAds
+  );
+
+  const buildRow = ad => {
+    const records = (dailyAds || []).filter(r => r.adId === ad.id);
+    const diag = diagnoseAd(records, product, ad, '3d', campaign);
+    const contribution = contribution3d.byAd[ad.id] || null;
+    const action = adReadingActionCC(diag, contribution, max);
+    const stats = diag?.scale3d || {};
+    const delta = diag?.scaleDelta3d || {};
+
+    return { ad, records, diag, contribution, action, stats, delta };
+  };
+
+  const rows = activeAds
+    .map(buildRow)
+    .filter(row => toNumber(row?.contribution?.spend) > 0)
+    .sort(
+      (a, b) =>
+        toNumber(b?.contribution?.spendShare) -
+        toNumber(a?.contribution?.spendShare)
+    );
+
+  // ── Seguimiento de una poda ya ejecutada ───────────────────
+  const podaDecision = [...(decisions || [])]
+    .filter(d =>
+      d.campaignId === campaign?.id &&
+      d.changeType === 'ad_state' &&
+      String(d.action || '').toLowerCase().includes('apagado') &&
+      d.protocol === 'poda'
+    )
+    .sort((a, b) => (changeEventTimeMsCC(b) || 0) - (changeEventTimeMsCC(a) || 0))[0];
+
+  if (podaDecision) {
+    const dominantAd =
+      campaignAds.find(a => a.id === podaDecision.adId) ||
+      { id: podaDecision.adId, name: podaDecision.adNameSnapshot || 'Anuncio podado' };
+
+    const candidateAd =
+      campaignAds.find(a => a.id === podaDecision.podaCandidateAdId) ||
+      (podaDecision.podaCandidateAdId
+        ? { id: podaDecision.podaCandidateAdId, name: podaDecision.podaCandidateNameSnapshot || 'Anuncio receptor' }
+        : null);
+
+    const decisionDate = String(podaDecision.date || '');
+    const actionMs = changeEventTimeMsCC(podaDecision);
+    const elapsedHours = actionMs
+      ? Math.max(0, (nowMs - actionMs) / 3600000)
+      : null;
+
+    if (!candidateAd?.id) {
+      return {
+        active: true,
+        phase: 'post_poda',
+        status: 'PODA EJECUTADA · SIN CANDIDATO IDENTIFICADO',
+        tone: 'attention',
+        dominantAd,
+        candidateAd: null,
+        canExecute: false,
+        summary:
+          `Se registró una poda sobre ${dominantAd.name}, pero no quedó identificado el anuncio que debía absorber el presupuesto.`,
+        evidence: 'La bitácora de la poda no contiene un candidato receptor.',
+        action:
+          'Revisar manualmente qué anuncio permanece activo y registrar el candidato antes de interpretar el resultado.',
+        agendaAction: 'Revisar candidato receptor después de La Poda',
+        agendaNote: `Poda registrada sobre ${dominantAd.name} sin candidato receptor identificado.`
+      };
+    }
+
+    const postEligibleRecords = (dailyAds || []).filter(r => {
+      if (r.campaignId !== campaign?.id) return false;
+      const date = String(r.date || '');
+      if (!date || date >= today) return false;
+      if (decisionDate && date <= decisionDate) return false;
+      return true;
+    });
+
+    const postDates = [...new Set(postEligibleRecords.map(r => String(r.date)))]
+      .sort((a, b) => a.localeCompare(b))
+      .slice(0, 3);
+
+    const postDateSet = new Set(postDates);
+    const candidatePostRecords = postEligibleRecords.filter(
+      r => r.adId === candidateAd.id && postDateSet.has(String(r.date))
+    );
+    const campaignPostRecords = postEligibleRecords.filter(
+      r => postDateSet.has(String(r.date))
+    );
+
+    const candidateStats = aggregateRecords(candidatePostRecords);
+    const campaignStats = aggregateRecords(campaignPostRecords);
+    const spendShare =
+      campaignStats.spend > 0
+        ? (candidateStats.spend / campaignStats.spend) * 100
+        : 0;
+
+    const days = postDates.length;
+    const enoughTime = days >= 2 || (elapsedHours !== null && elapsedHours >= 48);
+    const completedWindow = days >= 3 || (elapsedHours !== null && elapsedHours >= 72);
+    const absorbed = spendShare >= 60;
+    const enoughEconomicSample =
+      candidateStats.spend >= max * 0.75 ||
+      toNumber(candidateStats.purchases) >= 2;
+
+    const profitable =
+      toNumber(candidateStats.purchases) > 0 &&
+      candidateStats.cpa !== null &&
+      candidateStats.cpa !== undefined &&
+      toNumber(candidateStats.cpa) <= max;
+
+    const expensive =
+      candidateStats.cpa !== null &&
+      candidateStats.cpa !== undefined &&
+      toNumber(candidateStats.cpa) > max;
+
+    const noSalesDamage =
+      toNumber(candidateStats.purchases) <= 0 &&
+      toNumber(candidateStats.spend) >= max;
+
+    if (!enoughTime || days < 2) {
+      return {
+        active: true,
+        phase: 'post_poda',
+        status: 'PODA EN OBSERVACIÓN · TURBULENCIA ESPERADA',
+        tone: 'attention',
+        dominantAd,
+        candidateAd,
+        candidateStats,
+        campaignStats,
+        spendShare,
+        days,
+        elapsedHours,
+        canExecute: false,
+        summary:
+          `${dominantAd.name} fue apagado y ${candidateAd.name} está entrando en la fase de redistribución. Todavía no han transcurrido suficientes cierres completos para juzgar si puede absorber el presupuesto.`,
+        evidence:
+          `${days} día(s) completo(s) después de la poda · ${fmtRate(spendShare)} del gasto post-poda en ${candidateAd.name} · CPA ${fmtCpa(candidateStats.cpa)}.`,
+        action:
+          `No realizar otro cambio estructural. Esperar hasta completar al menos 48 horas y preferiblemente 72 horas, observando cuánto presupuesto absorbe ${candidateAd.name} y si mantiene CPA rentable.`,
+        agendaAction: `Revisar resultado de La Poda de ${dominantAd.name} en 48–72 h`,
+        agendaNote:
+          `Candidato receptor: ${candidateAd.name}. Esperar redistribución antes de concluir.`
+      };
+    }
+
+    if (absorbed && enoughEconomicSample && profitable) {
+      return {
+        active: true,
+        phase: 'post_poda',
+        status: 'PODA EXITOSA · CAMPAÑA REVIVIDA',
+        tone: 'good',
+        dominantAd,
+        candidateAd,
+        candidateStats,
+        campaignStats,
+        spendShare,
+        days,
+        elapsedHours,
+        canExecute: false,
+        summary:
+          `${candidateAd.name} absorbió ${fmtRate(spendShare)} del gasto después de apagar ${dominantAd.name} y mantiene un CPA de ${fmtCpa(candidateStats.cpa)}, dentro del máximo de ${fmtMoney(max)}.`,
+        evidence:
+          `${days} día(s) completos · gasto ${fmtMoney(candidateStats.spend)} · ${fmtNum(candidateStats.purchases, 2)} compra(s) · CPA ${fmtCpa(candidateStats.cpa)}.`,
+        action:
+          'Mantener la nueva distribución. No ejecutar un relevo completo mientras el anuncio receptor continúe absorbiendo presupuesto con CPA rentable. Seguir vigilando estabilidad antes de volver a escalar.',
+        agendaAction: `Mantener ${candidateAd.name} después de Poda exitosa`,
+        agendaNote:
+          `Absorbió ${fmtRate(spendShare)} del gasto con CPA ${fmtCpa(candidateStats.cpa)}.`
+      };
+    }
+
+    if (absorbed && enoughEconomicSample && (expensive || noSalesDamage)) {
+      return {
+        active: true,
+        phase: 'post_poda',
+        status: 'EFECTO ESPEJISMO · RELEVO COMPLETO',
+        tone: 'critical',
+        dominantAd,
+        candidateAd,
+        candidateStats,
+        campaignStats,
+        spendShare,
+        days,
+        elapsedHours,
+        canExecute: false,
+        summary:
+          `${candidateAd.name} sí absorbió el presupuesto (${fmtRate(spendShare)}), pero al recibir volumen dejó de sostener la eficiencia.`,
+        evidence:
+          toNumber(candidateStats.purchases) <= 0
+            ? `${fmtMoney(candidateStats.spend)} de gasto post-poda sin compras.`
+            : `CPA post-poda ${fmtCpa(candidateStats.cpa)} vs máximo ${fmtMoney(max)}.`,
+        action:
+          'El buen resultado previo del anuncio receptor era una señal de muestra baja y no escaló. Preparar el relevo completo: apagar el conjunto viejo cuando el nuevo esté listo e inyectar Post IDs frescos provenientes del sistema de testeo.',
+        agendaAction: 'Ejecutar relevo completo por Efecto Espejismo',
+        agendaNote:
+          `${candidateAd.name} absorbió ${fmtRate(spendShare)} del gasto pero no sostuvo CPA rentable.`
+      };
+    }
+
+    return {
+      active: true,
+      phase: 'post_poda',
+      status: completedWindow
+        ? 'PODA NO CONCLUYENTE · PREPARAR RELEVO'
+        : 'PODA EN OBSERVACIÓN · ABSORCIÓN INSUFICIENTE',
+      tone: completedWindow ? 'attention' : 'attention',
+      dominantAd,
+      candidateAd,
+      candidateStats,
+      campaignStats,
+      spendShare,
+      days,
+      elapsedHours,
+      canExecute: false,
+      summary:
+        `${candidateAd.name} todavía no demuestra una absorción suficiente del presupuesto o no acumula muestra económica suficiente para declarar éxito o espejismo.`,
+      evidence:
+        `${days} día(s) completos · ${fmtRate(spendShare)} del gasto · ${fmtMoney(candidateStats.spend)} gastados · CPA ${fmtCpa(candidateStats.cpa)}.`,
+      action:
+        completedWindow
+          ? 'La ventana de 72 horas ya está prácticamente completada sin una validación clara. Preparar relevo completo y evitar seguir prolongando una estructura que no redistribuye de forma útil.'
+          : 'Mantener observación hasta completar 72 horas. No declarar éxito solo porque el anuncio tenía buenas métricas con poco gasto.',
+      agendaAction: completedWindow
+        ? 'Preparar relevo completo por Poda no concluyente'
+        : `Revisar absorción de ${candidateAd.name} al completar 72 h`,
+      agendaNote:
+        `Post-poda: ${fmtRate(spendShare)} del gasto · CPA ${fmtCpa(candidateStats.cpa)}.`
+    };
+  }
+
+  // ── Diagnóstico previo a la poda ───────────────────────────
+  if (rows.length < 2) {
+    return {
+      active: false,
+      phase: 'pre_poda',
+      status: 'SIN ESCENARIO DE PODA',
+      tone: 'neutral',
+      canExecute: false
+    };
+  }
+
+  const dominant = rows[0];
+  const runnerUp = rows[1];
+
+  const dominantShare = toNumber(dominant?.contribution?.spendShare);
+  const runnerShare = toNumber(runnerUp?.contribution?.spendShare);
+  const shareGap = dominantShare - runnerShare;
+
+  const dominantConcentrated =
+    dominantShare >= 55 &&
+    shareGap >= 20;
+
+  const dominantOutside =
+    toNumber(dominant?.stats?.purchases) <= 0
+      ? toNumber(dominant?.stats?.spend) >= max
+      : (
+          dominant?.stats?.cpa !== null &&
+          dominant?.stats?.cpa !== undefined &&
+          toNumber(dominant.stats.cpa) > max
+        );
+
+  const cpaDeteriorated =
+    dominant?.delta?.cpa !== null &&
+    dominant?.delta?.cpa !== undefined &&
+    toNumber(dominant.delta.cpa) >= 15;
+
+  const responseDeteriorated =
+    (
+      dominant?.delta?.ctr !== null &&
+      dominant?.delta?.ctr !== undefined &&
+      toNumber(dominant.delta.ctr) <= -15
+    ) ||
+    (
+      dominant?.delta?.cpc !== null &&
+      dominant?.delta?.cpc !== undefined &&
+      toNumber(dominant.delta.cpc) >= 10
+    ) ||
+    (
+      dominant?.delta?.visitToPurchase !== null &&
+      dominant?.delta?.visitToPurchase !== undefined &&
+      toNumber(dominant.delta.visitToPurchase) <= -20
+    );
+
+  const dominantConfirmedBad =
+    dominant.action?.label === 'PAUSAR' &&
+    dominantOutside &&
+    toNumber(dominant?.stats?.days) >= 3 &&
+    (cpaDeteriorated || responseDeteriorated);
+
+  const candidates = rows
+    .slice(1)
+    .filter(row => {
+      const s = row.stats || {};
+      const c = row.contribution || {};
+      const hasPurchase = toNumber(s.purchases) > 0;
+      const cpaRentable =
+        hasPurchase &&
+        s.cpa !== null &&
+        s.cpa !== undefined &&
+        toNumber(s.cpa) <= max;
+      const notDrain =
+        c.status !== 'Drena la campaña' &&
+        row.action?.label !== 'PAUSAR';
+      const clearlyBetter =
+        dominant.stats?.cpa === null ||
+        dominant.stats?.cpa === undefined ||
+        !hasPurchase ||
+        toNumber(s.cpa) <= toNumber(dominant.stats.cpa) * 0.8;
+
+      return cpaRentable && notDrain && clearlyBetter;
+    })
+    .sort((a, b) => {
+      const aValidated =
+        toNumber(a.stats?.spend) >= max &&
+        toNumber(a.stats?.purchases) >= 2 ? 1 : 0;
+      const bValidated =
+        toNumber(b.stats?.spend) >= max &&
+        toNumber(b.stats?.purchases) >= 2 ? 1 : 0;
+      if (aValidated !== bValidated) return bValidated - aValidated;
+      return toNumber(a.stats?.cpa) - toNumber(b.stats?.cpa);
+    });
+
+  const candidate = candidates[0] || null;
+
+  if (!dominantConcentrated || !dominantConfirmedBad) {
+    return {
+      active: false,
+      phase: 'pre_poda',
+      status: 'SIN PODA CONFIRMADA',
+      tone: 'neutral',
+      canExecute: false
+    };
+  }
+
+  if (!candidate) {
+    return {
+      active: true,
+      phase: 'pre_poda',
+      status: 'ANUNCIO DOMINANTE DETERIORADO · SIN RESPALDO PARA PODA',
+      tone: 'critical',
+      dominantAd: dominant.ad,
+      dominantStats: dominant.stats,
+      dominantShare,
+      candidateAd: null,
+      canExecute: false,
+      summary:
+        `${dominant.ad.name} concentra ${fmtRate(dominantShare)} del gasto y ya cumple criterio de pausa 3D, pero ningún otro anuncio activo muestra todavía un CPA rentable suficiente para justificar una poda.`,
+      evidence:
+        `CPA dominante ${fmtCpa(dominant.stats.cpa)} vs máximo ${fmtMoney(max)} · participación de gasto ${fmtRate(dominantShare)}.`,
+      action:
+        'No apagar el anuncio dominante esperando que otro anuncio lo rescate. Preparar relevo completo con ganadores frescos, porque actualmente no existe un receptor interno con señales económicas suficientes.',
+      agendaAction: 'Preparar relevo completo: no existe candidato interno para La Poda',
+      agendaNote:
+        `${dominant.ad.name} domina ${fmtRate(dominantShare)} del gasto y cumple pausa 3D, sin respaldo rentable activo.`
+    };
+  }
+
+  const candidateValidated =
+    toNumber(candidate.stats?.spend) >= max &&
+    toNumber(candidate.stats?.purchases) >= 2;
+
+  const candidateShare = toNumber(candidate?.contribution?.spendShare);
+  const safetyBlocked =
+    changeSafety?.active &&
+    changeSafety?.canStructuralNow === false;
+  const safetyWait = safetyBlocked
+    ? fmtHoursRemainingCC(changeSafety.structuralRemainingHours)
+    : null;
+
+  return {
+    active: true,
+    phase: 'pre_poda',
+    status: safetyBlocked
+      ? 'LA PODA IDENTIFICADA · ESPERAR VENTANA DE SEGURIDAD'
+      : 'LA PODA · CIRUGÍA RECOMENDADA',
+    tone: safetyBlocked ? 'attention' : 'critical',
+    dominantAd: dominant.ad,
+    dominantStats: dominant.stats,
+    dominantContribution: dominant.contribution,
+    dominantShare,
+    candidateAd: candidate.ad,
+    candidateStats: candidate.stats,
+    candidateContribution: candidate.contribution,
+    candidateShare,
+    candidateConfidence: candidateValidated
+      ? 'RESPALDO CON MUESTRA'
+      : 'CANDIDATO PROMETEDOR · MUESTRA BAJA',
+    safetyBlocked,
+    safetyWait,
+    canExecute: !safetyBlocked,
+    summary:
+      `${dominant.ad.name} consume ${fmtRate(dominantShare)} del presupuesto y ya cumple criterio real de pausa 3D. ` +
+      `${candidate.ad.name} recibe solo ${fmtRate(candidateShare)} del gasto, pero actualmente muestra CPA ${fmtCpa(candidate.stats.cpa)} dentro del máximo de ${fmtMoney(max)}.`,
+    evidence:
+      `${dominant.ad.name}: CPA ${fmtCpa(dominant.stats.cpa)} · ${fmtRate(dominantShare)} del gasto. ` +
+      `${candidate.ad.name}: CPA ${fmtCpa(candidate.stats.cpa)} · ${fmtRate(candidateShare)} del gasto · ${fmtNum(candidate.stats.purchases, 2)} compra(s).`,
+    action:
+      safetyBlocked
+        ? `No ejecutar todavía. Faltan ${safetyWait} para completar la ventana estructural. Después, si el 3D sigue confirmando daño en ${dominant.ad.name}, apagar únicamente ese anuncio y dejar que ${candidate.ad.name} intente absorber presupuesto durante 48–72 h.`
+        : `Apagar únicamente ${dominant.ad.name}. Mantener ${candidate.ad.name} activo y no hacer más cambios durante 48–72 h. El objetivo es comprobar si el anuncio de menor gasto puede absorber volumen sin perder rentabilidad.`,
+    agendaAction: `Ejecutar La Poda: apagar ${dominant.ad.name} y observar ${candidate.ad.name} durante 48–72 h`,
+    agendaNote:
+      `${candidateValidated ? 'Respaldo con muestra' : 'Candidato con muestra baja'}: ${candidate.ad.name} · CPA ${fmtCpa(candidate.stats.cpa)} · ${fmtRate(candidateShare)} del gasto.`
+  };
 }
 
 function audiencePressureDiagnosisCC(stats3d, previous3d, benchmark = null) {
@@ -8925,7 +9703,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   );
 }
 
-function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null, onAdAction = null, adActionBusyId = '' }) {
+function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null, onAdAction = null, adActionBusyId = '', onRegisterPlaybookAction = null, campaignPoda = null, onExecutePoda = null }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const periodLabel = periodLabelCC(analysisPeriod);
   const periodCardLabel = periodCardLabelCC(analysisPeriod, false);
@@ -8936,6 +9714,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
     cpc: pctChange(campaign3d.cpc, campaignPrev3d.cpc),
     ctr: pctChange(campaign3d.ctr, campaignPrev3d.ctr),
     cpm: pctChange(campaign3d.cpm, campaignPrev3d.cpm),
+    frequency: pctChange(campaign3d.frequency, campaignPrev3d.frequency),
     visitToPurchase: pctChange(campaign3d.visitToPurchase, campaignPrev3d.visitToPurchase)
   };
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
@@ -8958,6 +9737,14 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       periodLabel
     );
 
+    // Playbook is an additive operational layer and always uses fixed 3D.
+    const playbook = buildPlaybookProtocolCC(
+      row.diag,
+      maxCpa,
+      changeSafety,
+      row.ad
+    );
+
     return {
       ...row,
       analysisContribution,
@@ -8965,7 +9752,8 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       action,
       audience,
       messages,
-      relational
+      relational,
+      playbook
     };
   }).sort((a, b) => {
     const order = { PAUSAR: 0, VIGILAR: 1, ESCALAR: 2, MANTENER: 3 };
@@ -8978,6 +9766,16 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
     acc[row.action.label] = (acc[row.action.label] || 0) + 1;
     return acc;
   }, {});
+
+  const playbookRows = rows
+    .filter(row => row.playbook?.active)
+    .sort((a, b) => {
+      const severityOrder = { confirmed: 3, alert: 2, watch: 1, none: 0 };
+      return (severityOrder[b.playbook?.severity] || 0) - (severityOrder[a.playbook?.severity] || 0);
+    });
+  const playbookConfirmedCount = playbookRows.filter(r => r.playbook?.severity === 'confirmed').length;
+  const playbookAlertCount = playbookRows.filter(r => r.playbook?.severity === 'alert').length;
+  const topPlaybook = playbookRows[0] || null;
 
   const campaignOverview = buildCampaignLayerDiagnosticCC(
     campaign3d,
@@ -9053,18 +9851,146 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           </div>
 
           {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
-          <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-5 gap-2.5 sm:gap-3 mt-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
             <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpa}/>
             <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpm}/>
             <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.ctr}/>
             <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(campaign3d.cpc)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpc)} delta={campaignDelta.cpc} metric="cpc" sub="Costo de cada clic" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpc}/>
             <QuickMetricCC label="CVR" value={fmtRate(campaign3d.visitToPurchase)} previousValue={fmtRate(campaignPrev3d.visitToPurchase)} delta={campaignDelta.visitToPurchase} metric="visitToPurchase" sub="Visita → compra" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cvr}/>
+            <QuickMetricCC label="Frecuencia" value={fmtFrequencyCC(campaign3d.frequency)} previousValue={fmtFrequencyCC(campaignPrev3d.frequency)} delta={campaignDelta.frequency} metric="frequency" sub="Playbook: 2,5–3,0 = alerta, no diagnóstico por sí sola" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
           </div>
 
           <CurrentScaleStatusCardCC
             scaleStatus={currentScaleStatus}
             maxCpa={maxCpa}
           />
+
+          {campaignPoda?.active ? (
+            <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(campaignPoda.tone)}`}>
+              <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
+                      <Scissors size={12}/> Capa 1 · La Poda CBO
+                    </span>
+                    <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${toneBadge(campaignPoda.tone)}`}>
+                      {campaignPoda.status}
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] sm:text-[11px] font-semibold text-zinc-800 mt-2.5 leading-relaxed">
+                    {campaignPoda.summary}
+                  </p>
+                  <p className="text-[8.5px] sm:text-[9px] text-slate-600 mt-2 leading-relaxed">
+                    <strong>Evidencia:</strong> {campaignPoda.evidence}
+                  </p>
+
+                  {campaignPoda.dominantAd && campaignPoda.candidateAd ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3">
+                      <div className="rounded-xl border border-rose-200 bg-white/75 p-3">
+                        <p className="text-[7px] font-black uppercase text-rose-600">Anuncio dominante</p>
+                        <p className="text-[10px] font-black text-zinc-900 mt-1 break-words">{campaignPoda.dominantAd.name}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-[8px] text-slate-600">
+                          {campaignPoda.dominantShare !== undefined ? <span>Gasto: <strong>{fmtRate(campaignPoda.dominantShare)}</strong></span> : null}
+                          {campaignPoda.dominantStats ? <span>CPA: <strong>{fmtCpa(campaignPoda.dominantStats.cpa)}</strong></span> : null}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-emerald-200 bg-white/75 p-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[7px] font-black uppercase text-emerald-700">Anuncio receptor</p>
+                          {campaignPoda.candidateConfidence ? (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[6.5px] font-black uppercase">
+                              {campaignPoda.candidateConfidence}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-[10px] font-black text-zinc-900 mt-1 break-words">{campaignPoda.candidateAd.name}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-[8px] text-slate-600">
+                          {campaignPoda.phase === 'pre_poda' && campaignPoda.candidateShare !== undefined ? (
+                            <span>Gasto actual: <strong>{fmtRate(campaignPoda.candidateShare)}</strong></span>
+                          ) : null}
+                          {campaignPoda.phase === 'post_poda' && campaignPoda.spendShare !== undefined ? (
+                            <span>Gasto post-poda: <strong>{fmtRate(campaignPoda.spendShare)}</strong></span>
+                          ) : null}
+                          {campaignPoda.candidateStats ? <span>CPA: <strong>{fmtCpa(campaignPoda.candidateStats.cpa)}</strong></span> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="xl:w-[360px] xl:shrink-0 rounded-xl border border-white bg-white/75 p-3">
+                  <p className="text-[7px] font-black uppercase text-slate-400">Acción recomendada</p>
+                  <p className="text-[9px] sm:text-[10px] font-semibold text-slate-700 mt-1.5 leading-relaxed">
+                    {campaignPoda.action}
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2 mt-3">
+                    {campaignPoda.canExecute && onExecutePoda ? (
+                      <button
+                        type="button"
+                        onClick={() => onExecutePoda(campaignPoda)}
+                        className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-rose-600 text-white text-[8px] sm:text-[9px] font-black uppercase"
+                      >
+                        <Scissors size={13}/> Ejecutar La Poda
+                      </button>
+                    ) : null}
+
+                    {onRegisterPlaybookAction && campaignPoda.agendaAction ? (
+                      <button
+                        type="button"
+                        onClick={() => onRegisterPlaybookAction(campaignPoda, campaignPoda.dominantAd || campaignPoda.candidateAd)}
+                        className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[8px] sm:text-[9px] font-black uppercase"
+                      >
+                        <ListChecks size={13}/> Registrar acción
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {topPlaybook ? (
+            <div className={`mt-4 rounded-2xl border-2 p-3 sm:p-3.5 ${toneBg(topPlaybook.playbook.tone)}`}>
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
+                      Capa Playbook · 3D
+                    </span>
+                    {playbookConfirmedCount > 0 ? (
+                      <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-[7px] font-black uppercase">
+                        {playbookConfirmedCount} confirmado{playbookConfirmedCount === 1 ? '' : 's'}
+                      </span>
+                    ) : null}
+                    {playbookAlertCount > 0 ? (
+                      <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[7px] font-black uppercase">
+                        {playbookAlertCount} alerta{playbookAlertCount === 1 ? '' : 's'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] font-black text-zinc-900 mt-2">
+                    {topPlaybook.playbook.label}
+                  </p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">
+                    Principal señal: <strong>{topPlaybook.ad.name}</strong>. {topPlaybook.playbook.summary}
+                  </p>
+                </div>
+
+                <div className="lg:w-[300px] lg:shrink-0 rounded-xl bg-white/70 border border-white p-2.5">
+                  <p className="text-[7px] font-black uppercase text-slate-400">Filtro económico</p>
+                  <p className={`text-[9px] font-black mt-1 ${toneText(topPlaybook.playbook.economicGate?.tone)}`}>
+                    {topPlaybook.playbook.economicGate?.label}
+                  </p>
+                  <p className="text-[8px] text-slate-500 mt-1 leading-relaxed">
+                    El Playbook no confirma protocolos estrictos mientras el CPA permanezca dentro del límite rentable.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* Lectura ejecutiva */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-4">
@@ -9156,7 +10082,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       </div>
 
       {/* CAPA 2 · ANUNCIOS */}
-      {rows.length ? rows.map(({ ad, diag, contribution, analysisContribution, readingDiag, action, audience, messages, relational }) => {
+      {rows.length ? rows.map(({ ad, diag, contribution, analysisContribution, readingDiag, action, audience, messages, relational, playbook }) => {
         const colors = readingActionClassesCC(action.tone);
         const open = expandedReadAds[ad.id] === true;
         const hh = diag.hookHold3d;
@@ -9226,13 +10152,67 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               </div>
 
               {/* Métricas principales */}
-              <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-5 gap-2.5 sm:gap-3 mt-5">
+              <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
                 <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpa}/>
                 <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={relational.metricStatus?.cpc?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpc}/>
                 <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={relational.metricStatus?.ctr?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.ctr}/>
                 <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={relational.metricStatus?.cpm?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpm}/>
                 <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={relational.metricStatus?.cvr?.standardText || `Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cvr}/>
+                <QuickMetricCC label="Frecuencia" value={fmtFrequencyCC(readingDiag.scale3d.frequency)} previousValue={fmtFrequencyCC(readingDiag.scalePrev3d.frequency)} delta={readingDiag.scaleDelta3d.frequency} metric="frequency" sub="Playbook: interpretar junto con CTR/CPC/CPA" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
               </div>
+
+              {playbook?.active ? (
+                <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(playbook.tone)}`}>
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${toneBadge(playbook.tone)}`}>
+                          {playbook.severity === 'confirmed' ? 'PROTOCOLO CONFIRMADO' : playbook.severity === 'alert' ? 'ALERTA PLAYBOOK' : 'SEÑAL PLAYBOOK'}
+                        </span>
+                        <span className="px-2 py-1 rounded-full bg-white/75 text-slate-600 text-[7px] font-black uppercase">
+                          {playbook.economicGate?.label}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] sm:text-[12px] font-black text-zinc-900 mt-2">
+                        {playbook.label}
+                      </p>
+                      <p className="text-[9px] sm:text-[10px] text-slate-700 mt-1.5 leading-relaxed">
+                        {playbook.summary}
+                      </p>
+                      <p className="text-[8px] sm:text-[9px] text-slate-500 mt-1.5 leading-relaxed">
+                        <strong>Evidencia:</strong> {playbook.evidence}
+                      </p>
+
+                      {playbook.secondary?.length ? (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {playbook.secondary.map((signal, index) => (
+                            <span key={`${signal.code}_${index}`} className="px-2 py-1 rounded-full bg-white/70 border border-white text-[7px] font-black uppercase text-slate-600">
+                              También: {signal.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="lg:w-[340px] lg:shrink-0 rounded-xl bg-white/75 border border-white p-3">
+                      <p className="text-[7px] font-black uppercase text-slate-400">Acción recomendada por Playbook</p>
+                      <p className="text-[9px] sm:text-[10px] font-semibold text-slate-700 mt-1.5 leading-relaxed">
+                        {playbook.action}
+                      </p>
+                      {onRegisterPlaybookAction && playbook.agendaAction ? (
+                        <button
+                          type="button"
+                          onClick={() => onRegisterPlaybookAction(playbook, ad)}
+                          className="w-full mt-3 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[8px] sm:text-[9px] font-black uppercase"
+                        >
+                          <ListChecks size={13}/> Registrar acción recomendada
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {/* Diagnóstico relacional */}
               <div className="mt-5">
@@ -9489,6 +10469,19 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     [campaignHistory, scaleRows, product?.maxCpa, budgetRows, changeSafety]
   );
 
+  const campaignPoda = useMemo(
+    () => buildCampaignPruningProtocolCC({
+      campaign,
+      product,
+      allAds: allAds || ads,
+      dailyAds,
+      decisions: decisionRows,
+      changeSafety,
+      nowMs: safetyNowMs
+    }),
+    [campaign, product, allAds, ads, dailyAds, decisionRows, changeSafety, safetyNowMs]
+  );
+
   const campaignPendingActions = actionItems.filter(
     x => x.campaignId === campaign.id && x.status !== 'approved'
   );
@@ -9537,11 +10530,37 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     }
   };
 
-  const requestAdAction = (mode, ad) => {
+  const requestPlaybookAction = (playbook, ad) => {
+    if (!playbook?.agendaAction) return;
+    setPlanActionText(playbook.agendaAction);
+    setPlanActionNote(playbook.agendaNote || playbook.action || '');
+    setPlanActionAdId(ad?.id || '');
+    setPlanActionMessage('');
+    setPlanActionOpen(true);
+  };
+
+  const requestAdAction = (mode, ad, meta = {}) => {
     if (!ad?.id) return;
-    setAdActionModal({ mode, ad });
-    setAdActionReason('');
+    setAdActionModal({ mode, ad, ...meta });
+    setAdActionReason(meta?.prefillReason || '');
     setAdActionMessage('');
+  };
+
+  const requestPodaExecution = poda => {
+    const dominantAd =
+      (allAds || ads).find(a => a.id === poda?.dominantAd?.id) ||
+      poda?.dominantAd;
+
+    if (!dominantAd?.id || !poda?.candidateAd?.id) return;
+
+    requestAdAction('off', dominantAd, {
+      protocol: 'poda',
+      podaCandidateAdId: poda.candidateAd.id,
+      podaCandidateNameSnapshot: poda.candidateAd.name,
+      prefillReason:
+        `LA PODA CBO: ${dominantAd.name} concentra el gasto y cumple pausa 3D. ` +
+        `${poda.candidateAd.name} queda activo como receptor para validar absorción durante 48–72 h.`
+    });
   };
 
   const closeAdActionModal = () => {
@@ -9590,6 +10609,14 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
         await batch.commit();
 
+        const protocolMeta = adActionModal?.protocol === 'poda'
+          ? {
+              protocol: 'poda',
+              podaCandidateAdId: adActionModal.podaCandidateAdId,
+              podaCandidateNameSnapshot: adActionModal.podaCandidateNameSnapshot
+            }
+          : {};
+
         await addDecision(
           ownerUid,
           campaign,
@@ -9600,7 +10627,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             changeType: 'ad_state',
             safetyHours: 48,
             reason,
-            source: 'ad_metrics_analysis'
+            source: 'ad_metrics_analysis',
+            ...protocolMeta
           }
         );
       } else {
@@ -9792,6 +10820,9 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           currentScaleStatus={currentScaleStatus}
           onAdAction={requestAdAction}
           adActionBusyId={adActionBusyId}
+          onRegisterPlaybookAction={requestPlaybookAction}
+          campaignPoda={campaignPoda}
+          onExecutePoda={requestPodaExecution}
         />
       )}
 
@@ -10407,7 +11438,11 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                   Cambio operativo · anuncio
                 </p>
                 <h4 className="text-base sm:text-lg font-black text-zinc-900 mt-1 break-words">
-                  {adActionModal.mode === 'delete' ? 'Eliminar anuncio' : 'Apagar anuncio'} · {adActionModal.ad?.name}
+                  {adActionModal.protocol === 'poda'
+                    ? 'Ejecutar La Poda'
+                    : adActionModal.mode === 'delete'
+                      ? 'Eliminar anuncio'
+                      : 'Apagar anuncio'} · {adActionModal.ad?.name}
                 </h4>
               </div>
               <button
@@ -10422,12 +11457,18 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
             <div className={`mt-4 rounded-xl border p-3 ${adActionModal.mode === 'delete' ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'}`}>
               <p className="text-[8px] font-black uppercase text-slate-600">
-                {adActionModal.mode === 'delete' ? 'Qué ocurrirá' : 'Fecha efectiva'}
+                {adActionModal.protocol === 'poda'
+                  ? 'Cirugía CBO'
+                  : adActionModal.mode === 'delete'
+                    ? 'Qué ocurrirá'
+                    : 'Fecha efectiva'}
               </p>
               <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">
-                {adActionModal.mode === 'delete'
-                  ? 'El anuncio desaparecerá de la configuración activa y del Registro diario desde hoy. Sus datos históricos y la bitácora se conservarán.'
-                  : `El anuncio quedará OFF desde ${formatIsoDateCC(todayColombiaCC())} y dejará de aparecer en Registro diario desde esta fecha.`
+                {adActionModal.protocol === 'poda'
+                  ? `${adActionModal.ad?.name} quedará OFF. ${adActionModal.podaCandidateNameSnapshot || 'El anuncio receptor'} permanecerá activo para intentar absorber el presupuesto. Después de este cambio debes evitar nuevas modificaciones estructurales durante 48–72 h para poder leer el resultado de la poda.`
+                  : adActionModal.mode === 'delete'
+                    ? 'El anuncio desaparecerá de la configuración activa y del Registro diario desde hoy. Sus datos históricos y la bitácora se conservarán.'
+                    : `El anuncio quedará OFF desde ${formatIsoDateCC(todayColombiaCC())} y dejará de aparecer en Registro diario desde esta fecha.`
                 }
               </p>
             </div>
