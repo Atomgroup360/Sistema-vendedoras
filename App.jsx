@@ -4734,6 +4734,163 @@ function CampaignActionBoardCC({
   );
 }
 
+
+function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
+  const today = todayColombiaCC();
+
+  const availableDates = useMemo(() => {
+    return [...new Set(
+      (dailyCampaigns || [])
+        .map(r => String(r?.date || ''))
+        .filter(date => date && date < today)
+    )].sort((a, b) => String(b).localeCompare(String(a)));
+  }, [dailyCampaigns, today]);
+
+  const latestClosedDate = availableDates[0] || lastCompleteColombiaDateCC();
+  const [selectedDate, setSelectedDate] = useState(latestClosedDate);
+
+  useEffect(() => {
+    if (!selectedDate || !availableDates.includes(selectedDate)) {
+      setSelectedDate(latestClosedDate);
+    }
+  }, [latestClosedDate, availableDates, selectedDate]);
+
+  const selectedRecords = useMemo(
+    () => (dailyCampaigns || []).filter(r => String(r?.date || '') === String(selectedDate || '')),
+    [dailyCampaigns, selectedDate]
+  );
+
+  const totalSpend = useMemo(
+    () => selectedRecords.reduce((sum, r) => sum + toNumber(r?.spend), 0),
+    [selectedRecords]
+  );
+
+  const totalPurchases = useMemo(
+    () => selectedRecords.reduce((sum, r) => sum + toNumber(r?.purchases), 0),
+    [selectedRecords]
+  );
+
+  const globalCpa = calcCpa(totalSpend, totalPurchases);
+
+  const campaignCount = useMemo(
+    () => new Set(selectedRecords.map(r => r?.campaignId).filter(Boolean)).size,
+    [selectedRecords]
+  );
+
+  const hasData = selectedRecords.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                <Calendar size={16}/>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-xs font-black uppercase text-zinc-900">
+                  Cierre global por día
+                </p>
+                <p className="text-[8px] sm:text-[9px] text-slate-500 mt-0.5 leading-relaxed">
+                  Selecciona una fecha para consultar el rendimiento consolidado de la tienda.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full md:w-auto">
+            <label className="block text-[7px] font-black uppercase text-slate-400 mb-1.5">
+              Fecha del cierre
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={selectedDate || ''}
+                max={lastCompleteColombiaDateCC()}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="w-full md:w-[185px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-black text-zinc-800 outline-none focus:border-blue-400"
+              />
+              {selectedDate !== latestClosedDate ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(latestClosedDate)}
+                  className="shrink-0 px-3 py-2.5 rounded-xl bg-zinc-950 text-white text-[8px] font-black uppercase"
+                >
+                  Último cierre
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-3.5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-5">
+          <div className="lg:w-[230px] lg:shrink-0">
+            <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wide text-slate-500">
+              Cierre global · {selectedDate ? formatIsoDateCC(selectedDate) : '—'}
+            </p>
+            <p className="text-[7px] sm:text-[8px] text-slate-400 mt-1 leading-relaxed">
+              {hasData
+                ? `${campaignCount} campaña${campaignCount === 1 ? '' : 's'} con cierre registrado en esta fecha.`
+                : 'No hay cierres registrados para esta fecha.'
+              }
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2 flex-1 min-w-0">
+            <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
+                Gasto total
+              </p>
+              <p
+                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
+                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+              >
+                {hasData ? fmtMoney(totalSpend) : '—'}
+              </p>
+              <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">
+                Todas las campañas del día
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
+                Ventas totales
+              </p>
+              <p
+                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
+                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+              >
+                {hasData ? fmtNum(totalPurchases, 0) : '—'}
+              </p>
+              <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">
+                Compras registradas ese día
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-xl border border-blue-100 bg-blue-50/55 px-3 py-2.5">
+              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-blue-600">
+                CPA ponderado global
+              </p>
+              <p
+                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
+                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+              >
+                {hasData && globalCpa !== null ? fmtMoney(globalCpa) : '—'}
+              </p>
+              <p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1">
+                Gasto total ÷ ventas totales
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CampaignControlModule() {
   const { user } = useAuth();
   const ownerUid = user?.uid || null;
@@ -4811,6 +4968,7 @@ function CampaignControlModule() {
 
   const tabs = [
     { id: 'dashboard', label: 'Resumen', icon: BarChart3 },
+    { id: 'globalClose', label: 'Cierre global', icon: Calendar },
     { id: 'campaigns', label: 'Campañas', icon: Layers },
     { id: 'register', label: 'Registro diario', icon: CalendarDays },
     { id: 'actions', label: 'Acciones', icon: ListChecks, count: pendingActionItems.length },
@@ -4860,6 +5018,13 @@ function CampaignControlModule() {
           selectedCampaign={selectedCampaign}
           setSelectedCampaignId={setSelectedCampaignId}
           setSubTab={setSubTab}
+        />
+      )}
+
+      {subTab === 'globalClose' && (
+        <GlobalDailyCloseCC
+          dailyCampaigns={dailyCampaigns}
+          campaigns={campaigns}
         />
       )}
 
