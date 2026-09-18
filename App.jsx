@@ -3217,18 +3217,18 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
         : 'bg-white border-slate-100';
 
   return (
-    <div className={`min-w-0 rounded-2xl border px-3 py-3.5 sm:px-3.5 lg:px-4 lg:py-4 ${toneClass}`}>
+    <div className={`cc-mini-card min-w-0 rounded-2xl border px-2.5 py-3 sm:px-3 sm:py-3.5 lg:px-3.5 lg:py-3.5 ${toneClass}`}>
       <p
-        className="min-w-0 text-[7px] sm:text-[8px] font-black uppercase tracking-wide leading-tight text-slate-400"
-        style={{ overflowWrap: 'anywhere' }}
+        className="min-w-0 text-[7px] sm:text-[8px] font-black uppercase tracking-wide leading-tight text-slate-400 whitespace-normal break-words"
+        style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
       >
         {label}
       </p>
 
       <div className="min-w-0 mt-2">
         <div
-          className="max-w-full font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900"
-          style={{ fontSize: 'clamp(17px, 1.45vw, 23px)', overflowWrap: 'anywhere' }}
+          className="cc-value max-w-full font-black leading-tight tracking-[-0.01em] tabular-nums text-zinc-900 whitespace-nowrap"
+          style={{ fontSize: 'clamp(16px, 1.05vw, 21px)' }}
         >
           {value}
         </div>
@@ -3236,8 +3236,8 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
 
       {sub ? (
         <p
-          className="min-w-0 text-[7px] font-semibold leading-snug text-slate-400 mt-1.5"
-          style={{ overflowWrap: 'anywhere' }}
+          className="min-w-0 text-[7px] font-semibold leading-snug text-slate-400 mt-1.5 whitespace-normal break-words"
+          style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
         >
           {sub}
         </p>
@@ -3249,7 +3249,7 @@ function MiniCard({ label, value, sub, tone = 'default' }) {
 function SectionCard({ children, className = '', accent = null, soft = null }) {
   return (
     <div
-      className={`bg-white border shadow-sm rounded-3xl p-4 md:p-5 ${className}`}
+      className={`cc-section-card bg-white border shadow-sm rounded-3xl p-4 md:p-5 ${className}`}
       style={accent ? {
         borderColor: accent,
         borderWidth: '2px',
@@ -4389,7 +4389,7 @@ function CampaignReportCenter({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="cc-module-view cc-report-center space-y-4">
       <SectionCard accent="#7c3aed" soft="#f5f3ff">
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
           <div>
@@ -4604,7 +4604,7 @@ function CampaignActionBoardCC({
   }, [actionItems, campaigns]);
 
   return (
-    <div className="space-y-4">
+    <div className="cc-module-view cc-action-board space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <div className="min-w-0">
@@ -4836,7 +4836,7 @@ function GlobalDailyCloseCC({ dailyCampaigns = [], campaigns = [] }) {
   const hasData = selectedRecords.length > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="cc-module-view cc-global-close space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="min-w-0">
@@ -5058,7 +5058,9 @@ function CampaignControlModule() {
         .cc-ui-shell button,
         .cc-ui-shell th,
         .cc-ui-shell td {
-          overflow-wrap: anywhere;
+          overflow-wrap: break-word;
+          word-break: normal;
+          hyphens: none;
         }
 
         /* Controles coherentes en todos los módulos. */
@@ -5078,37 +5080,37 @@ function CampaignControlModule() {
           .cc-ui-shell [class*="text-[6px]"],
           .cc-ui-shell [class*="text-[6.5px]"],
           .cc-ui-shell [class*="text-[7px]"] {
-            font-size: 10px !important;
-            line-height: 1.4 !important;
+            font-size: 9px !important;
+            line-height: 1.35 !important;
           }
 
           .cc-ui-shell [class*="text-[7.5px]"],
           .cc-ui-shell [class*="text-[8px]"],
           .cc-ui-shell [class*="text-[8.5px]"] {
-            font-size: 10.5px !important;
-            line-height: 1.42 !important;
+            font-size: 10px !important;
+            line-height: 1.38 !important;
           }
 
           .cc-ui-shell [class*="text-[9px]"],
           .cc-ui-shell [class*="text-[9.5px]"] {
-            font-size: 11.5px !important;
-            line-height: 1.45 !important;
+            font-size: 11px !important;
+            line-height: 1.4 !important;
           }
 
           .cc-ui-shell [class*="text-[10px]"] {
             font-size: 12px !important;
-            line-height: 1.45 !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[11px]"] {
             font-size: 13px !important;
-            line-height: 1.45 !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[12px]"],
           .cc-ui-shell [class*="text-[13px]"] {
             font-size: 14px !important;
-            line-height: 1.45 !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell button[class*="text-["] {
@@ -5128,42 +5130,42 @@ function CampaignControlModule() {
           .cc-ui-shell [class*="text-[5.5px]"],
           .cc-ui-shell [class*="text-[6px]"],
           .cc-ui-shell [class*="text-[6.5px]"] {
-            font-size: 9.5px !important;
-            line-height: 1.4 !important;
+            font-size: 8.5px !important;
+            line-height: 1.35 !important;
           }
 
           .cc-ui-shell [class*="text-[7px]"],
           .cc-ui-shell [class*="text-[7.5px]"] {
-            font-size: 10.5px !important;
-            line-height: 1.42 !important;
+            font-size: 9.5px !important;
+            line-height: 1.38 !important;
           }
 
           .cc-ui-shell [class*="text-[8px]"],
           .cc-ui-shell [class*="text-[8.5px]"] {
-            font-size: 11.5px !important;
-            line-height: 1.45 !important;
+            font-size: 10px !important;
+            line-height: 1.4 !important;
           }
 
           .cc-ui-shell [class*="text-[9px]"],
           .cc-ui-shell [class*="text-[9.5px]"] {
-            font-size: 12px !important;
-            line-height: 1.45 !important;
+            font-size: 11px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[10px]"] {
-            font-size: 13px !important;
-            line-height: 1.45 !important;
+            font-size: 12px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[11px]"] {
-            font-size: 14px !important;
-            line-height: 1.45 !important;
+            font-size: 13px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[12px]"],
           .cc-ui-shell [class*="text-[13px]"] {
-            font-size: 15px !important;
-            line-height: 1.45 !important;
+            font-size: 14px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell input,
@@ -5178,46 +5180,46 @@ function CampaignControlModule() {
           .cc-ui-shell [class*="text-[5.5px]"],
           .cc-ui-shell [class*="text-[6px]"],
           .cc-ui-shell [class*="text-[6.5px]"] {
-            font-size: 10px !important;
-            line-height: 1.4 !important;
+            font-size: 8.5px !important;
+            line-height: 1.32 !important;
           }
 
           .cc-ui-shell [class*="text-[7px]"],
           .cc-ui-shell [class*="text-[7.5px]"] {
-            font-size: 11px !important;
-            line-height: 1.42 !important;
+            font-size: 9.5px !important;
+            line-height: 1.35 !important;
           }
 
           .cc-ui-shell [class*="text-[8px]"],
           .cc-ui-shell [class*="text-[8.5px]"] {
-            font-size: 12px !important;
-            line-height: 1.45 !important;
+            font-size: 10.5px !important;
+            line-height: 1.38 !important;
           }
 
           .cc-ui-shell [class*="text-[9px]"],
           .cc-ui-shell [class*="text-[9.5px]"] {
-            font-size: 13px !important;
-            line-height: 1.45 !important;
+            font-size: 11.5px !important;
+            line-height: 1.4 !important;
           }
 
           .cc-ui-shell [class*="text-[10px]"] {
-            font-size: 14px !important;
-            line-height: 1.45 !important;
+            font-size: 12.5px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[11px]"] {
-            font-size: 15px !important;
-            line-height: 1.45 !important;
+            font-size: 13.5px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[12px]"] {
-            font-size: 16px !important;
-            line-height: 1.45 !important;
+            font-size: 14.5px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[13px]"] {
-            font-size: 17px !important;
-            line-height: 1.45 !important;
+            font-size: 15.5px !important;
+            line-height: 1.42 !important;
           }
 
           .cc-ui-shell button[class*="text-["] {
@@ -5232,7 +5234,135 @@ function CampaignControlModule() {
 
           /* Más aire horizontal en tarjetas de escritorio. */
           .cc-ui-shell .cc-pro-card {
-            padding: 18px !important;
+            padding: 16px !important;
+          }
+        }
+
+        /* SISTEMA VISUAL PROFESIONAL · TODO EL MÓDULO */
+        .cc-ui-shell { color: #0f172a; }
+
+        .cc-ui-shell .cc-module-view,
+        .cc-ui-shell .cc-reading-view,
+        .cc-ui-shell .cc-daily-editor { min-width: 0; }
+
+        .cc-ui-shell .cc-section-card {
+          border-width: 1px !important;
+          border-radius: 20px !important;
+          box-shadow: 0 6px 20px rgba(15, 23, 42, 0.045) !important;
+        }
+
+        .cc-ui-shell .cc-mini-card,
+        .cc-ui-shell .cc-metric-card {
+          border-color: #e2e8f0;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+        }
+
+        .cc-ui-shell .cc-mini-card .cc-value,
+        .cc-ui-shell .cc-metric-card .cc-value,
+        .cc-ui-shell .cc-scale-card .cc-value {
+          overflow-wrap: normal !important;
+          word-break: normal !important;
+          white-space: nowrap !important;
+        }
+
+        .cc-ui-shell .cc-diagnosis-card {
+          border-width: 1px !important;
+          border-radius: 22px !important;
+          box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05) !important;
+        }
+
+        .cc-ui-shell .cc-scale-card { border-width: 1px !important; }
+
+        .cc-ui-shell input:not([type="checkbox"]):not([type="file"]),
+        .cc-ui-shell select,
+        .cc-ui-shell textarea {
+          border: 1px solid #dbe3ee !important;
+          background-color: #ffffff !important;
+          border-radius: 12px !important;
+          color: #0f172a;
+          box-shadow: none !important;
+          transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+        }
+
+        .cc-ui-shell input:not([type="checkbox"]):not([type="file"]):focus,
+        .cc-ui-shell select:focus,
+        .cc-ui-shell textarea:focus {
+          border-color: #94a3b8 !important;
+          box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12) !important;
+          outline: none !important;
+        }
+
+        .cc-ui-shell input:disabled,
+        .cc-ui-shell select:disabled,
+        .cc-ui-shell textarea:disabled {
+          background-color: #f8fafc !important;
+          color: #64748b;
+        }
+
+        .cc-ui-shell button {
+          transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, border-color .12s ease;
+        }
+
+        .cc-ui-shell button:not(:disabled):active { transform: translateY(1px); }
+
+        .cc-ui-shell table {
+          border-collapse: separate;
+          border-spacing: 0;
+        }
+
+        .cc-ui-shell table th {
+          font-weight: 800;
+          letter-spacing: .025em;
+          line-height: 1.25;
+          vertical-align: middle;
+        }
+
+        .cc-ui-shell table td {
+          vertical-align: middle;
+          line-height: 1.35;
+        }
+
+        .cc-ui-shell .cc-data-table thead th {
+          background: #f8fafc;
+          border-bottom: 1px solid #e2e8f0;
+          padding-top: 11px;
+          padding-bottom: 11px;
+        }
+
+        .cc-ui-shell .cc-data-table tbody td {
+          padding-top: 11px;
+          padding-bottom: 11px;
+          border-bottom: 1px solid rgba(226, 232, 240, .85);
+        }
+
+        .cc-ui-shell .cc-data-table tbody tr:last-child td { border-bottom: 0; }
+
+        .cc-ui-shell .cc-manager-ad {
+          box-shadow: 0 2px 8px rgba(15, 23, 42, .025);
+        }
+
+        .cc-ui-shell .cc-metric-form > div { min-width: 0; }
+        .cc-ui-shell .cc-metric-form input { min-height: 40px; }
+
+        @media (min-width: 1024px) {
+          .cc-ui-shell .cc-module-view { font-size: 12px; }
+          .cc-ui-shell .cc-section-card { padding: 18px !important; }
+          .cc-ui-shell .cc-metric-card { min-height: 176px; }
+          .cc-ui-shell .cc-mini-card { min-height: 92px; }
+        }
+
+        @media (max-width: 639px) {
+          .cc-ui-shell .cc-section-card {
+            border-radius: 16px !important;
+            padding: 14px !important;
+          }
+          .cc-ui-shell .cc-metric-card,
+          .cc-ui-shell .cc-mini-card { border-radius: 14px !important; }
+          .cc-ui-shell .cc-metric-card { min-height: auto; }
+          .cc-ui-shell .cc-data-table tbody td,
+          .cc-ui-shell .cc-data-table thead th {
+            padding-top: 9px;
+            padding-bottom: 9px;
           }
         }
       `}</style>
@@ -5580,7 +5710,7 @@ function CampaignDashboard({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="cc-module-view cc-dashboard space-y-5">
       {/* TOPBAR VALIDADO */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -5708,9 +5838,9 @@ function CampaignDashboard({
         </div>
 
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[1350px] text-[10px]">
+          <table className="cc-data-table w-full min-w-[1480px] text-[9px] lg:text-[10px]">
             <thead className="bg-slate-50">
-              <tr className="text-left uppercase text-[8px] text-slate-400">
+              <tr className="text-left uppercase text-[7px] lg:text-[8px] text-slate-400">
                 <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA último día</th>
                 <th>CPA 3D</th><th>Δ vs 3D</th><th>CPA 7D</th><th>Δ 7D</th>
                 <th>Compras</th><th>Frecuencia</th><th>Salud tráfico/creativo</th><th>Diagnóstico · 3D</th><th>Acción · 3D</th>
@@ -5752,23 +5882,23 @@ function CampaignDashboard({
                     </td>
                     <td>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="font-black">{r.product?.name||'Producto'}</p>
+                        <p className="font-black leading-tight break-words">{r.product?.name||'Producto'}</p>
                         {r.campaign.dashboardAuditedHighlight === true ? (
                           <span className="px-1.5 py-0.5 rounded-md bg-amber-300/80 text-amber-900 text-[6px] font-black uppercase">
                             Auditada
                           </span>
                         ) : null}
                       </div>
-                      <p className="text-[8px] text-slate-400">{r.campaign.name}</p>
+                      <p className="text-[7px] lg:text-[8px] text-slate-400 leading-tight break-words">{r.campaign.name}</p>
                     </td>
-                    <td className="font-black">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
-                    <td className={`font-black ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}</td>
-                    <td>{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</td>
+                    <td className="font-black whitespace-nowrap">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
+                    <td className={`font-black whitespace-nowrap ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}</td>
+                    <td className="whitespace-nowrap">{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</td>
                     <td><span className={`font-black ${metricDirectionClass('cpa', r.delta3)}`}>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</span></td>
-                    <td>{r.stats7.purchases>0?fmtCpa(r.stats7.cpa):'—'}</td>
+                    <td className="whitespace-nowrap">{r.stats7.purchases>0?fmtCpa(r.stats7.cpa):'—'}</td>
                     <td><span className={`font-black ${metricDirectionClass('cpa', r.delta7)}`}>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}</span></td>
-                    <td>{fmtNum(r.purchases, 2)}</td>
-                    <td>{fmtNum(r.frequency,2)}</td>
+                    <td className="whitespace-nowrap">{fmtNum(r.purchases, 2)}</td>
+                    <td className="whitespace-nowrap">{fmtNum(r.frequency,2)}</td>
                     <td><span className="font-black">{r.creativeHealth}</span></td>
                     <td><span className="font-black">{r.diagnosis}</span></td>
                     <td><span className="font-black text-blue-600">{r.action}</span></td>
@@ -5805,7 +5935,7 @@ function CampaignDashboard({
                 <span className="text-[7px] font-black uppercase text-blue-500">No influye en decisiones</span>
               </div>
               {drawerToday ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
                   <MiniCard label="Gasto" value={fmtMoney(drawerTodayStats.spend)} />
                   <MiniCard label="Compras" value={fmtNum(drawerTodayStats.purchases, 2)} />
                   <MiniCard label="CPA" value={drawerTodayStats.purchases > 0 ? fmtCpa(drawerTodayStats.cpa) : '—'} />
@@ -7847,7 +7977,7 @@ function CampaignChangeSafetyCardCC({ safety, currentBudget = null }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:w-[430px] gap-2">
           <div className={`rounded-xl border p-3 ${safety.canScaleNow ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-            <p className="text-[7px] font-black uppercase leading-tight text-slate-500" style={{ overflowWrap: 'anywhere' }}>Escalamiento de presupuesto</p>
+            <p className="text-[7px] font-black uppercase leading-tight text-slate-500" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>Escalamiento de presupuesto</p>
             <p className={`text-[9px] sm:text-[10px] font-black leading-tight mt-1 ${safety.canScaleNow ? 'text-emerald-700' : 'text-amber-700'}`}>
               {safety.canScaleNow ? 'DISPONIBLE' : `ESPERAR ${fmtHoursRemainingCC(safety.scaleRemainingHours)}`}
             </p>
@@ -7858,7 +7988,7 @@ function CampaignChangeSafetyCardCC({ safety, currentBudget = null }) {
           </div>
 
           <div className={`rounded-xl border p-3 ${safety.canStructuralNow ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-            <p className="text-[7px] font-black uppercase leading-tight text-slate-500" style={{ overflowWrap: 'anywhere' }}>Apagar/encender anuncios y otros cambios</p>
+            <p className="text-[7px] font-black uppercase leading-tight text-slate-500" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>Apagar/encender anuncios y otros cambios</p>
             <p className={`text-[9px] sm:text-[10px] font-black leading-tight mt-1 ${safety.canStructuralNow ? 'text-emerald-700' : 'text-rose-700'}`}>
               {safety.canStructuralNow ? 'MARGEN SEGURO' : `ESPERAR ${fmtHoursRemainingCC(safety.structuralRemainingHours)}`}
             </p>
@@ -8452,11 +8582,11 @@ function QuickMetricCC({
   const prevLabel = previousPeriodLabel || periodLabel;
 
   return (
-    <div className="min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3.5 sm:px-4 sm:py-4 lg:px-4.5 lg:py-4 cc-pro-card">
+    <div className="cc-metric-card min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3.5 sm:px-3.5 sm:py-3.5 lg:px-4 lg:py-4 cc-pro-card">
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0">
-          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 leading-snug">{label}</p>
-          <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-300 mt-0.5 leading-snug">
+          <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 leading-tight">{label}</p>
+          <p className="text-[6.5px] font-black uppercase tracking-wide text-slate-300 mt-0.5 leading-tight">
             Actual · {periodLabel}
           </p>
         </div>
@@ -8468,8 +8598,8 @@ function QuickMetricCC({
 
       <div className="mt-3 min-h-[30px] flex items-center min-w-0 w-full">
         <p
-          className="min-w-0 max-w-full font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900"
-          style={{ fontSize: 'clamp(17px, 1.45vw, 23px)', overflowWrap: 'anywhere' }}
+          className="cc-value min-w-0 max-w-full font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+          style={{ fontSize: 'clamp(17px, 1.05vw, 22px)' }}
         >
           {value}
         </p>
@@ -8479,7 +8609,7 @@ function QuickMetricCC({
         <div className="mt-2 min-w-0">
           <span
             className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[6px] font-black uppercase leading-tight text-center ${toneBadge(healthStatus.combinedTone || healthStatus.tone || 'neutral')}`}
-            style={{ overflowWrap: 'anywhere' }}
+            style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
           >
             {healthStatus.combinedLabel || healthStatus.level}
           </span>
@@ -8490,7 +8620,7 @@ function QuickMetricCC({
         <p className="text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase tracking-wide text-slate-400 leading-snug">
           Anterior · {prevLabel}
         </p>
-        <p className="text-[10px] sm:text-[11px] font-black tabular-nums text-slate-600 mt-1 leading-snug break-words">
+        <p className="text-[10px] sm:text-[11px] font-black tabular-nums text-slate-600 mt-1 leading-snug whitespace-normal break-words">
           {hasPrevious ? previousValue : 'Sin dato comparable'}
         </p>
       </div>
@@ -8920,9 +9050,9 @@ function WeekdayMetricMiniCC({ label, value, delta, lowerIsBetter = false }) {
 
   return (
     <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5">
-      <p className="text-[6.5px] font-black uppercase tracking-wide leading-tight text-slate-400" style={{ overflowWrap: 'anywhere' }}>{label}</p>
+      <p className="text-[6.5px] font-black uppercase tracking-wide leading-tight text-slate-400 whitespace-normal break-words">{label}</p>
 
-      <p className="text-[12px] sm:text-[13px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 leading-tight break-words">
+      <p className="text-[11px] sm:text-[12px] font-black tracking-tight tabular-nums text-zinc-900 mt-1.5 leading-tight whitespace-normal break-words">
         {value}
       </p>
 
@@ -9834,14 +9964,14 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
     <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-3 py-3 sm:px-3.5 sm:py-3.5 lg:px-4 lg:py-4">
       <p
         className="text-[6px] sm:text-[6.5px] lg:text-[7.5px] font-black uppercase leading-tight tracking-wide text-slate-400"
-        style={{ overflowWrap: 'anywhere' }}
+        style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
       >
         {label}
       </p>
 
       <p
-        className="mt-2 font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 break-words"
-        style={{ fontSize: 'clamp(17px, 1.35vw, 23px)', overflowWrap: 'anywhere' }}
+        className="cc-value mt-2 font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+        style={{ fontSize: 'clamp(17px, 1.1vw, 22px)' }}
       >
         {value}
       </p>
@@ -9855,7 +9985,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   );
 
   return (
-    <div className={`mt-4 rounded-2xl border-2 p-3 sm:p-4 ${toneBg(tone)}`}>
+    <div className={`cc-scale-card mt-4 rounded-2xl border-2 p-3 sm:p-4 lg:p-4 ${toneBg(tone)}`}>
       {/* CABECERA */}
       <div className="min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -9865,7 +9995,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
 
           <span
             className={`inline-flex self-start sm:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[6.5px] sm:text-[7.5px] lg:text-[8.5px] font-black uppercase leading-tight text-center ${toneBadge(tone)}`}
-            style={{ overflowWrap: 'anywhere' }}
+            style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
           >
             {scaleStatus.status}
           </span>
@@ -9910,15 +10040,15 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
             </p>
             <span
               className={`inline-flex max-w-[65%] px-1.5 py-1 rounded-md text-[5.5px] sm:text-[6px] lg:text-[7px] font-black uppercase leading-tight text-center ${toneBadge(marginalDisplay.tone)}`}
-              style={{ overflowWrap: 'anywhere' }}
+              style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
             >
               {marginalDisplay.status}
             </span>
           </div>
 
           <p
-            className="mt-2 font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 break-words"
-            style={{ fontSize: 'clamp(18px, 1.45vw, 24px)', overflowWrap: 'anywhere' }}
+            className="cc-value mt-2 font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
+            style={{ fontSize: 'clamp(18px, 1.15vw, 23px)' }}
           >
             {marginalDisplay.value}
           </p>
@@ -9958,7 +10088,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
 
             <span
               className={`inline-flex self-start md:self-auto max-w-full px-2.5 py-1.5 rounded-full text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase leading-tight text-center ${toneBadge(diag.tone || 'neutral')}`}
-              style={{ overflowWrap: 'anywhere' }}
+              style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
             >
               {diag.status}
             </span>
@@ -10104,10 +10234,10 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
   const campaignColors = readingActionClassesCC(campaignTone);
 
   return (
-    <div className="space-y-5 min-w-0">
+    <div className="cc-reading-view space-y-5 min-w-0">
       {/* CAPA 1 · CAMPAÑA */}
       <section
-        className="min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
+        className="cc-diagnosis-card min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
         style={{ borderColor: campaignColors.border, boxShadow: `0 10px 28px ${campaignColors.border}12` }}
       >
         <div className="p-4 sm:p-5 lg:p-6">
@@ -10160,7 +10290,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           </div>
 
           {/* Métricas: nunca se fuerzan junto al texto. Tienen su propia fila */}
-          <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
             <QuickMetricCC label="CPA" value={fmtCpa(campaign3d.cpa)} previousValue={fmtCpa(campaignPrev3d.cpa)} delta={campaignDelta.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpa}/>
             <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(campaign3d.cpm)} previousValue={fmtMoneyOrDashCC(campaignPrev3d.cpm)} delta={campaignDelta.cpm} metric="cpm" sub="Costo de 1.000 impresiones" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.cpm}/>
             <QuickMetricCC label="CTR" value={fmtRate(campaign3d.ctr)} previousValue={fmtRate(campaignPrev3d.ctr)} delta={campaignDelta.ctr} metric="ctr" sub="Respuesta al anuncio" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={campaignOverview.metricStatus?.ctr}/>
@@ -10500,7 +10630,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
         return (
           <article
             key={ad.id}
-            className="min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
+            className="cc-diagnosis-card min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
             style={{ borderColor: colors.border, boxShadow: `0 8px 24px ${colors.border}10` }}
           >
             <div className="p-4 sm:p-5 lg:p-6">
@@ -10558,7 +10688,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               </div>
 
               {/* Métricas principales */}
-              <div className="grid grid-cols-2 md:grid-cols-3 min-[1380px]:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-2.5 sm:gap-3 mt-5">
                 <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpa}/>
                 <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={relational.metricStatus?.cpc?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpc}/>
                 <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={relational.metricStatus?.ctr?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.ctr}/>
@@ -10730,7 +10860,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     <p className="text-[8px] font-black uppercase text-slate-500">Contribución {periodLabel} · lo que aporta / drena</p>
                     <p className={`text-[11px] font-black mt-1 ${toneText(contributionTone)}`}>{analysisContribution?.status || 'Sin lectura'}</p>
                     <p className="text-[9px] text-slate-600 mt-2">{analysisContribution?.cause || 'Sin diagnóstico de contribución.'}</p>
-                    <div className="grid grid-cols-2 min-[1500px]:grid-cols-3 gap-2.5 mt-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-3">
                       <MiniCard label="Gasto campaña" value={fmtRate(analysisContribution?.spendShare)} />
                       <MiniCard label="Compras campaña" value={fmtRate(analysisContribution?.purchaseShare)} />
                       <MiniCard label="CPA anuncio" value={fmtCpa(analysisContribution?.cpa)} />
@@ -11114,7 +11244,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   );
 
   return (
-    <div className="space-y-5">
+    <div className="cc-module-view cc-diagnostic-detail space-y-5">
       <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 sm:p-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="min-w-0">
@@ -11288,7 +11418,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             </div>
           )}
         </div>
-        <div className="rounded-2xl p-3 bg-blue-50" style={{border:'2px solid #2563eb'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
+        <div className="rounded-2xl p-3 bg-blue-50" style={{border:'1px solid #bfdbfe'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
         <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Distribución / costo de impresiones</p><p className="text-[9px] text-slate-600 mt-1">CPM se lee en dos capas: tendencia vs período anterior y nivel actual. Un CPM puede subir y seguir saludable si permanece ≤ $10.000. Si supera $10.000 entra en revisión; la causa no se demuestra solo con CPM.</p></div>
       </div>
 
@@ -11322,7 +11452,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           <p className="text-[8px] font-black uppercase text-cyan-700">Regla de inclusión de datos</p>
           <p className="text-[9px] text-slate-600 mt-1">Los días en que la campaña o el anuncio estuvo OFF se excluyen totalmente de Último día/3D/7D/14D/30D, benchmark y escala rentable. HOY queda solo como monitor intradía y no participa en decisiones. Los días OFF no se convierten en ceros.</p>
         </div>
-        <div className="rounded-2xl p-3 bg-indigo-50" style={{border:'2px solid #6366f1'}}>
+        <div className="rounded-2xl p-3 bg-indigo-50" style={{border:'1px solid #c7d2fe'}}>
           <p className="text-[8px] font-black uppercase text-indigo-700">Jerarquía ON/OFF</p>
           <p className="text-[9px] text-slate-600 mt-1">Apagar campaña apaga sus anuncios. Al encenderla se restaura el estado individual previo. Apagar un anuncio no afecta a los demás.</p>
         </div>
@@ -11442,7 +11572,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
               ['Sin entrega Meta', adRows.filter(x => x.diag.metaDelivery3d?.isNoDelivery).length, 'bg-cyan-50 text-cyan-700 border-cyan-200']
             ].map(([label, value, cls]) => (
               <div key={label} className={`min-w-0 rounded-xl border p-2.5 ${cls}`}>
-                <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight" style={{ overflowWrap: 'anywhere' }}>{label}</p>
+                <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{label}</p>
                 <p className="text-sm sm:text-base font-black tabular-nums mt-1 whitespace-nowrap">{value}</p>
               </div>
             ))}
@@ -11539,12 +11669,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         {budgetRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
       </div>
 
-      <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'2px solid #059669'}}>
+      <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'1px solid #a7f3d0'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
         {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1180px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>Gasto/día</th><th>Compras/día</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{r.spendDay === null ? '—' : fmtMoney(r.spendDay)}</td><td>{r.purchasesDay === null ? '—' : fmtNum(r.purchasesDay, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? (r.marginalExtraSpendDay > 0 && r.marginalExtraPurchasesDay <= 0 ? 'SIN GANANCIA' : '—') : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
-      <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'2px solid #6366f1'}}>
+      <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'1px solid #c7d2fe'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-indigo-800">Línea de tiempo de decisiones</h4>
         {decisionRows.length ? <div className="space-y-2">{decisionRows.slice(0,30).map((r,i) => <div key={r.id} className="flex gap-3 rounded-xl pl-3 py-2" style={{border:`2px solid ${ccVisualAccent(r.id||r.action,i).border}`,backgroundColor:ccVisualAccent(r.id||r.action,i).soft}}><div className="text-[9px] text-slate-400 w-20 shrink-0">{r.date}</div><div><p className="text-[10px] font-black">{r.action}</p>{r.detail && <p className="text-[9px] text-slate-500">{r.detail}</p>}</div></div>)}</div> : <EmptyState>Sin decisiones registradas todavía.</EmptyState>}
       </div>
@@ -11716,7 +11846,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         })}</div> : <EmptyState>Sin anuncios activos.</EmptyState>}
       </div>
 
-      <div className="rounded-2xl p-3 md:p-4 bg-blue-50/40 shadow-sm" style={{border:'2px solid #2563eb'}}>
+      <div className="rounded-2xl p-3 md:p-4 bg-blue-50/40 shadow-sm" style={{border:'1px solid #bfdbfe'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-blue-800">Nivel de confianza del diagnóstico</h4>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px]"><div className="bg-rose-50 rounded-xl p-3 border-2 border-rose-200"><strong className="text-rose-700">&lt;5 compras</strong><br/>Baja</div><div className="bg-amber-50 rounded-xl p-3 border-2 border-amber-200"><strong className="text-amber-700">5–14</strong><br/>Media</div><div className="bg-blue-50 rounded-xl p-3 border-2 border-blue-200"><strong className="text-blue-700">15–29</strong><br/>Alta</div><div className="bg-emerald-50 rounded-xl p-3 border-2 border-emerald-200"><strong className="text-emerald-700">30+</strong><br/>Muy alta</div></div>
         <p className="text-[8px] text-slate-500 mt-2">Referencia de volumen: 1–4 compras = Baja · 5–14 = Media · 15–29 = Alta · 30+ = Muy alta. Este nivel informa cuánta evidencia hay, pero NO bloquea una escala. La antigüedad sigue ayudando a interpretar la confianza general del diagnóstico.</p>
@@ -12718,7 +12848,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     );
   };
 
-  return <div className="space-y-5">
+  return <div className="cc-module-view cc-manager space-y-5">
     {managerMessage && <div className={`rounded-2xl border p-3 text-[10px] font-black ${managerMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{managerMessage.type === 'success' ? '✓ ' : '⚠ '}{managerMessage.text}</div>}
     <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto · Lectura de campañas</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
     {products.length===0?<EmptyState>No existen productos en Lectura de Campañas.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}>
@@ -12790,7 +12920,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           <button type="button" onClick={()=>collapseAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronUp size={11}/> Contraer campañas</button>
         </div>
       </div>}
-      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id&&a.deleted!==true);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`2px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}10`}}>
+      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id&&a.deleted!==true);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`1px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}0d`}}>
         <button
           type="button"
           aria-expanded={isOpen}
@@ -12906,7 +13036,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           </div>
 
           {adsOpen&&<div className="border-t p-3" style={{borderColor:campaignAccent.border,backgroundColor:'#ffffff'}}>
-          {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="rounded-xl p-2.5 flex items-center justify-between gap-2" style={{border:`2px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5 flex-wrap justify-end"><StateBadge active={ad.active!==false}/><button title="Editar nombre del anuncio" onClick={()=>editAdName(ad,campaign)} className="px-2 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={10}/> Editar</button><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar de la configuración activa conservando histórico y bitácora" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
+          {!campaign.archived&&<div className="flex gap-2 mb-3"><input value={adNameByCampaign[campaign.id]||''} onChange={e=>setAdNameByCampaign(x=>({...x,[campaign.id]:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addAd(campaign);}}} placeholder="Nombre nuevo anuncio" className="flex-1 bg-white border rounded-xl px-3 py-2 text-xs font-bold"/><button type="button" disabled={busyKey === `ad:${campaign.id}`} onClick={()=>addAd(campaign)} className="bg-emerald-500 text-zinc-950 px-3 rounded-xl text-[9px] font-black uppercase disabled:opacity-50"><Plus size={12} className="inline"/> {busyKey === `ad:${campaign.id}` ? 'Creando...' : 'Anuncio'}</button></div>}{campaignAds.length===0?<EmptyState>Sin anuncios.</EmptyState>:<div className="space-y-2">{campaignAds.map(ad=>{const adAccent=ccVisualAccent(ad.id||ad.name,4);return <div key={ad.id} className="cc-manager-ad rounded-xl p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" style={{border:`1px solid ${adAccent.border}`,backgroundColor:adAccent.soft}}><div className="min-w-0"><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full" style={{backgroundColor:adAccent.border}}></span><p className="text-[10px] font-black" style={{color:adAccent.text}}>{ad.name}</p></div><p className="text-[8px] text-slate-400">Alta {ad.createdDate||'—'} · datos desde {ad.effectiveStartDate||ad.createdDate||'—'} · último cambio {ad.stateChangedDate||'—'} · {campaign.active===false?'apagado por campaña':ad.active===false?'excluido de métricas':'incluido en métricas'}</p></div><div className="flex items-center gap-1.5 flex-wrap justify-end"><StateBadge active={ad.active!==false}/><button title="Editar nombre del anuncio" onClick={()=>editAdName(ad,campaign)} className="px-2 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={10}/> Editar</button><button disabled={campaign.archived} onClick={()=>toggleAd(ad,campaign)} className={`px-2 py-1.5 rounded-lg text-[8px] font-black ${ad.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'} disabled:opacity-30`}>{ad.active===false?'Encender':'Apagar'}</button><button title="Eliminar de la configuración activa conservando histórico y bitácora" onClick={()=>deleteAd(ad,campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button></div></div>})}</div>}</div>}
         </div>}
       </div>})}</div>
       </div>}
@@ -13130,7 +13260,7 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
   const totalCampaigns = availableCampaignsForDate.length;
 
   return (
-    <div className="space-y-5">
+    <div className="cc-module-view cc-daily-register space-y-5">
       <SectionCard accent="#0891b2" soft="#ecfeff">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
@@ -13601,7 +13731,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
   const included = entityActiveOnDate(campaign, date);
 
-  return <div className="p-3 space-y-4 bg-white">
+  return <div className="cc-daily-editor p-3 sm:p-4 space-y-4 bg-white">
     <div className={`rounded-xl p-3 border ${included ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-200'}`}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
         <div>
@@ -13612,7 +13742,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       </div>
     </div>
 
-    <div className="rounded-2xl p-3 bg-indigo-50/50" style={{border:'2px solid #6366f1'}}>
+    <div className="rounded-2xl p-3 bg-indigo-50/50" style={{border:'1px solid #c7d2fe'}}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
         <div><p className="font-black text-xs uppercase text-indigo-800">Importar CSV de Meta Ads</p><p className="text-[8px] text-slate-400 mt-1">El archivo se aplica solo a {campaign.name}. Matching por nombre normalizado; nunca por ID de Meta. Los anuncios activos que Meta omita por no tener entrega se completan automáticamente en 0. Si el CSV marca un anuncio como desactivado/pausado, se ignora y NO se crea en la plataforma.</p></div>
         <label className="cursor-pointer bg-zinc-950 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase flex items-center gap-2"><FileUp size={13}/> Seleccionar CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleCsv(e.target.files?.[0])}/></label>
@@ -13620,7 +13750,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       {csvPreview && <CsvPreview rows={csvPreview} onApply={applyCsv}/>}
     </div>
 
-    <div className="rounded-2xl p-3 bg-blue-50/40" style={{border:'2px solid #2563eb'}}>
+    <div className="rounded-2xl p-3 bg-blue-50/40" style={{border:'1px solid #bfdbfe'}}>
       <p className="font-black text-xs uppercase mb-3 text-blue-800">Métricas generales de campaña</p>
 
       <div className={`rounded-xl border p-3 mb-3 ${
@@ -13668,7 +13798,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       </div>
     </div>
 
-    <div className="rounded-2xl p-3 bg-emerald-50/40" style={{border:'2px solid #059669'}}>
+    <div className="rounded-2xl p-3 bg-emerald-50/40" style={{border:'1px solid #a7f3d0'}}>
       <p className="font-black text-xs uppercase mb-3 text-emerald-800">Anuncios de la campaña</p>
       {adsForDate.length === 0 ? <EmptyState>No hay anuncios activos para esta fecha. Los anuncios apagados/eliminados se consultan en la Bitácora de cambios.</EmptyState> :
         <div className="space-y-3">{adsForDate.map(ad => {
@@ -13679,7 +13809,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
             key={ad.id}
             className={`rounded-2xl p-3 ${activeThisDate ? '' : 'opacity-75'}`}
             style={{
-              border: `2px solid ${adAccent.border}`,
+              border: `1px solid ${adAccent.border}`,
               backgroundColor: activeThisDate ? adAccent.soft : '#f8fafc'
             }}
           >
@@ -13906,10 +14036,10 @@ function MetricForm({ form, setForm, includeBudget = false, disabled = false }) 
     setForm(prev => ({ ...(prev || {}), [key]: value }));
   };
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
+    <div className="cc-metric-form grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-2.5">
       {fields.map(([key, label]) => (
         <div key={key} className="min-w-0">
-          <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight text-slate-400 mb-1" style={{ overflowWrap: 'anywhere' }}>
+          <p className="text-[7px] sm:text-[8px] font-black uppercase leading-tight text-slate-400 mb-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
             {label}
           </p>
           <input
@@ -13933,7 +14063,7 @@ function CsvPreview({ rows, onApply }) {
   const ignoredInactive = rows.filter(r => r.status === 'ignored_inactive').length;
   const conflicts = rows.filter(r => r.status === 'conflict').length;
 
-  return <div className="space-y-3 rounded-2xl p-3 bg-amber-50/50" style={{border:'2px solid #d97706'}}>
+  return <div className="space-y-3 rounded-2xl p-3 sm:p-4 bg-amber-50/50" style={{border:'1px solid #f59e0b'}}>
     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
       <MiniCard label="Existentes Meta" value={existing} tone="good" />
       <MiniCard label="Nuevos" value={news} />
