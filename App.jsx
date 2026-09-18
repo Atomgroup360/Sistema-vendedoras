@@ -4979,7 +4979,6 @@ function CampaignDashboard({
   const [search, setSearch] = useState('');
   const [drawerCampaignId, setDrawerCampaignId] = useState('');
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
-  const [attentionOpen, setAttentionOpen] = useState(false);
   const [auditHighlightBusyId, setAuditHighlightBusyId] = useState('');
 
   const activeCampaignList = activeCampaigns.filter(c => !c.archived);
@@ -5170,61 +5169,74 @@ function CampaignDashboard({
         </div>
       </div>
 
-      {/* QUE REQUIERE ATENCION: DESPLEGABLE */}
-      <SectionCard accent="#f59e0b" soft="#fffbeb">
-        <button
-          type="button"
-          aria-expanded={attentionOpen}
-          onClick={()=>setAttentionOpen(v=>!v)}
-          className="w-full flex items-center justify-between gap-3 text-left"
-        >
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-black uppercase text-sm text-amber-800">Qué requiere mi atención hoy</h3>
-              <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${
-                attentionRows.length ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-              }`}>
-                {attentionRows.length} señal(es)
-              </span>
-            </div>
-            <p className="text-[9px] text-slate-400 mt-1">El último día completo funciona como alerta temprana. La acción operativa mostrada siempre se determina con 3D.</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="hidden md:inline px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Prioridad automática</span>
-            {attentionOpen ? <ChevronUp size={16} className="text-amber-700"/> : <ChevronDown size={16} className="text-amber-700"/>}
-          </div>
-        </button>
+      {/* KPIs · RESUMEN OPERATIVO */}
 
-        {attentionOpen && <div className="mt-4 pt-4 border-t border-amber-200">
-          {attentionRows.length===0 ? <EmptyState>Sin anuncios activos con diagnóstico disponible.</EmptyState> :
-            <div className="space-y-2">{attentionRows.slice(0,12).map(({ad,campaign,product,diag})=>(
-              <button key={ad.id} onClick={()=>openDrawer(campaign.id)} className={`w-full text-left rounded-2xl border p-3 ${diag.priority==='critical'?'bg-rose-50 border-rose-200':diag.priority==='alert'?'bg-orange-50 border-orange-200':'bg-slate-50'}`}>
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[9px] font-black uppercase text-slate-500">{product.name} → {campaign.name} → {ad.name}</p>
-                    <p className="font-black text-xs mt-1">{diag.finalDiagnosis || diag.diagnosis}</p>
-                    <p className="text-[9px] text-slate-500 mt-1">{diag.reason}</p>
-                    <p className="text-[8px] font-black text-indigo-700 mt-2">DECISIÓN 3D: {diag.operational3dDiagnosis}</p>
-                  </div>
-                  <div className="md:text-right">
-                    <p className="text-[8px] uppercase font-black text-slate-400">Acción operativa · 3D</p>
-                    <p className="text-[10px] font-black">{diag.operational3dAction}</p>
-                  </div>
-                </div>
-              </button>
-            ))}</div>
-          }
-        </div>}
-      </SectionCard>
-
-      {/* KPIs VALIDADO */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6 gap-2.5 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 sm:gap-3">
         <MiniCard label="Productos activos" value={activeProducts.length} />
         <MiniCard label="Escalables" value={scalableCount} tone={scalableCount?'good':'default'} />
         <MiniCard label="Mantener" value={maintainCount} />
         <MiniCard label="En alerta" value={alertCount} />
         <MiniCard label="Críticos" value={criticalCount} tone={criticalCount?'bad':'default'} />
-        <MiniCard label="Gasto último cierre" value={fmtMoney(totalSpend)} />
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-3.5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-5">
+          <div className="lg:w-[230px] lg:shrink-0">
+            <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wide text-slate-500">
+              Último cierre consolidado
+            </p>
+            <p className="text-[7px] sm:text-[8px] text-slate-400 mt-1 leading-relaxed">
+              Resultado conjunto de todas las campañas activas usando el último cierre completo disponible de cada campaña.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2 flex-1 min-w-0">
+            <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
+                Gasto total
+              </p>
+              <p
+                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
+                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+              >
+                {fmtMoney(totalSpend)}
+              </p>
+              <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">
+                Todas las campañas
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
+                Ventas totales
+              </p>
+              <p
+                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
+                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+              >
+                {fmtNum(totalPurchases, 0)}
+              </p>
+              <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">
+                Compras del último cierre
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-xl border border-blue-100 bg-blue-50/55 px-3 py-2.5">
+              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-blue-600">
+                CPA ponderado global
+              </p>
+              <p
+                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
+                style={{ fontSize: 'clamp(13px, 1.15vw, 18px)' }}
+              >
+                {globalCpa !== null ? fmtMoney(globalCpa) : '—'}
+              </p>
+              <p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1">
+                Gasto total ÷ ventas totales
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <SectionCard className="border-dashed" accent="#2563eb" soft="#eff6ff">
@@ -5344,24 +5356,8 @@ function CampaignDashboard({
         </div>
       </SectionCard>
 
-      {/* PRIORIDADES DE ACCION HOY */}
-      <SectionCard accent="#ea580c" soft="#fff7ed">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-black uppercase text-sm text-orange-800">Prioridades de acción hoy</h3>
-          <span className="text-[8px] text-slate-400 font-black uppercase">Lo más importante primero</span>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {campaignRows.filter(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)).slice(0,3).map(r=>(
-            <button key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className={`text-left rounded-2xl border p-3 ${r.state==='Crítico'?'bg-rose-50 border-rose-200':r.state==='Alerta'?'bg-orange-50 border-orange-200':'bg-emerald-50 border-emerald-200'}`}>
-              <p className="font-black text-xs">{r.state==='Crítico'?'🔴':r.state==='Alerta'?'🟠':'🟢'} {r.product?.name} — {r.campaign.name}</p>
-              <p className="text-[9px] text-slate-600 mt-1">CPA {r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}. Acción: {r.action}.</p>
-            </button>
-          ))}
-          {!campaignRows.some(r=>r.lastComplete && ['Crítico','Alerta','Escalable'].includes(r.state)) && <EmptyState>Sin prioridades especiales según el último día completo registrado.</EmptyState>}
-        </div>
-      </SectionCard>
-
       {/* DRAWER LATERAL COMO EN LA VERSION VALIDADA */}
+
       {drawerCampaign && (
         <>
           <div className="fixed inset-0 bg-black/35 z-[80]" onClick={()=>setDrawerCampaignId('')}></div>
