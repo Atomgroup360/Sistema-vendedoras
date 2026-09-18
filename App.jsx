@@ -12,7 +12,7 @@ import {
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
   Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,
   Archive, ArchiveRestore, CircleDollarSign, FileUp, Gauge, RefreshCcw,
-  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download
+  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download, Paintbrush
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
@@ -4980,8 +4980,31 @@ function CampaignDashboard({
   const [drawerCampaignId, setDrawerCampaignId] = useState('');
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
   const [attentionOpen, setAttentionOpen] = useState(false);
+  const [auditHighlightBusyId, setAuditHighlightBusyId] = useState('');
 
   const activeCampaignList = activeCampaigns.filter(c => !c.archived);
+
+  const toggleCampaignAuditHighlight = async (event, campaign) => {
+    event?.stopPropagation?.();
+    if (!campaign?.id || auditHighlightBusyId) return;
+
+    const next = campaign.dashboardAuditedHighlight !== true;
+    setAuditHighlightBusyId(campaign.id);
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), {
+        dashboardAuditedHighlight: next,
+        dashboardAuditedHighlightDate: next ? todayColombiaCC() : null,
+        dashboardAuditedHighlightAt: next ? serverTimestamp() : null,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Lectura de Campañas · resaltador de auditoría', error);
+      window.alert(error?.message || 'No fue posible actualizar el resaltador de auditoría.');
+    } finally {
+      setAuditHighlightBusyId('');
+    }
+  };
 
   const campaignRows = useMemo(() => activeCampaignList.map(c => {
     const product = products.find(p => p.id === c.productId);
@@ -5234,6 +5257,20 @@ function CampaignDashboard({
 
       {/* TABLA PRINCIPAL DE CAMPAÑAS - CLIC ABRE DRAWER */}
       <SectionCard className="p-0 overflow-hidden" accent="#6366f1" soft="#eef2ff">
+        <div className="px-3 py-2.5 border-b border-slate-100 bg-amber-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <Paintbrush size={13}/>
+            </span>
+            <div className="min-w-0">
+              <p className="text-[8px] font-black uppercase text-amber-800">Resaltador de auditoría</p>
+              <p className="text-[7px] sm:text-[8px] text-slate-500 mt-0.5 leading-relaxed">
+                Usa el pincel para marcar las campañas que ya revisaste. El color permanece guardado hasta que vuelvas a presionarlo.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto overscroll-x-contain">
           <table className="w-full min-w-[1350px] text-[10px]">
             <thead className="bg-slate-50">
@@ -5246,9 +5283,48 @@ function CampaignDashboard({
             <tbody>
               {filteredRows.length===0 ? <tr><td colSpan="13" className="p-8 text-center text-slate-400">No hay campañas que coincidan con el filtro.</td></tr> :
                 filteredRows.map(r=>(
-                  <tr key={r.campaign.id} onClick={()=>openDrawer(r.campaign.id)} className="border-t hover:bg-slate-50 cursor-pointer">
-                    <td className="p-3"><span className={`px-2 py-1 rounded-full font-black ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>● {r.state}</span></td>
-                    <td><p className="font-black">{r.product?.name||'Producto'}</p><p className="text-[8px] text-slate-400">{r.campaign.name}</p></td>
+                  <tr
+                    key={r.campaign.id}
+                    onClick={()=>openDrawer(r.campaign.id)}
+                    className={`border-t cursor-pointer transition-colors ${
+                      r.campaign.dashboardAuditedHighlight === true
+                        ? 'bg-amber-100/80 hover:bg-amber-100'
+                        : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={event => toggleCampaignAuditHighlight(event, r.campaign)}
+                          disabled={auditHighlightBusyId === r.campaign.id}
+                          title={r.campaign.dashboardAuditedHighlight === true ? 'Quitar resaltado de auditoría' : 'Marcar campaña como auditada'}
+                          aria-label={r.campaign.dashboardAuditedHighlight === true ? 'Quitar resaltado de auditoría' : 'Marcar campaña como auditada'}
+                          className={`shrink-0 w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-all disabled:opacity-50 ${
+                            r.campaign.dashboardAuditedHighlight === true
+                              ? 'bg-amber-400 border-amber-500 text-zinc-950 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-400 hover:text-amber-700 hover:border-amber-300 hover:bg-amber-50'
+                          }`}
+                        >
+                          <Paintbrush size={13}/>
+                        </button>
+
+                        <span className={`px-2 py-1 rounded-full font-black whitespace-nowrap ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>
+                          ● {r.state}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-black">{r.product?.name||'Producto'}</p>
+                        {r.campaign.dashboardAuditedHighlight === true ? (
+                          <span className="px-1.5 py-0.5 rounded-md bg-amber-300/80 text-amber-900 text-[6px] font-black uppercase">
+                            Auditada
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-[8px] text-slate-400">{r.campaign.name}</p>
+                    </td>
                     <td className="font-black">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
                     <td className={`font-black ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}</td>
                     <td>{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</td>
