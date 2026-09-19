@@ -12155,7 +12155,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                             <span className={`shrink-0 w-5 h-5 rounded-md border inline-flex items-center justify-center ${
                               checked ? 'bg-white text-indigo-700 border-white' : 'bg-slate-50 border-slate-300 text-transparent'
                             }`}>
-                              <Check size={12}/>
+                              <CheckCircle2 size={12}/>
                             </span>
                             <span className="min-w-0 text-[9px] font-black leading-tight break-words">
                               {ad.name}
