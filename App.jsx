@@ -4694,9 +4694,37 @@ function CampaignActionBoardCC({
           {rows.map(item => {
             const campaign = campaigns.find(c => c.id === item.campaignId);
             const product = products.find(p => p.id === item.productId);
-            const ad =
-              ads.find(a => a.id === item.adId) ||
-              (item.adId ? { name: item.adNameSnapshot || 'Anuncio relacionado' } : null);
+
+            const relatedAdIds = Array.isArray(item.adIds) && item.adIds.length
+              ? item.adIds
+              : (item.adId ? [item.adId] : []);
+
+            const snapshotNames = Array.isArray(item.adNamesSnapshot)
+              ? item.adNamesSnapshot.filter(Boolean)
+              : [];
+
+            const relatedAds = relatedAdIds.map((adId, index) => {
+              const liveAd = ads.find(a => a.id === adId);
+              const snapshotName =
+                snapshotNames[index] ||
+                (adId === item.adId ? item.adNameSnapshot : null) ||
+                `Anuncio ${index + 1}`;
+
+              return {
+                id: adId,
+                name: liveAd?.name || snapshotName
+              };
+            });
+
+            // Compatibilidad adicional: si existen nombres múltiples guardados
+            // pero no IDs (por ejemplo, futuros imports o registros migrados).
+            const relatedAdNames = relatedAds.length
+              ? relatedAds.map(ad => ad.name)
+              : snapshotNames.length
+                ? snapshotNames
+                : item.adNameSnapshot
+                  ? [item.adNameSnapshot]
+                  : [];
 
             return (
               <div
@@ -4718,11 +4746,14 @@ function CampaignActionBoardCC({
                         {view === 'pending' ? 'Pendiente' : 'Aprobada'}
                       </span>
 
-                      {ad ? (
-                        <span className="max-w-full px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[7px] font-black uppercase">
-                          {ad.name}
+                      {relatedAdNames.map((adName, index) => (
+                        <span
+                          key={`${item.id}_related_ad_${index}`}
+                          className="max-w-full px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[7px] font-black uppercase break-words"
+                        >
+                          {adName}
                         </span>
-                      ) : null}
+                      ))}
                     </div>
 
                     <p className="text-[11px] sm:text-xs font-black text-zinc-900 mt-2 leading-relaxed break-words">
@@ -4759,6 +4790,39 @@ function CampaignActionBoardCC({
                       </p>
                     </div>
                   </div>
+
+                  {relatedAdNames.length ? (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-200">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-[6.5px] font-black uppercase text-slate-400">
+                          Anuncios relacionados
+                        </p>
+                        <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[6.5px] font-black uppercase">
+                          {relatedAdNames.length} anuncio{relatedAdNames.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {relatedAdNames.map((adName, index) => (
+                          <span
+                            key={`${item.id}_summary_ad_${index}`}
+                            className="px-2 py-1 rounded-lg bg-white border border-indigo-100 text-indigo-700 text-[7px] font-bold break-words"
+                          >
+                            {adName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-200">
+                      <p className="text-[6.5px] font-black uppercase text-slate-400">
+                        Anuncios relacionados
+                      </p>
+                      <p className="text-[7px] text-slate-500 mt-1">
+                        Acción general de campaña
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {view === 'pending' ? (
