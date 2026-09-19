@@ -10288,7 +10288,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   );
 }
 
-function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null, onAdAction = null, adActionBusyId = '', onRegisterPlaybookAction = null, campaignPoda = null, onExecutePoda = null }) {
+function CampaignReadingView({ campaign, product, adRows, campaignHistory, campaignDecision, benchmark, analysisPeriod = '3d', changeSafety = null, currentScaleStatus = null, onAdAction = null, adActionBusyId = '', onRegisterPlaybookAction = null, onOpenActionDraft = null, campaignPoda = null, onExecutePoda = null }) {
   const [expandedReadAds, setExpandedReadAds] = useState({});
   const [playbookHelpOpen, setPlaybookHelpOpen] = useState(false);
   const periodLabel = periodLabelCC(analysisPeriod);
@@ -10812,8 +10812,18 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     Prioridad: {relational.impact.level}
                   </p>
 
+                  {onOpenActionDraft ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenActionDraft(ad)}
+                      className="w-full mt-3 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[8px] sm:text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700"
+                    >
+                      <ListChecks size={13}/> Registrar acción
+                    </button>
+                  ) : null}
+
                   {onAdAction ? (
-                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-200/70">
+                    <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-200/70">
                       <button
                         type="button"
                         disabled={adActionBusyId === ad.id}
@@ -11094,13 +11104,21 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   const [planActionOpen, setPlanActionOpen] = useState(false);
   const [planActionText, setPlanActionText] = useState('');
   const [planActionNote, setPlanActionNote] = useState('');
-  const [planActionAdId, setPlanActionAdId] = useState('');
+  const [planActionAdIds, setPlanActionAdIds] = useState([]);
   const [planActionBusy, setPlanActionBusy] = useState(false);
   const [planActionMessage, setPlanActionMessage] = useState('');
 
   useEffect(() => {
     if (['last', '3d', '7d', '14d', '30d'].includes(period)) setMonitorPeriod(period);
   }, [period]);
+
+  useEffect(() => {
+    setPlanActionOpen(false);
+    setPlanActionText('');
+    setPlanActionNote('');
+    setPlanActionAdIds([]);
+    setPlanActionMessage('');
+  }, [campaign.id]);
 
   const visibleAds = ads.filter(a => a.deleted !== true && a.active !== false && campaign.active !== false && !campaign.archived);
 
@@ -11171,10 +11189,41 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     x => x.campaignId === campaign.id && x.status !== 'approved'
   );
 
+  const togglePlanActionAd = adId => {
+    if (!adId) return;
+    setPlanActionAdIds(current =>
+      current.includes(adId)
+        ? current.filter(id => id !== adId)
+        : [...current, adId]
+    );
+    setPlanActionMessage('');
+  };
+
+  const clearPlanActionDraft = () => {
+    if (planActionBusy) return;
+    setPlanActionText('');
+    setPlanActionNote('');
+    setPlanActionAdIds([]);
+    setPlanActionMessage('');
+  };
+
+  const openPlanActionDraft = ad => {
+    if (ad?.id && ad.active !== false && ad.deleted !== true) {
+      setPlanActionAdIds(current =>
+        current.includes(ad.id) ? current : [...current, ad.id]
+      );
+    }
+    setPlanActionMessage('');
+    setPlanActionOpen(true);
+  };
+
   const savePlannedAction = async () => {
     const actionText = String(planActionText || '').trim();
     const note = String(planActionNote || '').trim();
-    const relatedAd = ads.find(a => a.id === planActionAdId) || null;
+
+    const selectedAds = visibleAds.filter(ad => planActionAdIds.includes(ad.id));
+    const selectedAdIds = selectedAds.map(ad => ad.id);
+    const selectedAdNames = selectedAds.map(ad => ad.name);
 
     if (!actionText) {
       setPlanActionMessage('Escribe la acción que deseas registrar.');
@@ -11191,8 +11240,16 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         productNameSnapshot: product?.name || null,
         campaignId: campaign.id,
         campaignNameSnapshot: campaign.name || null,
-        adId: relatedAd?.id || null,
-        adNameSnapshot: relatedAd?.name || null,
+
+        // Compatibilidad con registros anteriores / UI existente.
+        adId: selectedAdIds[0] || null,
+        adNameSnapshot: selectedAdNames.length ? selectedAdNames.join(' · ') : null,
+
+        // Relación múltiple nueva.
+        adIds: selectedAdIds,
+        adNamesSnapshot: selectedAdNames,
+        relatedAdsCount: selectedAdIds.length,
+
         actionText,
         note,
         status: 'pending',
@@ -11203,10 +11260,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         updatedAt: serverTimestamp()
       });
 
+      // Guardar = cerrar y limpiar borrador.
       setPlanActionOpen(false);
       setPlanActionText('');
       setPlanActionNote('');
-      setPlanActionAdId('');
+      setPlanActionAdIds([]);
+      setPlanActionMessage('');
     } catch (error) {
       console.error('Lectura de Campañas · registrar acción', error);
       setPlanActionMessage(error?.message || 'No fue posible registrar la acción.');
@@ -11217,9 +11276,21 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
   const requestPlaybookAction = (playbook, ad) => {
     if (!playbook?.agendaAction) return;
-    setPlanActionText(playbook.agendaAction);
-    setPlanActionNote(playbook.agendaNote || playbook.action || '');
-    setPlanActionAdId(ad?.id || '');
+
+    // Si ya existe un borrador manual, no lo sobreescribe.
+    setPlanActionText(current =>
+      String(current || '').trim() ? current : playbook.agendaAction
+    );
+    setPlanActionNote(current =>
+      String(current || '').trim() ? current : (playbook.agendaNote || playbook.action || '')
+    );
+
+    if (ad?.id && ad.active !== false && ad.deleted !== true) {
+      setPlanActionAdIds(current =>
+        current.includes(ad.id) ? current : [...current, ad.id]
+      );
+    }
+
     setPlanActionMessage('');
     setPlanActionOpen(true);
   };
@@ -11412,10 +11483,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
             <button
               type="button"
-              onClick={() => {
-                setPlanActionOpen(true);
-                setPlanActionMessage('');
-              }}
+              onClick={() => openPlanActionDraft(null)}
               className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm"
             >
               <Plus size={14}/> Registrar acción
@@ -11506,6 +11574,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           onAdAction={requestAdAction}
           adActionBusyId={adActionBusyId}
           onRegisterPlaybookAction={requestPlaybookAction}
+          onOpenActionDraft={openPlanActionDraft}
           campaignPoda={campaignPoda}
           onExecutePoda={requestPodaExecution}
         />
@@ -12004,7 +12073,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       )}
       {planActionOpen ? (
         <div className="fixed inset-0 z-[145] bg-zinc-950/55 backdrop-blur-[1px] flex items-center justify-center p-3 sm:p-4">
-          <div className="w-full max-w-xl rounded-3xl bg-white border border-slate-200 shadow-2xl p-4 sm:p-5">
+          <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white border border-slate-200 shadow-2xl p-4 sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[8px] font-black uppercase tracking-wide text-indigo-600">
@@ -12016,16 +12085,32 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                 <p className="text-[8px] text-slate-500 mt-1">
                   Fecha de registro: {formatIsoDateCC(todayColombiaCC())}
                 </p>
+                <p className="text-[8px] font-semibold text-indigo-600 mt-1">
+                  Borrador persistente: puedes cerrar esta ventana y continuar después.
+                </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => !planActionBusy && setPlanActionOpen(false)}
-                disabled={planActionBusy}
-                className="shrink-0 p-2 rounded-xl bg-slate-100 text-slate-500 disabled:opacity-40"
-              >
-                <X size={15}/>
-              </button>
+              <div className="shrink-0 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={clearPlanActionDraft}
+                  disabled={planActionBusy || (!planActionText && !planActionNote && planActionAdIds.length === 0)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-rose-50 text-rose-700 text-[8px] font-black uppercase disabled:opacity-30"
+                  title="Borrar todo el borrador actual"
+                >
+                  <Trash2 size={12}/> Limpiar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => !planActionBusy && setPlanActionOpen(false)}
+                  disabled={planActionBusy}
+                  className="p-2 rounded-xl bg-slate-100 text-slate-500 disabled:opacity-40"
+                  title="Cerrar conservando el borrador"
+                >
+                  <X size={15}/>
+                </button>
+              </div>
             </div>
 
             <div className="mt-4">
@@ -12040,23 +12125,55 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_220px] gap-3 mt-3">
               <div>
-                <label className="text-[8px] font-black uppercase text-slate-500">
-                  Anuncio relacionado · opcional
-                </label>
-                <select
-                  value={planActionAdId}
-                  onChange={e => setPlanActionAdId(e.target.value)}
-                  className="w-full mt-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[9px] font-bold text-zinc-700 outline-none"
-                >
-                  <option value="">Acción general de campaña</option>
-                  {ads.filter(a => a.deleted !== true).map(ad => (
-                    <option key={ad.id} value={ad.id}>
-                      {ad.name}{ad.active === false ? ' · OFF' : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="text-[8px] font-black uppercase text-slate-500">
+                    Anuncios activos relacionados · opcional
+                  </label>
+                  <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[7px] font-black uppercase">
+                    {planActionAdIds.length} seleccionado{planActionAdIds.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                <div className="mt-1.5 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                  {visibleAds.length ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {visibleAds.map(ad => {
+                        const checked = planActionAdIds.includes(ad.id);
+                        return (
+                          <button
+                            key={ad.id}
+                            type="button"
+                            onClick={() => togglePlanActionAd(ad.id)}
+                            className={`min-w-0 flex items-center gap-2.5 text-left px-3 py-2.5 rounded-xl border transition ${
+                              checked
+                                ? 'bg-indigo-600 border-indigo-600 text-white'
+                                : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300'
+                            }`}
+                          >
+                            <span className={`shrink-0 w-5 h-5 rounded-md border inline-flex items-center justify-center ${
+                              checked ? 'bg-white text-indigo-700 border-white' : 'bg-slate-50 border-slate-300 text-transparent'
+                            }`}>
+                              <Check size={12}/>
+                            </span>
+                            <span className="min-w-0 text-[9px] font-black leading-tight break-words">
+                              {ad.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[8px] text-slate-500">
+                      No hay anuncios activos disponibles. La acción se registrará a nivel campaña.
+                    </p>
+                  )}
+                </div>
+
+                <p className="text-[7px] text-slate-400 mt-1.5 leading-relaxed">
+                  Puedes asociar la misma acción a uno o varios anuncios activos. Si no eliges ninguno, queda como acción general de campaña.
+                </p>
               </div>
 
               <div>
@@ -12090,14 +12207,24 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
               </div>
             ) : null}
 
-            <div className="grid grid-cols-2 gap-2 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
               <button
                 type="button"
                 onClick={() => !planActionBusy && setPlanActionOpen(false)}
                 disabled={planActionBusy}
                 className="px-3 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-[9px] font-black uppercase disabled:opacity-40"
+                title="Cerrar sin perder el borrador"
               >
-                Cancelar
+                Cerrar borrador
+              </button>
+
+              <button
+                type="button"
+                onClick={clearPlanActionDraft}
+                disabled={planActionBusy || (!planActionText && !planActionNote && planActionAdIds.length === 0)}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[9px] font-black uppercase disabled:opacity-30"
+              >
+                <Trash2 size={13}/> Limpiar borrador
               </button>
 
               <button
