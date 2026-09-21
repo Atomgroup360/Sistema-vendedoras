@@ -6948,6 +6948,73 @@ function GuardrailPill({ ok, label }) {
   );
 }
 
+function actionPrimaryBadgeClassCC(label, tone = 'normal') {
+  if (label === 'ESCALAR') return 'bg-emerald-600 text-white border border-emerald-700 shadow-sm';
+  if (label === 'PAUSAR') return 'bg-rose-600 text-white border border-rose-700 shadow-sm';
+  if (label === 'VIGILAR') return 'bg-amber-500 text-zinc-950 border border-amber-600 shadow-sm';
+  if (label === 'MANTENER') return 'bg-blue-600 text-white border border-blue-700 shadow-sm';
+  return toneBadge(tone);
+}
+
+function scaleAuthorizationBadgeClassCC(scaleAuthorization) {
+  if (!scaleAuthorization) return 'bg-slate-100 text-slate-700 border border-slate-200';
+  if (scaleAuthorization.allowed) {
+    if (scaleAuthorization.code === 'N1') return 'bg-emerald-50 text-emerald-800 border border-emerald-300';
+    if (['N2','N3','N4','CEILING'].includes(scaleAuthorization.code)) return 'bg-emerald-100 text-emerald-800 border border-emerald-400';
+  }
+  return 'bg-rose-50 text-rose-700 border border-rose-200';
+}
+
+function contributionBadgeClassCC(status) {
+  if (status === 'Drena la campaña') return 'bg-rose-100 text-rose-700 border border-rose-200';
+  if (status === 'Aporta fuertemente' || status === 'Aporta') return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
+  if (status === 'Bajo aporte / vigilar' || status === 'Sin entrega de Meta') return 'bg-slate-100 text-slate-700 border border-slate-200';
+  return 'bg-slate-100 text-slate-600 border border-slate-200';
+}
+
+function diagnosticPriorityTupleCC(row) {
+  const actionLabel = row?.action?.label || '';
+  const actionTone = row?.action?.tone || 'normal';
+  const contributionStatus = row?.contribution?.status || row?.analysisContribution?.status || '';
+
+  const tier = contributionStatus === 'Drena la campaña' || actionLabel === 'PAUSAR'
+    ? 0
+    : actionLabel === 'VIGILAR' && actionTone === 'critical'
+      ? 1
+      : actionLabel === 'VIGILAR' && actionTone === 'alert'
+        ? 2
+        : actionLabel === 'VIGILAR'
+          ? 3
+          : actionLabel === 'ESCALAR'
+            ? 4
+            : actionLabel === 'MANTENER'
+              ? 5
+              : 6;
+
+  const contributionRank = contributionStatus === 'Drena la campaña'
+    ? 0
+    : contributionStatus === 'Bajo aporte / vigilar' || contributionStatus === 'Sin entrega de Meta'
+      ? 1
+      : contributionStatus === 'Aporta fuertemente' || contributionStatus === 'Aporta'
+        ? 3
+        : 2;
+
+  const toneRank = actionTone === 'critical' ? 0 : actionTone === 'alert' ? 1 : actionTone === 'attention' ? 2 : actionTone === 'good' ? 4 : 3;
+  const priorityScore = Number(row?.relational?.priorityScore || 0);
+  const cpa = Number(row?.readingDiag?.scale3d?.cpa || row?.diag?.stats?.cpa || 0);
+  return [tier, contributionRank, toneRank, -priorityScore, -cpa];
+}
+
+function compareDiagnosticRowsCC(a, b) {
+  const A = diagnosticPriorityTupleCC(a);
+  const B = diagnosticPriorityTupleCC(b);
+  for (let i = 0; i < Math.max(A.length, B.length); i += 1) {
+    const diff = (A[i] || 0) - (B[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return String(a?.ad?.name || '').localeCompare(String(b?.ad?.name || ''));
+}
+
 function buildProductBenchmark(productId, dailyAds, dailyCampaigns, maxCpa, allAds = [], allCampaigns = []) {
   const max = Math.max(1, toNumber(maxCpa));
   const today = todayColombiaCC();
@@ -11174,12 +11241,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       relational,
       playbook
     };
-  }).sort((a, b) => {
-    const order = { PAUSAR: 0, VIGILAR: 1, ESCALAR: 2, MANTENER: 3 };
-    const actionDiff = (order[a.action.label] ?? 9) - (order[b.action.label] ?? 9);
-    if (actionDiff !== 0) return actionDiff;
-    return toNumber(b.relational?.priorityScore) - toNumber(a.relational?.priorityScore);
-  });
+  }).sort(compareDiagnosticRowsCC);
 
   const actionCounts = rows.reduce((acc, row) => {
     acc[row.action.label] = (acc[row.action.label] || 0) + 1;
@@ -11636,17 +11698,17 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               <div className="grid grid-cols-1 gap-4 items-start">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${colors.badge}`}>{action.label}</span>
+                    <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${actionPrimaryBadgeClassCC(action.label, action.tone)}`}>{action.label}</span>
                     {scaleAuthorization ? (
-                      <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${toneBadge(scaleAuthorization.tone || 'neutral')}`}>
+                      <span className={`px-2.5 py-1 rounded-full text-[7px] font-black uppercase ${scaleAuthorizationBadgeClassCC(scaleAuthorization)}`}>
                         {scaleAuthorization.allowed ? `${scaleAuthorization.code} · ${scaleAuthorization.budgetLabel}` : scaleAuthorization.label}
                       </span>
                     ) : null}
-                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase">
+                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 text-[8px] font-black uppercase">
                       {hh?.isVideo ? 'VIDEO' : 'IMAGEN / CREATIVO'}
                     </span>
                     {contribution ? (
-                      <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${toneBadge(contributionTone)}`}>
+                      <span className={`px-2 py-1 rounded-full text-[8px] font-black uppercase ${contributionBadgeClassCC(contribution.status)}`}>
                         {contribution.status}
                       </span>
                     ) : null}
@@ -11658,201 +11720,157 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed max-w-4xl">{relational.general.simpleStory}</p>
                 </div>
 
-                <div className={`rounded-2xl border p-4 ${toneBg(action.pause?.tone || action.tone || 'normal')}`}>
-                  <p className="text-[8px] font-black uppercase text-slate-500">Acción recomendada</p>
-                  <p className={`text-sm font-black mt-1 ${colors.text}`}>{action.title}</p>
-                  <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{action.simple}</p>
-                  <p className="text-[8px] font-black text-zinc-700 mt-3">
-                    Prioridad: {relational.impact.level}
-                  </p>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[8px] font-black uppercase text-slate-400">CPA {periodLabel}</p>
+                    <p className="text-[12px] font-black text-zinc-900 mt-1">{fmtCpa(readingDiag.scale3d.cpa)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[8px] font-black uppercase text-slate-400">Decisión</p>
+                    <p className={`text-[10px] font-black mt-1 ${colors.text}`}>{action.title}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[8px] font-black uppercase text-slate-400">Impacto</p>
+                    <p className="text-[10px] font-black text-zinc-900 mt-1">{relational.impact.level}</p>
+                  </div>
+                </div>
 
-                  {scaleAuthorization ? (
-                    <div className="mt-3 rounded-xl border border-white/80 bg-white/75 p-2.5">
-                      <p className="text-[6.5px] font-black uppercase text-slate-400">Escala Post ID / ABO</p>
-                      <p className={`text-[9px] font-black mt-1 ${toneText(scaleAuthorization.tone)}`}>
-                        {scaleAuthorization.label}
-                      </p>
-                      <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">
-                        {scaleAuthorization.action}
-                      </p>
+                <div className="mt-3 rounded-2xl bg-slate-50 border border-slate-200 p-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Resumen ejecutivo</p>
+                      <p className="text-[9px] text-slate-600 mt-1 leading-relaxed max-w-4xl">{action.reason}</p>
                     </div>
-                  ) : null}
-
-                  {onOpenActionDraft ? (
                     <button
                       type="button"
-                      onClick={() => onOpenActionDraft(ad)}
-                      className="w-full mt-3 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[8px] sm:text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700"
+                      onClick={() => setExpandedReadAds(open ? {} : { [ad.id]: true })}
+                      className="w-full sm:w-auto shrink-0 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-700 hover:bg-slate-100"
                     >
-                      <ListChecks size={13}/> Registrar acción
+                      {open ? 'Ocultar análisis' : 'Ver análisis completo'}
                     </button>
-                  ) : null}
-
-                  {onAdAction ? (
-                    <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-200/70">
-                      <button
-                        type="button"
-                        disabled={adActionBusyId === ad.id}
-                        onClick={() => onAdAction('off', ad)}
-                        className="inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-amber-100 text-amber-800 text-[8px] font-black uppercase disabled:opacity-50"
-                      >
-                        <PowerOff size={12}/> Apagar
-                      </button>
-                      <button
-                        type="button"
-                        disabled={adActionBusyId === ad.id}
-                        onClick={() => onAdAction('delete', ad)}
-                        className="inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-rose-100 text-rose-700 text-[8px] font-black uppercase disabled:opacity-50"
-                        title="Eliminar de la configuración activa conservando histórico y bitácora"
-                      >
-                        <Trash2 size={12}/> Eliminar
-                      </button>
-                    </div>
-                  ) : null}
+                  </div>
                 </div>
               </div>
 
-              {/* Métricas principales */}
-              <div className="cc-grid-metrics mt-5">
-                <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpa}/>
-                <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={relational.metricStatus?.cpc?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpc}/>
-                <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={relational.metricStatus?.ctr?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.ctr}/>
-                <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={relational.metricStatus?.cpm?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpm}/>
-                <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={relational.metricStatus?.cvr?.standardText || `Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cvr}/>
-                <QuickMetricCC label="Frecuencia" value={fmtFrequencyCC(readingDiag.scale3d.frequency)} previousValue={fmtFrequencyCC(readingDiag.scalePrev3d.frequency)} delta={readingDiag.scaleDelta3d.frequency} metric="frequency" sub="Playbook: interpretar junto con CTR/CPC/CPA" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel}/>
-              </div>
+              {open && (
+                <>
+                  <div className={`mt-4 rounded-2xl border p-4 ${toneBg(action.pause?.tone || action.tone || 'normal')}`}>
+                    <p className="text-[8px] font-black uppercase text-slate-500">Acción recomendada</p>
+                    <p className={`text-sm font-black mt-1 ${colors.text}`}>{action.title}</p>
+                    <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{action.simple}</p>
+                    <p className="text-[8px] font-black text-zinc-700 mt-3">
+                      Prioridad: {relational.impact.level}
+                    </p>
 
-              {playbook?.active ? (
-                <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(playbook.tone)}`}>
-                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${toneBadge(playbook.tone)}`}>
-                          {playbook.severity === 'confirmed' ? 'PROTOCOLO CONFIRMADO' : playbook.severity === 'alert' ? 'ALERTA PLAYBOOK' : 'SEÑAL PLAYBOOK'}
-                        </span>
-                        <span className="px-2 py-1 rounded-full bg-white/75 text-slate-600 text-[7px] font-black uppercase">
-                          {playbook.economicGate?.label}
-                        </span>
+                    {scaleAuthorization ? (
+                      <div className="mt-3 rounded-xl border border-white/80 bg-white/75 p-2.5">
+                        <p className="text-[6.5px] font-black uppercase text-slate-400">Escala Post ID / ABO</p>
+                        <p className={`text-[9px] font-black mt-1 ${toneText(scaleAuthorization.tone)}`}>
+                          {scaleAuthorization.label}
+                        </p>
+                        <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">
+                          {scaleAuthorization.action}
+                        </p>
                       </div>
+                    ) : null}
 
-                      <p className="text-[11px] sm:text-[12px] font-black text-zinc-900 mt-2">
-                        {playbook.label}
-                      </p>
-                      <p className="text-[9px] sm:text-[10px] text-slate-700 mt-1.5 leading-relaxed">
-                        {playbook.summary}
-                      </p>
-                      <p className="text-[8px] sm:text-[9px] text-slate-500 mt-1.5 leading-relaxed">
-                        <strong>Evidencia:</strong> {playbook.evidence}
-                      </p>
+                    {onOpenActionDraft ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenActionDraft(ad)}
+                        className="w-full mt-3 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[8px] sm:text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700"
+                      >
+                        <ListChecks size={13}/> Registrar acción
+                      </button>
+                    ) : null}
 
-                      {playbook.secondary?.length ? (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {playbook.secondary.map((signal, index) => (
-                            <span key={`${signal.code}_${index}`} className="px-2 py-1 rounded-full bg-white/70 border border-white text-[7px] font-black uppercase text-slate-600">
-                              También: {signal.label}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="lg:w-[340px] lg:shrink-0 rounded-xl bg-white/75 border border-white p-3">
-                      <p className="text-[7px] font-black uppercase text-slate-400">Acción recomendada por Playbook</p>
-                      <p className="text-[9px] sm:text-[10px] font-semibold text-slate-700 mt-1.5 leading-relaxed">
-                        {playbook.action}
-                      </p>
-                      {onRegisterPlaybookAction && playbook.agendaAction ? (
+                    {onAdAction ? (
+                      <div className="grid grid-cols-2 gap-2 mt-2 pt-3 border-t border-slate-200/70">
                         <button
                           type="button"
-                          onClick={() => onRegisterPlaybookAction(playbook, ad)}
-                          className="w-full mt-3 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 text-white text-[8px] sm:text-[9px] font-black uppercase"
+                          disabled={adActionBusyId === ad.id}
+                          onClick={() => onAdAction('off', ad)}
+                          className="inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-amber-100 text-amber-800 text-[8px] font-black uppercase disabled:opacity-50"
                         >
-                          <ListChecks size={13}/> Registrar acción recomendada
+                          <PowerOff size={12}/> Apagar
                         </button>
-                      ) : null}
+                        <button
+                          type="button"
+                          disabled={adActionBusyId === ad.id}
+                          onClick={() => onAdAction('delete', ad)}
+                          className="inline-flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl bg-rose-100 text-rose-700 text-[8px] font-black uppercase disabled:opacity-50"
+                          title="Eliminar de la configuración activa conservando histórico y bitácora"
+                        >
+                          <Trash2 size={12}/> Eliminar
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="cc-grid-metrics mt-5">
+                    <QuickMetricCC label="CPA" value={fmtCpa(readingDiag.scale3d.cpa)} previousValue={fmtCpa(readingDiag.scalePrev3d.cpa)} delta={readingDiag.scaleDelta3d.cpa} metric="cpa" sub={`Máx. ${fmtMoney(maxCpa)} · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpa}/>
+                    <QuickMetricCC label="CPC" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpc)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpc)} delta={readingDiag.scaleDelta3d.cpc} metric="cpc" sub={relational.metricStatus?.cpc?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpc}/>
+                    <QuickMetricCC label="CTR" value={fmtRate(readingDiag.scale3d.ctr)} previousValue={fmtRate(readingDiag.scalePrev3d.ctr)} delta={readingDiag.scaleDelta3d.ctr} metric="ctr" sub={relational.metricStatus?.ctr?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.ctr}/>
+                    <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={relational.metricStatus?.cpm?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpm}/>
+                    <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={relational.metricStatus?.cvr?.standardText || `Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cvr}/>
+                    <QuickMetricCC label="Frecuencia" value={fmtFrequencyCC(readingDiag.scale3d.frequency)} previousValue={fmtFrequencyCC(readingDiag.scalePrev3d.frequency)} delta={readingDiag.scaleDelta3d.frequency} metric="frequency" sub="Playbook: interpretar junto con CTR/CPC/CPA" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.frequency}/>
+                  </div>
+
+                  <div className="mt-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                      <h5 className="text-[11px] font-black uppercase text-slate-500">Cadena diagnóstica {periodLabel}</h5>
+                      <span className={`w-fit px-3 py-1 rounded-full text-[8px] font-black uppercase ${toneBadge(relational.general.tone)}`}>{relational.general.priorityTag}</span>
+                    </div>
+                    <div className={`rounded-2xl border p-4 ${toneBg(relational.general.tone)}`}>
+                      <p className="text-[8px] font-black uppercase text-slate-500">Diagnóstico general</p>
+                      <p className={`text-sm font-black mt-1 ${toneText(relational.general.tone)}`}>{relational.general.title}</p>
+                      <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{relational.general.summary}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 mt-3">
+                      {[
+                        ['1 · Resultado comercial', relational.result],
+                        ['2 · Impacto presupuesto', relational.impact],
+                        ['3 · Distribución', relational.distribution],
+                        ['4 · Respuesta creativa', relational.creative],
+                        ['5 · Costo del tráfico', relational.traffic],
+                        ['6 · Post-clic / CVR', relational.postClick]
+                      ].map(([label, layer]) => (
+                        <div key={label} className={`min-w-0 rounded-2xl border p-3.5 ${toneBg(layer?.tone || 'normal')}`}>
+                          <p className="text-[8px] font-black uppercase text-slate-500">{label}</p>
+                          <p className="text-[10px] font-black mt-1.5 break-words">{layer?.title || layer?.level || '—'}</p>
+                          <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">{layer?.plain || layer?.summary || '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2.5">
+                      {hh?.isVideo ? (
+                        <div className={`rounded-2xl border p-3.5 ${toneBg(hh.tone)}`}>
+                          <p className="text-[8px] font-black uppercase">Video · Hook / Hold</p>
+                          <p className="text-[10px] font-black mt-1.5">{hh.diagnosis}</p>
+                          <p className="text-[8px] text-slate-500 mt-1.5">Hook {fmtRate(readingDiag.scale3d.hookRate)} · Hold {fmtRate(readingDiag.scale3d.holdRate)}</p>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border p-3.5 bg-slate-50 border-slate-200">
+                          <p className="text-[8px] font-black uppercase">Creativo de imagen</p>
+                          <p className="text-[10px] font-black mt-1.5">CTR tiene mayor peso en la lectura creativa.</p>
+                          <p className="text-[8px] text-slate-500 mt-1.5">
+                            CTR {fmtRate(readingDiag.scale3d.ctr)} · Δ {readingDiag.scaleDelta3d.ctr === null ? '—' : `${readingDiag.scaleDelta3d.ctr > 0 ? '+' : ''}${fmtNum(readingDiag.scaleDelta3d.ctr,2)}%`}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className={`rounded-2xl border p-3.5 ${toneBg(messages.tone)}`}>
+                        <p className="text-[8px] font-black uppercase">Potencial para mensajes</p>
+                        <p className="text-[10px] font-black mt-1.5">{messages.label}</p>
+                        <p className="text-[8px] sm:text-[9px] text-slate-500 mt-1.5 leading-relaxed">{messages.summary}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : null}
-
-              {/* Diagnóstico relacional */}
-              <div className="mt-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Cadena diagnóstica {periodLabel}</p>
-                  <span className="w-fit px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">
-                    Principal: {relational.primaryLayer}
-                  </span>
-                </div>
-
-                <div className={`mt-2.5 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(relational.general.tone)}`}>
-                  <p className="text-[8px] font-black uppercase">Diagnóstico general</p>
-                  <p className="text-[12px] font-black mt-1">{relational.general.title}</p>
-                  <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1.5 leading-relaxed">{relational.general.interpretation}</p>
-                </div>
-
-                <div className="cc-grid-diagnostic mt-2.5">
-                  {[
-                    ['1 · Resultado', relational.result],
-                    ['2 · Impacto presupuesto', relational.impact],
-                    ['3 · Distribución', relational.distribution],
-                    ['4 · Respuesta creativa', relational.creative],
-                    ['5 · Costo del tráfico', relational.traffic],
-                    ['6 · Post-clic / CVR', relational.postClick]
-                  ].map(([label, layer]) => (
-                    <div key={label} className={`min-w-0 rounded-2xl border p-3.5 ${toneBg(layer?.tone || 'normal')}`}>
-                      <p className="text-[8px] font-black uppercase text-slate-500">{label}</p>
-                      <p className="text-[10px] font-black mt-1.5 break-words">{layer?.title || layer?.level || '—'}</p>
-                      <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1.5 leading-relaxed">{layer?.plain || layer?.summary || '—'}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2.5">
-                  {hh?.isVideo ? (
-                    <div className={`rounded-2xl border p-3.5 ${toneBg(hh.tone)}`}>
-                      <p className="text-[8px] font-black uppercase">Video · Hook / Hold</p>
-                      <p className="text-[10px] font-black mt-1.5">{hh.diagnosis}</p>
-                      <p className="text-[8px] text-slate-500 mt-1.5">Hook {fmtRate(readingDiag.scale3d.hookRate)} · Hold {fmtRate(readingDiag.scale3d.holdRate)}</p>
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border p-3.5 bg-slate-50 border-slate-200">
-                      <p className="text-[8px] font-black uppercase">Creativo de imagen</p>
-                      <p className="text-[10px] font-black mt-1.5">CTR tiene mayor peso en la lectura creativa.</p>
-                      <p className="text-[8px] text-slate-500 mt-1.5">
-                        CTR {fmtRate(readingDiag.scale3d.ctr)} · Δ {readingDiag.scaleDelta3d.ctr === null ? '—' : `${readingDiag.scaleDelta3d.ctr > 0 ? '+' : ''}${fmtNum(readingDiag.scaleDelta3d.ctr,2)}%`}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className={`rounded-2xl border p-3.5 ${toneBg(messages.tone)}`}>
-                    <p className="text-[8px] font-black uppercase">Potencial para mensajes</p>
-                    <p className="text-[10px] font-black mt-1.5">{messages.label}</p>
-                    <p className="text-[8px] sm:text-[9px] text-slate-500 mt-1.5 leading-relaxed">{messages.summary}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Acción inferior / detalle */}
-              <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 p-3.5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Evidencia de la decisión</p>
-                    <p className="text-[9px] text-slate-600 mt-1 leading-relaxed max-w-4xl">{action.reason}</p>
-                    <p className="text-[8px] font-black text-zinc-700 mt-2">
-                      {relational.impact.summary}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedReadAds(x => ({ ...x, [ad.id]: !open }))}
-                    className="w-full sm:w-auto shrink-0 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-[9px] font-black uppercase text-slate-600"
-                  >
-                    {open ? 'Ocultar detalle' : 'Ver por qué'}
-                  </button>
-                </div>
-              </div>
+                </>
+              )}
             </div>
-
             {open && (
               <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 lg:p-6">
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-2.5 mb-3">
