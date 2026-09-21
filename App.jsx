@@ -4300,6 +4300,7 @@ function buildDetailedCampaignReportCC({
   lines.push('• Protocolo A: CVR cae de forma marcada mientras CPM/CTR/CPC permanecen relativamente estables. Protocolo B: frecuencia elevada/subiendo + CTR cae + CPC/CPM presionan + CPA empeora.');
   lines.push('• LA PODA CBO · CAPA 1: solo se propone cuando un anuncio concentra ≥55% del gasto y aventaja al segundo por ≥20 puntos, cumple pausa 3D y existe otro anuncio activo con CPA rentable y mejor señal. El receptor con muestra baja se considera candidato, NO ganador confirmado.');
   lines.push('• Después de La Poda se observa 48–72 h: si el receptor absorbe ≥60% del gasto y mantiene CPA rentable = Poda exitosa; si absorbe volumen pero pierde rentabilidad = Efecto Espejismo y se recomienda relevo completo.');
+  lines.push('• Protocolo de cierre de campaña: solo recomienda apagar toda la campaña con 3D completo + pérdida económica + deterioro generalizado (≥60% del gasto afectado) + rescates por reducción fallidos + sin recuperación + sin núcleo sano relevante + ventana de seguridad cumplida. Dos reducciones fallidas confirman agotamiento; una sola puede bastar si el deterioro es severo (≥75% del gasto afectado y CPA ≥125% del máximo).');
   lines.push('• Estándares operativos actuales: CTR saludable ≥2%, aceptable 1,2–1,99%; CVR saludable ≥3%, aceptable 2–2,99%; CPM saludable ≤$10.000; CPC máximo rentable ≈ CPA máximo × CVR.');
   lines.push('• CPC para mensajes usa una escala separada: <500 excelente; 500–599 sobresaliente; 600–799 muy bueno; 800–999 bueno; 1.000–1.200 aceptable; >1.200 no apto actualmente.');
   lines.push('• Margen operativo de cambios: 48 h entre cambios estructurales; escalamiento de presupuesto hasta +20% puede repetirse tras 24 h. Son reglas internas de seguridad, no umbrales oficiales universales publicados por Meta.');
@@ -4498,6 +4499,17 @@ function buildDetailedCampaignReportCC({
         reportChangeSafety
       );
 
+      const reportShutdownOverview = buildCampaignLayerDiagnosticCC(
+        w3.currentStats,
+        w3.previousStats,
+        reportReadingRows,
+        maxCpa,
+        '3D',
+        reportScaleStatus
+      );
+
+      const reportShutdown = reportShutdownOverview.shutdownProtocol;
+
       const reportPoda = buildCampaignPruningProtocolCC({
         campaign,
         product,
@@ -4507,6 +4519,19 @@ function buildDetailedCampaignReportCC({
         changeSafety: reportChangeSafety,
         nowMs: Date.now()
       });
+
+      lines.push('');
+      lines.push('PROTOCOLO · CIERRE DE CAMPAÑA / REINICIO DE TESTEO');
+      lines.push('-'.repeat(78));
+      if (reportShutdown?.active) {
+        lines.push(`Estado: ${reportShutdown.status}`);
+        lines.push(`Acción: ${reportShutdown.action}`);
+        lines.push(`Lectura: ${reportShutdown.summary}`);
+        (reportShutdown.evidence || []).forEach(item => lines.push(`  • ${item}`));
+      } else {
+        lines.push(`Estado: ${reportShutdown?.status || 'APAGADO NO APLICA'}`);
+        lines.push(`Lectura: ${reportShutdown?.summary || 'No hay evidencia suficiente para apagar toda la campaña.'}`);
+      }
 
       lines.push('');
       lines.push('CAPA 1 · PROTOCOLO LA PODA CBO');
@@ -9859,6 +9884,218 @@ function QuickMetricCC({
   );
 }
 
+
+function buildCampaignShutdownProtocolCC({
+  campaign3d,
+  rows = [],
+  maxCpa,
+  scope,
+  affectedSpend,
+  problematicCount,
+  activeSpendCount,
+  pauseCount,
+  drainCount,
+  currentScaleStatus
+}) {
+  const max = Math.max(1, toNumber(maxCpa));
+  const cpa = campaign3d?.cpa;
+  const purchases = toNumber(campaign3d?.purchases);
+  const spend = toNumber(campaign3d?.spend);
+  const days = toNumber(campaign3d?.days);
+
+  const full3d = days >= 3;
+  const noPurchasesLoss = purchases <= 0 && spend >= max;
+  const outsideTarget =
+    cpa !== null &&
+    cpa !== undefined &&
+    toNumber(cpa) > max;
+
+  const economicLoss = outsideTarget || noPurchasesLoss;
+
+  const severeEconomicLoss =
+    (
+      cpa !== null &&
+      cpa !== undefined &&
+      toNumber(cpa) >= max * 1.25
+    ) ||
+    (
+      purchases <= 0 &&
+      spend >= max * 1.5
+    );
+
+  const generalized =
+    String(scope || '').includes('GENERALIZADO') &&
+    affectedSpend >= 60 &&
+    problematicCount >= Math.max(2, Math.ceil(activeSpendCount * 0.5));
+
+  const severeGeneralized =
+    affectedSpend >= 75 &&
+    problematicCount >= Math.max(2, Math.ceil(activeSpendCount * 0.6));
+
+  const healthyCoreSpend = Math.min(
+    100,
+    (rows || [])
+      .filter(row =>
+        ['ESCALAR', 'MANTENER'].includes(row?.action?.label) &&
+        ['Aporta', 'Aporta fuertemente'].includes(row?.contribution?.status)
+      )
+      .reduce((sum, row) => sum + toNumber(row?.contribution?.spendShare), 0)
+  );
+
+  const healthyCoreRelevant = healthyCoreSpend >= 40;
+
+  const rescueHistory = currentScaleStatus?.reductionRescueHistory || {
+    totalReductions: 0,
+    completedReductions: 0,
+    completedFailed: 0,
+    consecutiveFailed: 0,
+    latestCompleted: null
+  };
+
+  const failedReductions = toNumber(rescueHistory.consecutiveFailed);
+  const latestReduction = rescueHistory.latestCompleted || null;
+  const scaleDiagnosis = currentScaleStatus?.scaleDiagnosis || null;
+  const recoverySignal = scaleDiagnosis?.recoverySignal === true;
+  const safetyBlocked = scaleDiagnosis?.safetyBlocked === true;
+
+  const enoughFailedRescue =
+    failedReductions >= 2 ||
+    (
+      failedReductions >= 1 &&
+      severeGeneralized &&
+      severeEconomicLoss
+    );
+
+  const evidence = [];
+  evidence.push(`3D completo: ${full3d ? 'Sí' : 'No'}`);
+  evidence.push(`CPA campaña: ${fmtCpa(cpa)} vs máximo ${fmtMoney(max)}`);
+  evidence.push(`Deterioro generalizado: ${generalized ? 'Sí' : 'No'} · ${fmtNum(affectedSpend, 1)}% del gasto afectado`);
+  evidence.push(`Anuncios afectados: ${problematicCount}/${activeSpendCount}`);
+  evidence.push(`Pausar: ${pauseCount} · Drenan: ${drainCount}`);
+  evidence.push(`Núcleo sano relevante: ${healthyCoreRelevant ? `Sí (${fmtNum(healthyCoreSpend, 1)}%)` : `No (${fmtNum(healthyCoreSpend, 1)}%)`}`);
+  evidence.push(`Reducciones fallidas consecutivas: ${failedReductions}`);
+  evidence.push(`Recuperación reciente: ${recoverySignal ? 'Sí' : 'No'}`);
+  evidence.push(`Ventana seguridad activa: ${safetyBlocked ? 'Sí' : 'No'}`);
+
+  if (!full3d) {
+    return {
+      active: false,
+      shouldTurnOff: false,
+      status: 'APAGADO NO EVALUABLE · FALTA 3D',
+      tone: 'neutral',
+      stage: 'insufficient_data',
+      evidence,
+      summary: 'Todavía no hay un 3D completo para decidir el cierre de toda la campaña.',
+      action: 'Mantener lectura normal hasta completar 3 días activos completos.'
+    };
+  }
+
+  if (!economicLoss || !generalized) {
+    return {
+      active: false,
+      shouldTurnOff: false,
+      status: 'APAGADO NO APLICA',
+      tone: 'neutral',
+      stage: 'not_applicable',
+      evidence,
+      summary:
+        !economicLoss
+          ? 'La campaña no está actualmente en pérdida económica suficiente para justificar apagar toda la estructura.'
+          : 'El deterioro no es suficientemente generalizado; todavía existen problemas concentrados que deben resolverse antes de apagar toda la campaña.',
+      action: 'Seguir usando las acciones por anuncio, Poda, post-clic o presupuesto según corresponda.'
+    };
+  }
+
+  if (healthyCoreRelevant) {
+    return {
+      active: true,
+      shouldTurnOff: false,
+      status: 'NO APAGAR · AÚN HAY NÚCLEO SANO',
+      tone: 'attention',
+      stage: 'healthy_core',
+      evidence,
+      summary:
+        `Aunque la campaña está fuera del objetivo y el deterioro es amplio, aproximadamente ${fmtNum(healthyCoreSpend, 1)}% del gasto sigue apoyado por anuncios que aportan y no requieren corte.`,
+      action: 'Proteger el núcleo sano y eliminar primero los drenajes. No reiniciar toda la campaña todavía.'
+    };
+  }
+
+  if (failedReductions <= 0) {
+    return {
+      active: true,
+      shouldTurnOff: false,
+      status: 'ÚLTIMO RESCATE · AÚN NO AGOTADO',
+      tone: 'alert',
+      stage: 'rescue_required',
+      evidence,
+      summary:
+        'La campaña está en pérdida con deterioro generalizado, pero todavía no existe una reducción de presupuesto fallida confirmada en 3D.',
+      action:
+        'Ejecutar primero una reducción controlada o el protocolo estructural correspondiente y medir un nuevo ciclo 3D. El apagado total queda reservado para cuando ese rescate tampoco recupere la campaña.'
+    };
+  }
+
+  if (recoverySignal) {
+    return {
+      active: true,
+      shouldTurnOff: false,
+      status: 'APAGADO FRENADO · HAY RECUPERACIÓN',
+      tone: 'attention',
+      stage: 'recovery',
+      evidence,
+      summary:
+        'La campaña todavía está fuera del objetivo, pero existe una señal reciente de recuperación después de la intervención.',
+      action: 'No apagar todavía. Dar un cierre adicional completo para confirmar si la recuperación se sostiene.'
+    };
+  }
+
+  if (safetyBlocked) {
+    return {
+      active: true,
+      shouldTurnOff: false,
+      status: 'APAGADO PREPARADO · ESPERAR SEGURIDAD',
+      tone: 'critical',
+      stage: 'safety_wait',
+      evidence,
+      summary:
+        'La campaña cumple casi toda la evidencia de agotamiento, pero todavía está activa la ventana de seguridad del último cambio.',
+      action:
+        'No hacer otro cambio estructural hasta cerrar la ventana de seguridad. Si después sigue en pérdida y sin recuperación, apagar la campaña y reiniciar testeo.'
+    };
+  }
+
+  if (enoughFailedRescue && !healthyCoreRelevant) {
+    return {
+      active: true,
+      shouldTurnOff: true,
+      restartTest: true,
+      status: 'APAGAR CAMPAÑA · REINICIAR TESTEO',
+      tone: 'critical',
+      stage: 'confirmed_shutdown',
+      evidence,
+      summary:
+        failedReductions >= 2
+          ? `La campaña continúa en pérdida con deterioro generalizado después de ${failedReductions} reducciones consecutivas que no recuperaron la rentabilidad.`
+          : `La campaña sigue en pérdida severa, ${fmtNum(affectedSpend, 1)}% del gasto está afectado y una reducción completa ya fracasó sin dejar un núcleo sano relevante.`,
+      action:
+        'APAGAR LA CAMPAÑA COMPLETA. Conservar el histórico, no seguir reduciendo indefinidamente y abrir un NUEVO TEST desde cero con creativos/ángulos frescos. Los anuncios históricos quedan como referencia, no como garantía de rendimiento futuro.'
+    };
+  }
+
+  return {
+    active: true,
+    shouldTurnOff: false,
+    status: 'ÚLTIMO RESCATE · REDUCCIÓN AÚN NO AGOTADA',
+    tone: 'critical',
+    stage: 'last_rescue',
+    evidence,
+    summary:
+      `La campaña sigue fuera del objetivo después de ${failedReductions} reducción(es) fallida(s), pero todavía no cumple el umbral final de apagado total.`,
+    action:
+      'Mantener el nivel actual o ejecutar únicamente la siguiente reducción ya autorizada por el motor. Si el siguiente 3D vuelve a fallar sin recuperación, apagar la campaña y reiniciar testeo.'
+  };
+}
+
 function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], maxCpa, periodLabel = '3D', currentScaleStatus = null) {
   const max = Math.max(1, toNumber(maxCpa));
   const campaignMetricStatus = metricSetDiagnosisCC(campaign3d, campaignPrev3d, max);
@@ -9966,6 +10203,19 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
   else if (cpmBad && cpcBad && ctrStableOrBetter && cvrStable) campaignLayer = 'Distribución / costo del tráfico';
   else if (cvrBad && (ctrBad || cpmBad)) campaignLayer = 'Mixto';
 
+  const shutdownProtocol = buildCampaignShutdownProtocolCC({
+    campaign3d,
+    rows,
+    maxCpa: max,
+    scope,
+    affectedSpend,
+    problematicCount: problematic.length,
+    activeSpendCount: activeSpendRows.length,
+    pauseCount: pauseRows.length,
+    drainCount: drainRows.length,
+    currentScaleStatus
+  });
+
   const scaleDiagnosis = currentScaleStatus?.scaleDiagnosis || null;
   if (scaleDiagnosis?.isPrimarySuspect) {
     campaignLayer = 'Escalamiento / presupuesto';
@@ -9973,7 +10223,16 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
   }
 
   let action = 'Mantener y seguir midiendo.';
-  if (pauseRows.length > 0) {
+
+  if (shutdownProtocol?.shouldTurnOff) {
+    action = shutdownProtocol.action;
+    resultTitle = 'CAMPAÑA AGOTADA · APAGADO RECOMENDADO';
+    resultTone = 'critical';
+    scopeTone = 'critical';
+    campaignLayer = 'Cierre de campaña / reinicio de testeo';
+  } else if (shutdownProtocol?.active && ['safety_wait', 'last_rescue', 'rescue_required'].includes(shutdownProtocol.stage)) {
+    action = shutdownProtocol.action;
+  } else if (pauseRows.length > 0) {
     action = `Pausar ${pauseRows.length} anuncio(s) que ya cumplen criterio de protección de presupuesto y conservar activos los anuncios sanos.`;
   } else if (scaleDiagnosis?.shouldReduceBudget) {
     action = scaleDiagnosis.recommendedAction;
@@ -10024,6 +10283,7 @@ function buildCampaignLayerDiagnosticCC(campaign3d, campaignPrev3d, rows = [], m
     delta,
     metricStatus: campaignMetricStatus,
     scaleDiagnosis,
+    shutdownProtocol,
     action,
     topProblems,
     rulesNote: 'Alcance generalizado/concentrado se define con reglas operativas internas basadas principalmente en % de gasto afectado y cantidad de anuncios; no es un benchmark oficial de Meta.'
@@ -11295,6 +11555,119 @@ function currentScaleStatusMarginalNoGainCC(scaleStatus) {
   );
 }
 
+
+function buildReductionRescueHistoryCC(campaignHistory = [], budgetChanges = [], maxCpa) {
+  const max = Math.max(1, toNumber(maxCpa));
+
+  const reductions = [...(budgetChanges || [])]
+    .filter(change =>
+      toNumber(change?.previousBudget) > 0 &&
+      toNumber(change?.newBudget) > 0 &&
+      toNumber(change?.newBudget) < toNumber(change?.previousBudget)
+    )
+    .sort((a, b) => {
+      const aMs = changeEventTimeMsCC(a) || new Date(`${a?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
+      const bMs = changeEventTimeMsCC(b) || new Date(`${b?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
+      return bMs - aMs;
+    });
+
+  const entries = reductions.map(change => {
+    const impact = reportBudgetInterventionImpactCC(change, campaignHistory);
+    const post = impact.afterRecentStats || impact.afterCycleStats || impact.afterStats || {};
+    const before = impact.beforeStats || {};
+    const postDays = Math.max(0, toNumber(post.days));
+    const postCpa = post?.cpa;
+    const postPurchases = toNumber(post?.purchases);
+    const postSpend = toNumber(post?.spend);
+
+    const completed3d = postDays >= 3;
+    const recovered =
+      completed3d &&
+      postCpa !== null &&
+      postCpa !== undefined &&
+      toNumber(postCpa) > 0 &&
+      toNumber(postCpa) <= max;
+
+    const strongRecovery =
+      recovered &&
+      toNumber(postCpa) <= max * 0.8;
+
+    const noPurchaseLoss =
+      completed3d &&
+      postPurchases <= 0 &&
+      postSpend >= max;
+
+    const failed =
+      completed3d &&
+      (
+        noPurchaseLoss ||
+        (
+          postCpa !== null &&
+          postCpa !== undefined &&
+          toNumber(postCpa) > max
+        )
+      );
+
+    const harmful =
+      failed &&
+      impact.cpaDelta !== null &&
+      impact.cpaDelta !== undefined &&
+      toNumber(impact.cpaDelta) >= 15;
+
+    const improvedButStillOutside =
+      failed &&
+      impact.cpaDelta !== null &&
+      impact.cpaDelta !== undefined &&
+      toNumber(impact.cpaDelta) <= -15;
+
+    return {
+      changeId: change.id || null,
+      date: change.date || null,
+      previousBudget: toNumber(change.previousBudget),
+      newBudget: toNumber(change.newBudget),
+      completed3d,
+      postDays,
+      beforeCpa: before?.cpa ?? null,
+      postCpa: postCpa ?? null,
+      cpaDelta: impact.cpaDelta ?? null,
+      postSpend,
+      postPurchases,
+      recovered,
+      strongRecovery,
+      failed,
+      harmful,
+      improvedButStillOutside,
+      impact
+    };
+  });
+
+  let consecutiveFailed = 0;
+  for (const entry of entries) {
+    if (!entry.completed3d) break;
+    if (entry.failed) {
+      consecutiveFailed += 1;
+      continue;
+    }
+    break;
+  }
+
+  const completedFailed = entries.filter(entry => entry.failed).length;
+  const completedRecovered = entries.filter(entry => entry.recovered).length;
+  const latest = entries[0] || null;
+  const latestCompleted = entries.find(entry => entry.completed3d) || null;
+
+  return {
+    totalReductions: entries.length,
+    completedReductions: entries.filter(entry => entry.completed3d).length,
+    completedFailed,
+    completedRecovered,
+    consecutiveFailed,
+    latest,
+    latestCompleted,
+    entries
+  };
+}
+
 function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa, budgetChanges = [], changeSafety = null) {
   const max = Math.max(1, toNumber(maxCpa));
   const historyWithBudget = (campaignHistory || [])
@@ -11366,8 +11739,15 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
   const historicalExtraSpend = latestChangeType === 'increase' ? historicalRow?.marginalExtraSpendDay ?? null : null;
   const historicalExtraPurchases = latestChangeType === 'increase' ? historicalRow?.marginalExtraPurchasesDay ?? null : null;
 
+  const reductionRescueHistory = buildReductionRescueHistoryCC(
+    campaignHistory,
+    budgetChanges,
+    max
+  );
+
   const base = {
     currentBudget,
+    reductionRescueHistory,
     cpa: currentStats.cpa,
     marginalCpa: historicalMarginal,
     marginalExtraSpendDay: historicalExtraSpend,
@@ -11905,6 +12285,43 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             scaleStatus={currentScaleStatus}
             maxCpa={maxCpa}
           />
+
+          {campaignOverview.shutdownProtocol?.active ? (
+            <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(campaignOverview.shutdownProtocol.tone)}`}>
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${
+                      campaignOverview.shutdownProtocol.shouldTurnOff
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-zinc-950 text-white'
+                    }`}>
+                      Protocolo cierre de campaña
+                    </span>
+                    <span className={`px-2.5 py-1.5 rounded-full text-[8px] font-black uppercase ${toneBadge(campaignOverview.shutdownProtocol.tone)}`}>
+                      {campaignOverview.shutdownProtocol.status}
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] sm:text-[11px] font-semibold text-zinc-800 mt-2.5 leading-relaxed">
+                    {campaignOverview.shutdownProtocol.summary}
+                  </p>
+                  <p className="text-[9px] font-black text-zinc-900 mt-2 leading-relaxed">
+                    Acción: {campaignOverview.shutdownProtocol.action}
+                  </p>
+                </div>
+
+                <div className="lg:w-[360px] rounded-xl border border-white/70 bg-white/80 p-3">
+                  <p className="text-[7px] font-black uppercase text-slate-400">Evidencia exigida</p>
+                  <div className="mt-1.5 space-y-1">
+                    {(campaignOverview.shutdownProtocol.evidence || []).map((item, index) => (
+                      <p key={index} className="text-[8px] text-slate-600 leading-relaxed">• {item}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {campaignPoda?.active ? (
             <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 lg:p-5 ${toneBg(campaignPoda.tone)}`}>
