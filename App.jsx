@@ -3946,6 +3946,188 @@ function reportCausalInsightsCC(currentStats, previousStats, maxCpa) {
   return lines;
 }
 
+function buildBudgetCyclesCC(campaignHistory = []) {
+  const rows = [...(campaignHistory || [])]
+    .filter(r => toNumber(r?.budget) > 0)
+    .sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')));
+
+  const cycles = [];
+
+  rows.forEach(record => {
+    const budget = toNumber(record.budget);
+    const last = cycles[cycles.length - 1];
+
+    if (!last || Math.abs(toNumber(last.budget) - budget) > 0.01) {
+      cycles.push({
+        id: `${String(record.date || '')}_${budget}_${cycles.length + 1}`,
+        budget,
+        startDate: record.date,
+        endDate: record.date,
+        records: [record]
+      });
+      return;
+    }
+
+    last.records.push(record);
+    last.endDate = record.date;
+  });
+
+  return cycles.map((cycle, index) => {
+    const stats = aggregateRecords(cycle.records);
+    const days = Math.max(0, toNumber(stats.days) || cycle.records.length);
+    return {
+      ...cycle,
+      index,
+      stats,
+      days,
+      spendDay: days > 0 ? stats.spend / days : null,
+      purchasesDay: days > 0 ? stats.purchases / days : null
+    };
+  });
+}
+
+function reportBudgetInterventionImpactCC(change, campaignHistory = []) {
+  const fallback = reportBudgetChangeImpactCC(change, campaignHistory);
+  const cycles = buildBudgetCyclesCC(campaignHistory);
+  const newBudget = toNumber(change?.newBudget);
+  const previousBudget = toNumber(change?.previousBudget);
+  const changeDate = String(change?.date || '');
+  const changeType = newBudget < previousBudget ? 'decrease' : newBudget > previousBudget ? 'increase' : 'flat';
+
+  let afterIndex = cycles.findIndex(cycle =>
+    Math.abs(toNumber(cycle.budget) - newBudget) < 0.01 &&
+    String(cycle.endDate || '') >= changeDate &&
+    cycle.records.some(r => String(r.date || '') >= changeDate)
+  );
+
+  if (afterIndex < 0) {
+    afterIndex = cycles.findIndex(cycle =>
+      Math.abs(toNumber(cycle.budget) - newBudget) < 0.01 &&
+      String(cycle.startDate || '') >= changeDate
+    );
+  }
+
+  const afterCycle = afterIndex >= 0 ? cycles[afterIndex] : null;
+
+  let beforeCycle = null;
+  if (afterIndex > 0) {
+    for (let i = afterIndex - 1; i >= 0; i -= 1) {
+      if (Math.abs(toNumber(cycles[i].budget) - previousBudget) < 0.01) {
+        beforeCycle = cycles[i];
+        break;
+      }
+    }
+    if (!beforeCycle) beforeCycle = cycles[afterIndex - 1];
+  }
+
+  const beforeRecords = beforeCycle
+    ? beforeCycle.records.filter(r => String(r.date || '') < changeDate).slice(-3)
+    : [];
+
+  const afterCycleRecords = afterCycle
+    ? afterCycle.records.filter(r => String(r.date || '') >= changeDate)
+    : [];
+
+  const afterRecords = afterCycleRecords.slice(0, 3);
+  const afterRecentRecords = afterCycleRecords.slice(-3);
+
+  if (!beforeRecords.length || !afterRecords.length) {
+    return {
+      ...fallback,
+      changeType,
+      budgetChangePct: previousBudget > 0 ? ((newBudget - previousBudget) / previousBudget) * 100 : null,
+      cycles,
+      beforeCycle,
+      afterCycle,
+      afterCycleStats: afterCycle?.stats || fallback.afterStats,
+      afterRecentStats: afterCycle?.stats || fallback.afterStats,
+      afterCycleRecords: afterCycleRecords.length ? afterCycleRecords : []
+    };
+  }
+
+  const beforeStats = aggregateRecords(beforeRecords);
+  const afterStats = aggregateRecords(afterRecords);
+  const afterRecentStats = aggregateRecords(afterRecentRecords);
+  const afterCycleStats = aggregateRecords(afterCycleRecords);
+
+  const beforeSpendDay = toNumber(beforeStats.days) > 0 ? beforeStats.spend / beforeStats.days : null;
+  const afterSpendDay = toNumber(afterRecentStats.days) > 0 ? afterRecentStats.spend / afterRecentStats.days : null;
+  const beforePurchasesDay = toNumber(beforeStats.days) > 0 ? beforeStats.purchases / beforeStats.days : null;
+  const afterPurchasesDay = toNumber(afterRecentStats.days) > 0 ? afterRecentStats.purchases / afterRecentStats.days : null;
+
+  const extraSpendDay = beforeSpendDay !== null && afterSpendDay !== null ? afterSpendDay - beforeSpendDay : null;
+  const extraPurchasesDay = beforePurchasesDay !== null && afterPurchasesDay !== null ? afterPurchasesDay - beforePurchasesDay : null;
+
+  const marginalCpa =
+    extraSpendDay !== null &&
+    extraPurchasesDay !== null &&
+    extraSpendDay > 0 &&
+    extraPurchasesDay > 0
+      ? extraSpendDay / extraPurchasesDay
+      : null;
+
+  const spendDayDelta = pctChange(afterSpendDay, beforeSpendDay);
+  const purchasesDayDelta = pctChange(afterPurchasesDay, beforePurchasesDay);
+  const volumeRetentionPct =
+    beforePurchasesDay !== null && beforePurchasesDay > 0 && afterPurchasesDay !== null
+      ? (afterPurchasesDay / beforePurchasesDay) * 100
+      : null;
+
+  const expectedPurchasesDayAtSameEfficiency =
+    beforeSpendDay !== null && beforeSpendDay > 0 &&
+    beforePurchasesDay !== null &&
+    afterSpendDay !== null
+      ? beforePurchasesDay * (afterSpendDay / beforeSpendDay)
+      : null;
+
+  const volumeVsExpectedPct = pctChange(afterPurchasesDay, expectedPurchasesDayAtSameEfficiency);
+
+  return {
+    beforeStats,
+    afterStats,
+    afterRecentStats,
+    afterCycleStats,
+    beforeDates: beforeRecords.map(r => r.date),
+    afterDates: afterRecords.map(r => r.date),
+    afterRecentDates: afterRecentRecords.map(r => r.date),
+    afterCycleDates: afterCycleRecords.map(r => r.date),
+    beforeCycle,
+    afterCycle,
+    afterCycleRecords,
+    cycles,
+    changeType,
+    budgetChangePct: previousBudget > 0 ? ((newBudget - previousBudget) / previousBudget) * 100 : null,
+    cpaDelta: pctChange(afterRecentStats.cpa, beforeStats.cpa),
+    volumeDelta: purchasesDayDelta,
+    marginalCpa,
+    beforeSpendDay,
+    afterSpendDay,
+    beforePurchasesDay,
+    afterPurchasesDay,
+    extraSpendDay,
+    extraPurchasesDay,
+    spendDayDelta,
+    purchasesDayDelta,
+    volumeRetentionPct,
+    expectedPurchasesDayAtSameEfficiency,
+    volumeVsExpectedPct
+  };
+}
+
+function lowerProfitableBudgetReferenceCC(campaignHistory = [], currentBudget, maxCpa) {
+  const current = toNumber(currentBudget);
+  const max = Math.max(1, toNumber(maxCpa));
+  const levels = buildScaleHistory(campaignHistory, max)
+    .filter(row =>
+      toNumber(row.budget) > 0 &&
+      toNumber(row.budget) < current &&
+      toNumber(row.cpa) > 0 &&
+      toNumber(row.cpa) <= max
+    )
+    .sort((a, b) => toNumber(b.budget) - toNumber(a.budget));
+  return levels[0] || null;
+}
+
 function reportBudgetChangeImpactCC(change, campaignHistory = []) {
   const rows = [...campaignHistory].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const before = rows.filter(r => String(r.date) < String(change.date)).slice(-3);
@@ -4349,12 +4531,20 @@ function buildDetailedCampaignReportCC({
       lines.push('-'.repeat(78));
       if (reportScaleStatus?.scaleDiagnosis) {
         lines.push(`Estado: ${reportScaleStatus.scaleDiagnosis.status}`);
+        lines.push(`Tipo de intervención: ${reportScaleStatus.scaleDiagnosis.changeType === 'decrease' ? 'REDUCCIÓN DE PRESUPUESTO' : reportScaleStatus.scaleDiagnosis.changeType === 'increase' ? 'AUMENTO / ESCALAMIENTO' : 'CAMBIO DE PRESUPUESTO'}`);
         lines.push(`Confianza: ${reportScaleStatus.scaleDiagnosis.confidence}`);
         lines.push(`Lectura: ${reportScaleStatus.scaleDiagnosis.summary}`);
         lines.push(`Evidencia: ${reportScaleStatus.scaleDiagnosis.evidence}`);
         lines.push(`Acción / siguiente paso: ${reportScaleStatus.scaleDiagnosis.recommendedAction}`);
-        lines.push(`Reducción habilitada: ${reportScaleStatus.scaleDiagnosis.shouldReduceBudget ? 'SÍ' : 'NO'}`);
-        lines.push(`3D confirma deterioro: ${reportScaleStatus.scaleDiagnosis.threeDayConfirms ? 'SÍ' : 'NO'}`);
+        lines.push(`${reportScaleStatus.scaleDiagnosis.changeType === 'decrease' ? 'Reducción adicional habilitada' : 'Reducción habilitada'}: ${reportScaleStatus.scaleDiagnosis.shouldReduceBudget ? 'SÍ' : 'NO'}`);
+        lines.push(`${reportScaleStatus.scaleDiagnosis.changeType === 'decrease' ? 'Ciclo posreducción 3D completo' : '3D confirma deterioro'}: ${reportScaleStatus.scaleDiagnosis.threeDayConfirms ? 'SÍ' : 'NO'}`);
+        if (reportScaleStatus.scaleDiagnosis.change) {
+          lines.push(`Presupuesto: ${fmtMoney(reportScaleStatus.scaleDiagnosis.change.previousBudget)} → ${fmtMoney(reportScaleStatus.scaleDiagnosis.change.newBudget)}`);
+          lines.push(`CPA antes/después: ${fmtCpa(reportScaleStatus.scaleDiagnosis.beforeStats?.cpa)} → ${fmtCpa(reportScaleStatus.scaleDiagnosis.afterRecentStats?.cpa ?? reportScaleStatus.scaleDiagnosis.afterStats?.cpa)}`);
+          if (reportScaleStatus.scaleDiagnosis.beforePurchasesDay !== undefined || reportScaleStatus.scaleDiagnosis.afterPurchasesDay !== undefined) {
+            lines.push(`Compras/día antes/después: ${reportScaleStatus.scaleDiagnosis.beforePurchasesDay === null || reportScaleStatus.scaleDiagnosis.beforePurchasesDay === undefined ? '—' : fmtNum(reportScaleStatus.scaleDiagnosis.beforePurchasesDay, 2)} → ${reportScaleStatus.scaleDiagnosis.afterPurchasesDay === null || reportScaleStatus.scaleDiagnosis.afterPurchasesDay === undefined ? '—' : fmtNum(reportScaleStatus.scaleDiagnosis.afterPurchasesDay, 2)}`);
+          }
+        }
         lines.push(`Señal de recuperación último día: ${reportScaleStatus.scaleDiagnosis.recoverySignal ? 'SÍ' : 'NO'}`);
         lines.push(`Ventana de seguridad activa: ${reportScaleStatus.scaleDiagnosis.safetyBlocked ? 'SÍ' : 'NO'}`);
         lines.push('Nota: relación temporal/operativa; no demuestra causalidad absoluta.');
@@ -10232,10 +10422,11 @@ function buildScaleChangeImpactDiagnosisCC(
   const max = Math.max(1, toNumber(maxCpa));
   const current = toNumber(currentBudget);
 
-  const increases = (budgetChanges || [])
+  const changes = (budgetChanges || [])
     .filter(change =>
-      toNumber(change?.newBudget) > toNumber(change?.previousBudget) &&
-      toNumber(change?.previousBudget) > 0
+      toNumber(change?.newBudget) > 0 &&
+      toNumber(change?.previousBudget) > 0 &&
+      Math.abs(toNumber(change?.newBudget) - toNumber(change?.previousBudget)) > 0.01
     )
     .sort((a, b) => {
       const aMs = changeEventTimeMsCC(a) || new Date(`${a?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
@@ -10243,10 +10434,11 @@ function buildScaleChangeImpactDiagnosisCC(
       return bMs - aMs;
     });
 
-  if (!increases.length) {
+  if (!changes.length) {
     return {
-      status: 'SIN ESCALAMIENTO COMPARABLE',
+      status: 'SIN CAMBIO DE PRESUPUESTO COMPARABLE',
       tone: 'neutral',
+      changeType: null,
       isPrimarySuspect: false,
       shouldReduceBudget: false,
       threeDayConfirms: false,
@@ -10255,18 +10447,21 @@ function buildScaleChangeImpactDiagnosisCC(
       change: null,
       beforeStats: null,
       afterStats: null,
-      summary: 'No existe un aumento de presupuesto registrado con suficiente información para relacionarlo con el rendimiento.',
-      evidence: 'Sin escalamiento registrado comparable.',
+      summary: 'No existe un cambio de presupuesto registrado con suficiente información para medir su impacto.',
+      evidence: 'Sin intervención de presupuesto comparable.',
       recommendedBudget: null,
       recommendedAction: 'Mantener lectura normal de campaña y seguir acumulando historial.'
     };
   }
 
   const matchingCurrent =
-    increases.find(change => current > 0 && Math.abs(toNumber(change.newBudget) - current) < 0.01) ||
-    increases[0];
+    changes.find(change => current > 0 && Math.abs(toNumber(change.newBudget) - current) < 0.01) ||
+    changes[0];
 
-  const impact = reportBudgetChangeImpactCC(matchingCurrent, campaignHistory);
+  const impact = reportBudgetInterventionImpactCC(matchingCurrent, campaignHistory);
+  const changeType = impact.changeType || (
+    toNumber(matchingCurrent.newBudget) < toNumber(matchingCurrent.previousBudget) ? 'decrease' : 'increase'
+  );
   const before = impact.beforeStats || {};
   const after = impact.afterStats || {};
 
@@ -10323,6 +10518,254 @@ function buildScaleChangeImpactDiagnosisCC(
     beforeDays >= 3 && afterDays >= 3 ? 'ALTA' :
     enoughBeforeAfterSample ? 'MEDIA' :
     'BAJA';
+
+  // ── RAMA DE REDUCCIÓN DE PRESUPUESTO ──────────────────────
+  // Una reducción es una intervención distinta a un escalamiento.
+  // Se mide como un NUEVO CICLO, incluso si vuelve a un presupuesto ya usado antes.
+  if (changeType === 'decrease') {
+    const previousBudget = toNumber(matchingCurrent.previousBudget);
+    const reducedBudget = toNumber(matchingCurrent.newBudget);
+    const post = impact.afterRecentStats || after;
+    const postCycle = impact.afterCycleStats || post;
+    const postDays = toNumber(postCycle?.days) || toNumber(post?.days);
+    const postCpa = post?.cpa;
+    const postCvr = post?.visitToPurchase;
+    const postCpc = post?.cpc;
+    const postCtr = post?.ctr;
+
+    const postCpaDelta = pctChange(postCpa, beforeCpa);
+    const postCvrDelta = pctChange(postCvr, before.visitToPurchase);
+    const postCpcDelta = pctChange(postCpc, before.cpc);
+    const postCtrDelta = pctChange(postCtr, before.ctr);
+
+    const enoughPostSample = postDays >= 2;
+    const fullPost3d = postDays >= 3;
+    const postPurchases = toNumber(post?.purchases);
+    const postSpend = toNumber(post?.spend);
+    const postCpaCalculable = postCpa !== null && postCpa !== undefined && toNumber(postCpa) > 0;
+    const postProfitable = postCpaCalculable && toNumber(postCpa) <= max;
+    const postStrong = postCpaCalculable && toNumber(postCpa) <= max * 0.8;
+    const postOutside = postCpaCalculable && toNumber(postCpa) > max;
+    const postNoPurchaseDamage = postPurchases <= 0 && postSpend >= max;
+
+    const cpaImprovedMaterially = postCpaDelta !== null && postCpaDelta <= -15;
+    const cpaWorsenedMaterially = postCpaDelta !== null && postCpaDelta >= 15;
+    const cvrImproved = postCvrDelta !== null && postCvrDelta >= 15;
+    const cpcImproved = postCpcDelta !== null && postCpcDelta <= -10;
+
+    const cycleRows = impact.afterCycleRecords || [];
+    const lastRow = cycleRows.length ? cycleRows[cycleRows.length - 1] : null;
+    const priorRows = cycleRows.length > 1 ? cycleRows.slice(Math.max(0, cycleRows.length - 4), -1) : [];
+    const lastStats = lastRow ? aggregateRecords([lastRow]) : {};
+    const priorStats = priorRows.length ? aggregateRecords(priorRows) : {};
+    const lastVsPriorCpa = pctChange(lastStats.cpa, priorStats.cpa);
+    const lastVsPriorCvr = pctChange(lastStats.visitToPurchase, priorStats.visitToPurchase);
+
+    const recoverySignalReduction =
+      (
+        toNumber(lastStats.purchases) > 0 &&
+        lastStats.cpa !== null &&
+        lastStats.cpa !== undefined &&
+        toNumber(lastStats.cpa) <= max
+      ) ||
+      (
+        lastVsPriorCpa !== null &&
+        lastVsPriorCpa <= -20 &&
+        lastStats.cpa !== null &&
+        lastStats.cpa !== undefined &&
+        toNumber(lastStats.cpa) <= max * 1.15
+      ) ||
+      (
+        lastVsPriorCvr !== null &&
+        lastVsPriorCvr >= 20
+      );
+
+    const safetyBlockedReduction =
+      changeSafety?.active &&
+      changeSafety?.canStructuralNow === false;
+
+    const safetyWaitReduction = safetyBlockedReduction
+      ? fmtHoursRemainingCC(changeSafety.structuralRemainingHours)
+      : null;
+
+    const lowerReference = lowerProfitableBudgetReferenceCC(campaignHistory, reducedBudget, max);
+    const canEvaluateAnotherReduction =
+      fullPost3d &&
+      (postOutside || postNoPurchaseDamage) &&
+      !recoverySignalReduction;
+
+    const shouldReduceFurther =
+      canEvaluateAnotherReduction &&
+      !safetyBlockedReduction &&
+      !cpaWorsenedMaterially;
+
+    const budgetChangePct = impact.budgetChangePct !== null && impact.budgetChangePct !== undefined
+      ? impact.budgetChangePct
+      : (previousBudget > 0 ? ((reducedBudget - previousBudget) / previousBudget) * 100 : null);
+
+    const evidenceParts = [
+      `Presupuesto ${fmtMoney(previousBudget)} → ${fmtMoney(reducedBudget)}${budgetChangePct !== null ? ` (${fmtNum(budgetChangePct, 1)}%)` : ''}`,
+      `CPA ${fmtCpa(beforeCpa)} → ${fmtCpa(postCpa)}${postCpaDelta !== null ? ` (${postCpaDelta > 0 ? '+' : ''}${fmtNum(postCpaDelta, 1)}%)` : ''}`,
+      `Gasto/día ${fmtMoneyOrDashCC(impact.beforeSpendDay)} → ${fmtMoneyOrDashCC(impact.afterSpendDay)}`,
+      `Compras/día ${impact.beforePurchasesDay === null || impact.beforePurchasesDay === undefined ? '—' : fmtNum(impact.beforePurchasesDay, 2)} → ${impact.afterPurchasesDay === null || impact.afterPurchasesDay === undefined ? '—' : fmtNum(impact.afterPurchasesDay, 2)}`,
+      `CVR ${fmtRate(before.visitToPurchase)} → ${fmtRate(postCvr)}`,
+      `CPC ${fmtMoneyOrDashCC(before.cpc)} → ${fmtMoneyOrDashCC(postCpc)}`
+    ];
+
+    if (impact.volumeVsExpectedPct !== null && impact.volumeVsExpectedPct !== undefined) {
+      evidenceParts.push(`Compras vs volumen esperado ${impact.volumeVsExpectedPct > 0 ? '+' : ''}${fmtNum(impact.volumeVsExpectedPct, 1)}%`);
+    }
+
+    const evidence = evidenceParts.join(' · ');
+
+    const common = {
+      changeType: 'decrease',
+      interventionLabel: 'REDUCCIÓN DE PRESUPUESTO',
+      isPrimarySuspect: false,
+      change: matchingCurrent,
+      beforeStats: before,
+      afterStats: post,
+      afterRecentStats: post,
+      afterCycleStats: postCycle,
+      cpaDelta: postCpaDelta,
+      cvrDelta: postCvrDelta,
+      ctrDelta: postCtrDelta,
+      cpcDelta: postCpcDelta,
+      cpmDelta: pctChange(post.cpm, before.cpm),
+      marginalCpa: null,
+      budgetChangePct,
+      spendDayDelta: impact.spendDayDelta,
+      purchasesDayDelta: impact.purchasesDayDelta,
+      volumeRetentionPct: impact.volumeRetentionPct,
+      volumeVsExpectedPct: impact.volumeVsExpectedPct,
+      beforeSpendDay: impact.beforeSpendDay,
+      afterSpendDay: impact.afterSpendDay,
+      beforePurchasesDay: impact.beforePurchasesDay,
+      afterPurchasesDay: impact.afterPurchasesDay,
+      confidence: postDays >= 3 && beforeDays >= 3 ? 'ALTA' : enoughPostSample ? 'MEDIA' : 'BAJA',
+      threeDayConfirms: fullPost3d,
+      recoverySignal: recoverySignalReduction,
+      safetyBlocked: safetyBlockedReduction,
+      safetyWait: safetyWaitReduction,
+      recommendedBudget: lowerReference?.budget || null,
+      evidence
+    };
+
+    if (!enoughPostSample) {
+      return {
+        ...common,
+        status: 'REDUCCIÓN EN OBSERVACIÓN · FALTA MUESTRA',
+        tone: 'attention',
+        shouldReduceBudget: false,
+        summary:
+          `Se redujo el presupuesto de ${fmtMoney(previousBudget)} a ${fmtMoney(reducedBudget)}. ` +
+          `El nuevo ciclo solo tiene ${postDays} día(s) completo(s); todavía es demasiado pronto para decidir si recuperó eficiencia o si debe seguir bajando.`,
+        recommendedAction:
+          'Mantener este presupuesto hasta completar al menos 2 días comparables y preferiblemente 3D. No encadenar otra reducción antes de medir el efecto del cambio actual.'
+      };
+    }
+
+    if (postProfitable) {
+      const recoveredFromBadLevel = beforeCpa !== null && beforeCpa !== undefined && toNumber(beforeCpa) > max;
+      return {
+        ...common,
+        status: postStrong ? 'REDUCCIÓN EFECTIVA · CAMPAÑA RECUPERADA' : 'REDUCCIÓN EFECTIVA · RENTABILIDAD RECUPERADA',
+        tone: 'good',
+        shouldReduceBudget: false,
+        summary:
+          `La reducción ${fmtMoney(previousBudget)} → ${fmtMoney(reducedBudget)} dejó el CPA reciente en ${fmtCpa(postCpa)}, ` +
+          `${postStrong ? 'con margen fuerte frente al objetivo' : 'dentro del objetivo rentable'}. ` +
+          `${cpaImprovedMaterially || recoveredFromBadLevel ? 'La eficiencia mejoró de forma material después del recorte.' : 'La rentabilidad se conserva sin evidencia para seguir recortando.'}`,
+        recommendedAction:
+          `MANTENER ${fmtMoney(reducedBudget)}. No seguir bajando inversión mientras el CPA permanezca dentro del objetivo. ` +
+          'Acumular otro ciclo 3D antes de considerar un nuevo escalamiento.'
+      };
+    }
+
+    if (recoverySignalReduction && (postOutside || postNoPurchaseDamage)) {
+      return {
+        ...common,
+        status: 'REDUCCIÓN EN OBSERVACIÓN · RECUPERACIÓN EN CURSO',
+        tone: 'attention',
+        shouldReduceBudget: false,
+        summary:
+          `El nuevo nivel todavía no está dentro del objetivo, pero el último cierre muestra recuperación. ` +
+          `Bajar otra vez ahora podría interrumpir una recuperación que recién empieza.`,
+        recommendedAction:
+          'Mantener el presupuesto actual y observar el siguiente día completo. Si la señal de recuperación desaparece y el 3D continúa fuera del objetivo, volver a evaluar otra reducción.'
+      };
+    }
+
+    if (!fullPost3d && (postOutside || postNoPurchaseDamage)) {
+      return {
+        ...common,
+        status: 'REDUCCIÓN INSUFICIENTE · FALTA CONFIRMACIÓN 3D',
+        tone: 'attention',
+        shouldReduceBudget: false,
+        summary:
+          `La reducción todavía no recuperó el CPA objetivo, pero el nuevo ciclo no completa 3 días. ` +
+          'La señal es negativa, no suficiente aún para encadenar otro recorte.',
+        recommendedAction:
+          'No aumentar y no volver a reducir todavía. Completar 3D en el nuevo nivel y medir CPA, CVR, CPC y compras/día.'
+      };
+    }
+
+    if (cpaWorsenedMaterially) {
+      return {
+        ...common,
+        status: 'REDUCCIÓN PERJUDICIAL · EFICIENCIA EMPEORÓ',
+        tone: 'critical',
+        shouldReduceBudget: false,
+        summary:
+          `Después de reducir a ${fmtMoney(reducedBudget)}, el CPA empeoró ${fmtNum(Math.abs(postCpaDelta), 1)}% frente al bloque previo. ` +
+          'El problema no se está corrigiendo simplemente con menos presupuesto.',
+        recommendedAction:
+          'NO encadenar otra reducción automática. Revisar anuncios que drenan, post-clic, oferta y entrega antes de asumir que bajar más presupuesto resolverá el deterioro.'
+      };
+    }
+
+    if (safetyBlockedReduction && (postOutside || postNoPurchaseDamage)) {
+      return {
+        ...common,
+        status: 'REDUCCIÓN INSUFICIENTE · ESPERAR VENTANA DE SEGURIDAD',
+        tone: 'alert',
+        shouldReduceBudget: false,
+        summary:
+          `El nuevo presupuesto sigue fuera del objetivo y el 3D ya permite evaluar el resultado, pero todavía está activa la ventana de seguridad del último cambio.`,
+        recommendedAction:
+          `Esperar ${safetyWaitReduction}. Después, si el CPA continúa fuera del objetivo y no aparece recuperación, ` +
+          `${lowerReference ? `reducir hacia el siguiente nivel inferior históricamente rentable: ${fmtMoney(lowerReference.budget)}.` : 'considerar una reducción adicional controlada y volver a medir 3D.'}`
+      };
+    }
+
+    if (shouldReduceFurther) {
+      return {
+        ...common,
+        status: cpaImprovedMaterially ? 'REDUCCIÓN AYUDÓ · AÚN INSUFICIENTE' : 'REDUCCIÓN INSUFICIENTE · SEGUIR BAJANDO',
+        tone: 'critical',
+        shouldReduceBudget: true,
+        summary:
+          cpaImprovedMaterially
+            ? `La reducción mejoró el CPA ${fmtNum(Math.abs(postCpaDelta), 1)}%, pero el nivel actual (${fmtCpa(postCpa)}) todavía supera el máximo de ${fmtMoney(max)}. La dirección fue correcta, pero el recorte no alcanzó.`
+            : `Después de completar el nuevo 3D, el CPA continúa en ${fmtCpa(postCpa)}, fuera del máximo de ${fmtMoney(max)}, sin una recuperación suficiente. El nivel actual todavía consume capital de forma ineficiente.`,
+        recommendedAction:
+          lowerReference
+            ? `REDUCIR un nivel adicional hacia ${fmtMoney(lowerReference.budget)}, que ya tiene referencia histórica rentable. Registrar el cambio y abrir un nuevo ciclo independiente de 3D.`
+            : 'REDUCIR un nivel adicional de forma controlada. Registrar el nuevo presupuesto como una nueva intervención y no volver a modificarlo hasta completar un nuevo ciclo 3D.'
+      };
+    }
+
+    return {
+      ...common,
+      status: 'REDUCCIÓN · RESULTADO NO CONCLUYENTE',
+      tone: 'attention',
+      shouldReduceBudget: false,
+      summary:
+        `El presupuesto bajó a ${fmtMoney(reducedBudget)}, pero la comparación todavía no permite concluir que la reducción recuperó la campaña ni que deba seguir bajando.`,
+      recommendedAction:
+        'Mantener el nivel actual y seguir midiendo. No encadenar cambios mientras la dirección del CPA y del CVR siga siendo ambigua.'
+    };
+  }
 
   // ── CONFIRMACIÓN OPERATIVA 3D ──────────────────────────────
   // El historial de escala puede levantar sospecha, pero bajar presupuesto
@@ -10764,6 +11207,25 @@ function buildScaleChangeImpactDiagnosisCC(
 
 
 function marginalCpaDisplayCC(scaleStatus, maxCpa = null) {
+  const intervention = scaleStatus?.scaleDiagnosis || null;
+
+  if (intervention?.changeType === 'decrease') {
+    const beforeCpa = intervention?.beforeStats?.cpa;
+    const afterCpa = intervention?.afterRecentStats?.cpa ?? intervention?.afterStats?.cpa;
+    const delta = intervention?.cpaDelta;
+    return {
+      value: afterCpa !== null && afterCpa !== undefined ? fmtCpa(afterCpa) : '—',
+      status: intervention.status,
+      tone: intervention.tone || 'neutral',
+      explanation:
+        `CPA antes de reducir: ${fmtCpa(beforeCpa)} · CPA después: ${fmtCpa(afterCpa)}` +
+        `${delta !== null && delta !== undefined ? ` · cambio ${delta > 0 ? '+' : ''}${fmtNum(delta, 1)}%` : ''}.`,
+      detail:
+        `Reducción: ${fmtMoney(intervention?.change?.previousBudget)} → ${fmtMoney(intervention?.change?.newBudget)}. ` +
+        `Compras/día ${intervention?.beforePurchasesDay === null || intervention?.beforePurchasesDay === undefined ? '—' : fmtNum(intervention.beforePurchasesDay, 2)} → ${intervention?.afterPurchasesDay === null || intervention?.afterPurchasesDay === undefined ? '—' : fmtNum(intervention.afterPurchasesDay, 2)}.`
+    };
+  }
+
   const marginal = scaleStatus?.marginalCpa;
   const extraSpend = scaleStatus?.marginalExtraSpendDay;
   const extraPurchases = scaleStatus?.marginalExtraPurchasesDay;
@@ -10839,10 +11301,12 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
     .filter(r => toNumber(r?.budget) > 0)
     .sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')));
 
+  const cycles = buildBudgetCyclesCC(historyWithBudget);
+  const currentCycle = cycles[cycles.length - 1] || null;
   const latest = historyWithBudget[historyWithBudget.length - 1] || null;
-  const currentBudget = toNumber(latest?.budget);
+  const currentBudget = toNumber(currentCycle?.budget || latest?.budget);
 
-  if (!latest || currentBudget <= 0) {
+  if (!latest || currentBudget <= 0 || !currentCycle) {
     return {
       status: 'SIN HISTORIAL SUFICIENTE',
       tone: 'neutral',
@@ -10853,15 +11317,18 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
       purchases: 0,
       profitableCeilingBudget: null,
       profitableCeilingCpa: null,
-      summary: 'Todavía no existe un nivel de presupuesto histórico suficiente para clasificar la escala actual.',
+      summary: 'Todavía no existe un ciclo de presupuesto histórico suficiente para clasificar la escala actual.',
       action: 'Seguir registrando días completos antes de usar el historial de escala como referencia.'
     };
   }
 
+  const currentStats = currentCycle.stats || aggregateRecords(currentCycle.records || []);
+  const currentDays = Math.max(0, toNumber(currentStats.days) || currentCycle.records.length);
+  const currentSpendDay = currentDays > 0 ? currentStats.spend / currentDays : null;
+  const currentPurchasesDay = currentDays > 0 ? currentStats.purchases / currentDays : null;
+
   const rows = [...(scaleRows || [])].sort((a, b) => toNumber(a.budget) - toNumber(b.budget));
-  const currentRow =
-    rows.find(r => Math.abs(toNumber(r.budget) - currentBudget) < 0.01) ||
-    null;
+  const historicalRow = rows.find(r => Math.abs(toNumber(r.budget) - currentBudget) < 0.01) || null;
 
   const profitableRows = rows.filter(r =>
     toNumber(r.cpa) > 0 &&
@@ -10876,6 +11343,51 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
     .filter(r => toNumber(r.budget) < currentBudget)
     .sort((a, b) => toNumber(b.budget) - toNumber(a.budget))[0] || null;
 
+  const latestBudgetChange = [...(budgetChanges || [])]
+    .filter(change =>
+      toNumber(change?.previousBudget) > 0 &&
+      toNumber(change?.newBudget) > 0 &&
+      Math.abs(toNumber(change.newBudget) - currentBudget) < 0.01 &&
+      Math.abs(toNumber(change.newBudget) - toNumber(change.previousBudget)) > 0.01
+    )
+    .sort((a, b) => {
+      const aMs = changeEventTimeMsCC(a) || new Date(`${a?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
+      const bMs = changeEventTimeMsCC(b) || new Date(`${b?.date || '1900-01-01'}T12:00:00-05:00`).getTime();
+      return bMs - aMs;
+    })[0] || null;
+
+  const latestChangeType = latestBudgetChange
+    ? toNumber(latestBudgetChange.newBudget) < toNumber(latestBudgetChange.previousBudget)
+      ? 'decrease'
+      : 'increase'
+    : null;
+
+  const historicalMarginal = latestChangeType === 'increase' ? historicalRow?.marginalCpa ?? null : null;
+  const historicalExtraSpend = latestChangeType === 'increase' ? historicalRow?.marginalExtraSpendDay ?? null : null;
+  const historicalExtraPurchases = latestChangeType === 'increase' ? historicalRow?.marginalExtraPurchasesDay ?? null : null;
+
+  const base = {
+    currentBudget,
+    cpa: currentStats.cpa,
+    marginalCpa: historicalMarginal,
+    marginalExtraSpendDay: historicalExtraSpend,
+    marginalExtraPurchasesDay: historicalExtraPurchases,
+    spendDay: currentSpendDay,
+    purchasesDay: currentPurchasesDay,
+    days: currentDays,
+    purchases: currentStats.purchases,
+    profitableCeilingBudget: profitableCeiling?.budget || null,
+    profitableCeilingCpa: profitableCeiling?.cpa || null,
+    previousBudget: previousLevel?.budget || null,
+    previousCpa: previousLevel?.cpa || null,
+    currentCycleStartDate: currentCycle.startDate,
+    currentCycleEndDate: currentCycle.endDate,
+    currentCycleDays: currentDays,
+    currentCycleId: currentCycle.id,
+    latestBudgetChangeType: latestChangeType,
+    latestBudgetChange
+  };
+
   const withScaleDiagnosis = statusObj => {
     const scaleDiagnosis = buildScaleChangeImpactDiagnosisCC(
       campaignHistory,
@@ -10888,92 +11400,120 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
     return { ...statusObj, scaleDiagnosis };
   };
 
-  if (!currentRow) {
+  if (latestChangeType === 'decrease' && currentDays < 2) {
     return withScaleDiagnosis({
-      status: 'ESCALA EN OBSERVACIÓN',
-      tone: 'neutral',
-      currentBudget,
-      cpa: null,
-      marginalCpa: null,
-      days: 0,
-      purchases: 0,
-      profitableCeilingBudget: profitableCeiling?.budget || null,
-      profitableCeilingCpa: profitableCeiling?.cpa || null,
-      summary: `El presupuesto actual es ${fmtMoney(currentBudget)}, pero todavía no existe suficiente historial agrupado en este nivel para clasificar su rentabilidad.`,
-      action: 'Mantener observación. La decisión operativa sigue dependiendo de 3D y sus guardrails.'
+      ...base,
+      status: 'REDUCCIÓN EN OBSERVACIÓN',
+      tone: 'attention',
+      summary:
+        `El presupuesto bajó a ${fmtMoney(currentBudget)} y abrió un ciclo nuevo independiente. Solo hay ${currentDays} día(s) completo(s) en este nivel; el histórico antiguo del mismo presupuesto no se mezcla con este diagnóstico actual.`,
+      action: 'Mantener el nuevo presupuesto y completar muestra antes de decidir si la campaña se recuperó o requiere otra reducción.'
     });
   }
 
-  const base = {
-    currentBudget,
-    cpa: currentRow.cpa,
-    marginalCpa: currentRow.marginalCpa,
-    marginalExtraSpendDay: currentRow.marginalExtraSpendDay,
-    marginalExtraPurchasesDay: currentRow.marginalExtraPurchasesDay,
-    spendDay: currentRow.spendDay,
-    purchasesDay: currentRow.purchasesDay,
-    days: currentRow.days,
-    purchases: currentRow.purchases,
-    profitableCeilingBudget: profitableCeiling?.budget || null,
-    profitableCeilingCpa: profitableCeiling?.cpa || null,
-    previousBudget: previousLevel?.budget || null,
-    previousCpa: previousLevel?.cpa || null
-  };
+  const currentCpa = currentStats.cpa;
+  const cpaCalculable = currentCpa !== null && currentCpa !== undefined && toNumber(currentCpa) > 0;
 
-  if (currentRow.status === 'Escala ineficiente') {
+  if (latestChangeType === 'decrease') {
+    if (cpaCalculable && toNumber(currentCpa) <= max * 0.8) {
+      return withScaleDiagnosis({
+        ...base,
+        status: 'REDUCCIÓN · NIVEL RENTABLE',
+        tone: 'good',
+        summary:
+          `El nuevo ciclo de ${fmtMoney(currentBudget)} opera con CPA ${fmtCpa(currentCpa)}, dentro de la zona fuerte de rentabilidad.`,
+        action: 'Mantener este nivel mientras el diagnóstico de la reducción confirme que la recuperación es estable.'
+      });
+    }
+
+    if (cpaCalculable && toNumber(currentCpa) <= max) {
+      return withScaleDiagnosis({
+        ...base,
+        status: 'REDUCCIÓN · LÍMITE RENTABLE',
+        tone: 'attention',
+        summary:
+          `El nuevo ciclo de ${fmtMoney(currentBudget)} volvió a rentabilidad con CPA ${fmtCpa(currentCpa)}, aunque ya está cerca del máximo de ${fmtMoney(max)}.`,
+        action: 'Mantener. No seguir reduciendo mientras el CPA permanezca dentro del objetivo; tampoco volver a escalar hasta estabilizar otro 3D.'
+      });
+    }
+
+    if (cpaCalculable || (toNumber(currentStats.purchases) <= 0 && toNumber(currentStats.spend) >= max)) {
+      return withScaleDiagnosis({
+        ...base,
+        status: 'REDUCCIÓN · AÚN INEFICIENTE',
+        tone: 'critical',
+        summary:
+          cpaCalculable
+            ? `Después de reducir a ${fmtMoney(currentBudget)}, el ciclo actual continúa con CPA ${fmtCpa(currentCpa)}, por encima del máximo de ${fmtMoney(max)}.`
+            : `Después de reducir a ${fmtMoney(currentBudget)}, el ciclo actual ya gastó ${fmtMoney(currentStats.spend)} sin compras suficientes para calcular un CPA rentable.`,
+        action: 'Usar el diagnóstico posreducción para decidir si esperar recuperación, mantener o bajar un nivel adicional.'
+      });
+    }
+
+    return withScaleDiagnosis({
+      ...base,
+      status: 'REDUCCIÓN EN OBSERVACIÓN',
+      tone: 'neutral',
+      summary: `El nuevo ciclo de ${fmtMoney(currentBudget)} todavía no permite clasificar el resultado económico con claridad.`,
+      action: 'Mantener y seguir acumulando cierres completos.'
+    });
+  }
+
+  const marginalNoGain =
+    historicalExtraSpend !== null && historicalExtraSpend !== undefined && toNumber(historicalExtraSpend) > 0 &&
+    historicalExtraPurchases !== null && historicalExtraPurchases !== undefined && toNumber(historicalExtraPurchases) <= 0;
+
+  const marginalBad = historicalMarginal !== null && historicalMarginal !== undefined && toNumber(historicalMarginal) > max;
+
+  if (latestChangeType === 'increase' && (marginalBad || marginalNoGain)) {
     return withScaleDiagnosis({
       ...base,
       status: 'ESCALA INEFICIENTE',
       tone: 'critical',
       summary:
-        currentRow.marginalCpa !== null && currentRow.marginalCpa !== undefined
-          ? `El presupuesto actual de ${fmtMoney(currentBudget)} presenta un CPA marginal de ${fmtCpa(currentRow.marginalCpa)}, por encima del CPA máximo de ${fmtMoney(max)}. El gasto adicional de este nivel está perdiendo eficiencia.`
-          : `El presupuesto actual de ${fmtMoney(currentBudget)} aumentó el gasto diario frente al nivel anterior, pero no generó compras/día adicionales. El nuevo nivel perdió eficiencia incremental.`,
+        marginalBad
+          ? `El nivel actual de ${fmtMoney(currentBudget)} presenta un CPA marginal de ${fmtCpa(historicalMarginal)}, por encima del CPA máximo de ${fmtMoney(max)}.`
+          : `El aumento hacia ${fmtMoney(currentBudget)} elevó el gasto diario pero no produjo compras/día adicionales positivas.`,
       action:
         profitableCeiling
-          ? `No continuar escalando. El último nivel rentable observado es ${fmtMoney(profitableCeiling.budget)}, pero la reducción solo se habilita si el diagnóstico causal cumple todas las condiciones estrictas.`
-          : 'No continuar escalando. Bajar presupuesto requiere confirmación 3D, ausencia de recuperación y ventana de seguridad cumplida.'
+          ? `No continuar escalando. El último nivel rentable histórico es ${fmtMoney(profitableCeiling.budget)}; una reducción solo se habilita con confirmación 3D y seguridad cumplida.`
+          : 'No continuar escalando. Esperar confirmación causal antes de bajar.'
     });
   }
 
-  if (currentRow.status === 'Sobreescalado') {
+  if (cpaCalculable && toNumber(currentCpa) > max) {
     return withScaleDiagnosis({
       ...base,
       status: 'SOBREESCALADO',
       tone: 'critical',
       summary:
-        `En ${fmtMoney(currentBudget)}, el CPA histórico ponderado del nivel es ${fmtCpa(currentRow.cpa)}, ` +
-        `por encima del máximo de ${fmtMoney(max)}.`,
+        `En el ciclo actual de ${fmtMoney(currentBudget)}, el CPA es ${fmtCpa(currentCpa)}, por encima del máximo de ${fmtMoney(max)}.`,
       action:
         profitableCeiling
-          ? `El último nivel rentable observado es ${fmtMoney(profitableCeiling.budget)} con CPA ${fmtCpa(profitableCeiling.cpa)}. No aumentar presupuesto. La plataforma solo recomendará retroceder cuando 3D confirme, no haya recuperación y se cumpla la ventana de seguridad.`
-          : 'No aumentar presupuesto. La reducción solo se habilita con confirmación 3D, sin recuperación y fuera de la ventana de seguridad.'
+          ? `No aumentar presupuesto. El último nivel rentable histórico es ${fmtMoney(profitableCeiling.budget)}; esperar confirmación del diagnóstico causal antes de retroceder.`
+          : 'No aumentar presupuesto. Bajar solo con confirmación 3D, sin recuperación y fuera de ventana de seguridad.'
     });
   }
 
-  if (currentRow.status === 'Límite rentable') {
-    return withScaleDiagnosis({
-      ...base,
-      status: 'ESCALA · LÍMITE RENTABLE',
-      tone: 'attention',
-      summary:
-        `El presupuesto actual de ${fmtMoney(currentBudget)} sigue siendo rentable, pero el CPA histórico del nivel (${fmtCpa(currentRow.cpa)}) ` +
-        `ya está cerca del máximo de ${fmtMoney(max)}.`,
-      action:
-        'Mantener este nivel. No aumentar presupuesto solo por historial; una nueva escala requiere que el 3D y todos los guardrails vuelvan a mostrar margen.'
-    });
-  }
-
-  if (currentRow.status === 'Rentable') {
+  if (cpaCalculable && toNumber(currentCpa) <= max * 0.8) {
     return withScaleDiagnosis({
       ...base,
       status: 'ESCALA RENTABLE',
       tone: 'good',
       summary:
-        `El nivel actual de ${fmtMoney(currentBudget)} mantiene un CPA histórico ponderado de ${fmtCpa(currentRow.cpa)}, ` +
-        `con margen frente al máximo de ${fmtMoney(max)}.`,
-      action:
-        'El historial permite considerar este nivel saludable. Una nueva escala solo corresponde si el 3D actual también autoriza escalar.'
+        `El ciclo actual de ${fmtMoney(currentBudget)} mantiene CPA ${fmtCpa(currentCpa)}, con margen fuerte frente al máximo de ${fmtMoney(max)}.`,
+      action: 'El nivel actual es saludable. Una nueva escala solo corresponde si el motor Post ID / ABO y el 3D actual vuelven a autorizarla.'
+    });
+  }
+
+  if (cpaCalculable && toNumber(currentCpa) <= max) {
+    return withScaleDiagnosis({
+      ...base,
+      status: 'ESCALA · LÍMITE RENTABLE',
+      tone: 'attention',
+      summary:
+        `El ciclo actual de ${fmtMoney(currentBudget)} sigue rentable con CPA ${fmtCpa(currentCpa)}, pero está cerca del máximo de ${fmtMoney(max)}.`,
+      action: 'Mantener este nivel. No aumentar hasta recuperar margen claro.'
     });
   }
 
@@ -10982,9 +11522,8 @@ function buildCurrentScaleStatusCC(campaignHistory = [], scaleRows = [], maxCpa,
     status: 'ESCALA EN OBSERVACIÓN',
     tone: 'neutral',
     summary:
-      `El presupuesto actual es ${fmtMoney(currentBudget)}. El historial de este nivel todavía no permite clasificarlo con suficiente claridad.`,
-    action:
-      'Mantener el presupuesto y seguir acumulando datos completos. No usar esta tarjeta por sí sola para subir o bajar inversión.'
+      `El ciclo actual de ${fmtMoney(currentBudget)} todavía no permite clasificar la rentabilidad con suficiente claridad.`,
+    action: 'Mantener el presupuesto y seguir acumulando datos completos.'
   });
 }
 
@@ -11071,7 +11610,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
         <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-2.5 py-2.5 sm:px-3 sm:py-3">
           <div className="flex items-start justify-between gap-2">
             <p className="text-[6px] sm:text-[6.5px] lg:text-[7.5px] font-black uppercase leading-tight tracking-wide text-slate-400">
-              CPA marginal
+              {diag?.changeType === 'decrease' ? 'Impacto de reducción' : 'CPA marginal'}
             </p>
             <span
               className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[5.5px] sm:text-[6px] lg:text-[7px] font-black uppercase leading-tight text-center ${toneBadge(marginalDisplay.tone)}`}
@@ -11118,7 +11657,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
         <div className={`mt-4 rounded-2xl border p-3 sm:p-3.5 ${toneBg(diag.tone || 'neutral')}`}>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
             <p className="text-[7px] sm:text-[8px] lg:text-[9px] font-black uppercase tracking-wide text-slate-500">
-              Relación con último escalamiento
+              {diag?.changeType === 'decrease' ? 'Impacto de última reducción' : 'Relación con último escalamiento'}
             </p>
 
             <span
@@ -11128,6 +11667,26 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
               {diag.status}
             </span>
           </div>
+
+          {diag?.change ? (
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mt-3">
+              {valueBox(
+                diag.changeType === 'decrease' ? 'Presupuesto antes' : 'Presupuesto previo',
+                fmtMoney(diag.change.previousBudget)
+              )}
+              {valueBox(
+                diag.changeType === 'decrease' ? 'Presupuesto reducido' : 'Presupuesto escalado',
+                fmtMoney(diag.change.newBudget),
+                diag.budgetChangePct !== null && diag.budgetChangePct !== undefined
+                  ? `${diag.budgetChangePct > 0 ? '+' : ''}${fmtNum(diag.budgetChangePct, 1)}%`
+                  : null
+              )}
+              {valueBox('CPA antes', fmtCpa(diag.beforeStats?.cpa))}
+              {valueBox('CPA después', fmtCpa(diag.afterRecentStats?.cpa ?? diag.afterStats?.cpa), diag.cpaDelta !== null && diag.cpaDelta !== undefined ? `${diag.cpaDelta > 0 ? '+' : ''}${fmtNum(diag.cpaDelta, 1)}%` : null)}
+              {valueBox('Compras/día antes', diag.beforePurchasesDay === null || diag.beforePurchasesDay === undefined ? '—' : fmtNum(diag.beforePurchasesDay, 2))}
+              {valueBox('Compras/día después', diag.afterPurchasesDay === null || diag.afterPurchasesDay === undefined ? '—' : fmtNum(diag.afterPurchasesDay, 2), diag.volumeVsExpectedPct !== null && diag.volumeVsExpectedPct !== undefined ? `${diag.volumeVsExpectedPct > 0 ? '+' : ''}${fmtNum(diag.volumeVsExpectedPct, 1)}% vs esperado` : null)}
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5 mt-3">
             <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
@@ -11160,9 +11719,9 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
 
           <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[5.5px] sm:text-[6.5px] lg:text-[7.5px] text-slate-400">
             <span>Confianza: <strong>{diag.confidence}</strong></span>
-            <span>3D confirma: <strong>{diag.threeDayConfirms ? 'Sí' : 'No'}</strong></span>
+            <span>{diag.changeType === 'decrease' ? 'Ciclo posreducción 3D' : '3D confirma'}: <strong>{diag.threeDayConfirms ? 'Sí' : 'No'}</strong></span>
             <span>Recuperación: <strong>{diag.recoverySignal ? 'Sí' : 'No'}</strong></span>
-            <span>Reducción: <strong>{diag.shouldReduceBudget ? 'Habilitada' : 'No habilitada'}</strong></span>
+            <span>{diag.changeType === 'decrease' ? 'Reducción adicional' : 'Reducción'}: <strong>{diag.shouldReduceBudget ? 'Habilitada' : 'No habilitada'}</strong></span>
           </div>
         </div>
       ) : null}
