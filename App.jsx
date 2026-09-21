@@ -2585,6 +2585,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   const guardrails = {
     cpaMargin: scale3d.cpa > 0 && scale3d.cpa <= scaleCpa,
     stability: scaleDelta3d.cpa === null || scaleDelta3d.cpa <= 15,
+    preClick: scale3d.ctr !== null && scale3d.ctr !== undefined && toNumber(scale3d.ctr) >= METRIC_STANDARDS_CC.ctrAcceptable,
     creative: !['Fatiga probable', 'Fatiga confirmada'].includes(scaleDynamic3d.diagnosis),
     postClick: !postClickCritical3d && !postClickIntegrityMissing3d
   };
@@ -2683,8 +2684,8 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
       operational3dPriority = 'alert';
       operational3dReason = `${metaDelivery3d.reason} El CPA 3D todavía está dentro del objetivo, pero la exposición fue incompleta.`;
     } else if (canScale && scale3d.cpa > 0 && scale3d.cpa <= scaleCpa) {
-      operational3dDiagnosis = 'Ganador 3D · escala permitida';
-      operational3dAction = 'Escalar +20%';
+      operational3dDiagnosis = 'Ganador 3D · candidato a escala por Post ID';
+      operational3dAction = 'Autorizar nivel de escala Post ID / ABO';
       operational3dPriority = 'monitor';
       operational3dReason = `CPA 3D ${fmtMoney(scale3d.cpa)} con margen ≥20%, estabilidad válida, creativo sano y post-clic sano. Volumen ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}) solo como referencia.`;
     } else if (scale3d.cpa > 0 && scale3d.cpa <= maxCpa) {
@@ -2713,7 +2714,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     } else if (post.diagnosis === 'Calidad de tráfico cayendo') {
       finalDiagnosis = 'Calidad de tráfico deteriorándose'; action = c.cpa <= maxCpa ? 'Preparar reemplazo' : 'Evaluar pausa / reemplazo'; priority = 'alert'; reason = 'Las tasas visita→ATC y visita→compra empeoran frente a su ventana anterior.';
     } else if (c.cpa <= scaleCpa && dynamic.diagnosis === 'Estable' && post.diagnosis === 'Post-clic estable' && canScale) {
-      finalDiagnosis = 'Ganador estable'; action = 'Escalar +20%'; priority = 'monitor'; reason = `CPA 3D con margen ≥20%, estable o mejorando, creativo sano y post-clic sano. Volumen: ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}), usado solo como referencia de confianza.`;
+      finalDiagnosis = 'Ganador estable'; action = 'Autorizar escala por Post ID / ABO'; priority = 'monitor'; reason = `CPA 3D con margen ≥20%, estable o mejorando, creativo sano y post-clic sano. Volumen: ${fmtNum(volumeReference.purchases, 2)} compras (${volumeReference.confidence}), usado solo como referencia de confianza.`;
     } else if (c.cpa <= maxCpa) {
       finalDiagnosis = 'Rentable / mantener'; action = 'Mantener'; priority = 'monitor'; reason = 'CPA dentro del máximo y sin señales críticas combinadas.';
     } else {
@@ -2746,6 +2747,218 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
 }
 
 
+
+
+const POST_ID_SCALE_LEVELS_CC = {
+  N1: { rank: 1, label: 'ESCALA N1 · VALIDACIÓN', minBudget: 200000, maxBudget: 300000, targetBudget: 200000 },
+  N2: { rank: 2, label: 'ESCALA N2 · CONFIRMADA', minBudget: 500000, maxBudget: 500000, targetBudget: 500000 },
+  N3: { rank: 3, label: 'ESCALA N3 · ALTA', minBudget: 1000000, maxBudget: 1000000, targetBudget: 1000000 },
+  N4: { rank: 4, label: 'ESCALA N4 · MÁXIMA', minBudget: 1500000, maxBudget: 2000000, targetBudget: 1500000 },
+  CEILING: { rank: 5, label: 'TECHO DE ESCALA · MANTENER', minBudget: 2000000, maxBudget: 2000000, targetBudget: 2000000 }
+};
+
+function latestCampaignBudgetCC(campaignHistory = []) {
+  const latest = [...(campaignHistory || [])]
+    .filter(r => toNumber(r?.budget) > 0)
+    .sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))[0];
+  return toNumber(latest?.budget);
+}
+
+function formatScaleBudgetRangeCC(level) {
+  if (!level) return '—';
+  if (level.minBudget === level.maxBudget) return fmtMoney(level.minBudget);
+  return `${fmtMoney(level.minBudget)}–${fmtMoney(level.maxBudget)}`;
+}
+
+function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
+  const max = Math.max(1, toNumber(maxCpa));
+  const current = diag?.scale3d || {};
+  const previous = diag?.scalePrev3d || {};
+  const delta = diag?.scaleDelta3d || {};
+  const currentBudget = latestCampaignBudgetCC(campaignHistory);
+
+  const currentDays = toNumber(current.days);
+  const previousDays = toNumber(previous.days);
+  const currentCpa = current?.cpa;
+  const previousCpa = previous?.cpa;
+  const ctr = current?.ctr;
+  const previousCtr = previous?.ctr;
+  const ctrDelta = delta?.ctr;
+
+  const currentFull3d = currentDays >= 3;
+  const previousFull3d = previousDays >= 3;
+
+  const baseGuardrails =
+    diag?.guardrails?.cpaMargin === true &&
+    diag?.guardrails?.stability === true &&
+    diag?.guardrails?.creative === true &&
+    diag?.guardrails?.postClick === true;
+
+  const ctrAvailable = ctr !== null && ctr !== undefined && Number.isFinite(Number(ctr));
+  const ctrFloorOk = ctrAvailable && toNumber(ctr) >= METRIC_STANDARDS_CC.ctrAcceptable;
+  const ctrHealthy = ctrAvailable && toNumber(ctr) >= METRIC_STANDARDS_CC.ctrHealthy;
+  const ctrCriticalDrop =
+    ctrDelta !== null &&
+    ctrDelta !== undefined &&
+    Number.isFinite(Number(ctrDelta)) &&
+    toNumber(ctrDelta) <= -30;
+
+  const previousHealthy =
+    previousFull3d &&
+    previousCpa !== null &&
+    previousCpa !== undefined &&
+    toNumber(previousCpa) > 0 &&
+    toNumber(previousCpa) <= max * 0.8 &&
+    previousCtr !== null &&
+    previousCtr !== undefined &&
+    toNumber(previousCtr) >= METRIC_STANDARDS_CC.ctrHealthy &&
+    postClickDataQualityCC(previous).level !== 'missing';
+
+  const currentStrong =
+    currentFull3d &&
+    currentCpa !== null &&
+    currentCpa !== undefined &&
+    toNumber(currentCpa) > 0 &&
+    toNumber(currentCpa) <= max * 0.8 &&
+    baseGuardrails;
+
+  const blocked = (code, title, reason, tone = 'attention') => ({
+    allowed: false,
+    code,
+    rank: 0,
+    label: title,
+    tone,
+    budgetLabel: 'NO AUTORIZADO',
+    targetBudget: null,
+    minBudget: null,
+    maxBudget: null,
+    currentBudget,
+    previousHealthy,
+    currentStrong,
+    ctrHealthy,
+    ctrCriticalDrop,
+    reason,
+    action: 'No extraer el Post ID para una escala nueva todavía. Mantener/optimizar y volver a evaluar con un 3D completo.',
+    summary: reason
+  });
+
+  if (!currentFull3d) {
+    return blocked(
+      'WAIT_3D',
+      'SIN AUTORIZACIÓN · FALTA 3D',
+      'Todavía no existe un ciclo completo de 3 días para autorizar capital de escala.'
+    );
+  }
+
+  if (!currentStrong) {
+    return blocked(
+      'NO_SCALE',
+      'NO ESCALAR · GUARDRAILS INCOMPLETOS',
+      'El CPA o alguno de los guardrails de estabilidad, creativo o post-clic todavía no autoriza una nueva escala por Post ID.',
+      'alert'
+    );
+  }
+
+  if (!ctrAvailable) {
+    return blocked(
+      'NO_CTR',
+      'NO ESCALAR · CTR NO DISPONIBLE',
+      'El anuncio es económicamente fuerte, pero falta CTR 3D para validar la capacidad pre-clic antes de exponerlo a un ABO de mayor capital.'
+    );
+  }
+
+  if (!ctrFloorOk) {
+    return blocked(
+      'CTR_BLOCK',
+      'NO ESCALAR · PRE-CLIC DÉBIL',
+      `CPA ${fmtCpa(currentCpa)} con margen, pero CTR ${fmtRate(ctr)} está por debajo del piso operativo de ${fmtRate(METRIC_STANDARDS_CC.ctrAcceptable)}. Mantener el ganador activo, pero no moverlo todavía a un ABO de escala.`,
+      'alert'
+    );
+  }
+
+  // Primer ciclo fuerte, CTR aceptable (<2%) o caída crítica:
+  // se protege capital con N1 aunque el CPA sea excelente.
+  if (!previousHealthy || !ctrHealthy || ctrCriticalDrop) {
+    const level = POST_ID_SCALE_LEVELS_CC.N1;
+    const warnings = [];
+    if (!previousHealthy) warnings.push('no hay dos ciclos 3D saludables consecutivos');
+    if (!ctrHealthy) warnings.push(`CTR ${fmtRate(ctr)} está aceptable, pero por debajo del 2% saludable`);
+    if (ctrCriticalDrop) warnings.push(`CTR cayó ${fmtNum(Math.abs(ctrDelta), 1)}%`);
+
+    return {
+      allowed: true,
+      code: 'N1',
+      ...level,
+      tone: 'attention',
+      budgetLabel: formatScaleBudgetRangeCC(level),
+      currentBudget,
+      previousHealthy,
+      currentStrong,
+      ctrHealthy,
+      ctrCriticalDrop,
+      reason:
+        `El anuncio tiene CPA ${fmtCpa(currentCpa)} en zona fuerte, pero ${warnings.join(' y ')}. ` +
+        'Se autoriza únicamente una validación de capital antes de escalar más agresivamente.',
+      action:
+        `Extraer/usar el Post ID en un ABO independiente de ${formatScaleBudgetRangeCC(level)}. ` +
+        'Observar un nuevo ciclo 3D completo; si conserva CPA ≤80% del máximo y recupera/mantiene salud pre-clic, puede aspirar a N2.',
+      summary: 'Ganador rentable, pero todavía debe demostrar resiliencia antes de recibir capital alto.'
+    };
+  }
+
+  // Dos ciclos saludables. El nivel siguiente depende de cuánto capital ya absorbió.
+  let levelCode = 'N2';
+  if (currentBudget >= 1500000) levelCode = 'CEILING';
+  else if (currentBudget >= 1000000) levelCode = 'N4';
+  else if (currentBudget >= 500000) levelCode = 'N3';
+  else levelCode = 'N2';
+
+  const level = POST_ID_SCALE_LEVELS_CC[levelCode];
+
+  if (levelCode === 'CEILING') {
+    return {
+      allowed: true,
+      code: levelCode,
+      ...level,
+      tone: 'good',
+      budgetLabel: formatScaleBudgetRangeCC(level),
+      currentBudget,
+      previousHealthy,
+      currentStrong,
+      ctrHealthy,
+      ctrCriticalDrop,
+      reason:
+        `El anuncio encadena dos ciclos 3D saludables y ya opera en una zona de presupuesto alta (${fmtMoney(currentBudget)}).`,
+      action:
+        `Mantener dentro del techo operativo de hasta ${fmtMoney(level.maxBudget)}. No autorizar más capital automáticamente; cualquier aumento superior debe tratarse como una decisión extraordinaria.`,
+      summary: 'El Post ID ya alcanzó el techo de la matriz de escala definida.'
+    };
+  }
+
+  const previousLevelText =
+    currentBudget >= 1000000 ? 'ya absorbió alrededor de $1M' :
+    currentBudget >= 500000 ? 'ya absorbió alrededor de $500k' :
+    'encadena dos ciclos 3D saludables';
+
+  return {
+    allowed: true,
+    code: levelCode,
+    ...level,
+    tone: 'good',
+    budgetLabel: formatScaleBudgetRangeCC(level),
+    currentBudget,
+    previousHealthy,
+    currentStrong,
+    ctrHealthy,
+    ctrCriticalDrop,
+    reason:
+      `El anuncio ${previousLevelText}, mantiene CPA ${fmtCpa(currentCpa)} ≤80% del máximo y CTR ${fmtRate(ctr)} en zona saludable.`,
+    action:
+      `Autorizar ${level.label}: usar el Post ID en un ABO independiente de ${formatScaleBudgetRangeCC(level)}. ` +
+      'Después del cambio, observar un ciclo 3D completo antes de autorizar el siguiente nivel.',
+    summary: `Autorización de capital: ${level.label} · ${formatScaleBudgetRangeCC(level)}.`
+  };
+}
 
 function buildCampaignContributionPeriodCC(campaign, product, allAds = [], dailyAds = [], periodId = '3d') {
   const today = todayColombiaCC();
@@ -3868,8 +4081,9 @@ function buildDetailedCampaignReportCC({
       const campaignDecision = buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows);
       const reportReadingRows = adRows.map(row => {
         const relational = buildRelationalAdDiagnosticCC(row.diag, row.contribution, maxCpa, row.ad, benchmark);
-        const action = adReadingActionCC(row.diag, row.contribution, maxCpa);
-        return { ...row, relational, action };
+        const scaleAuthorization = buildPostIdScaleAuthorizationCC(row.diag, maxCpa, campaignHistory);
+        const action = adReadingActionCC(row.diag, row.contribution, maxCpa, scaleAuthorization);
+        return { ...row, relational, action, scaleAuthorization };
       });
       const campaignOverview = buildCampaignLayerDiagnosticCC(w3.currentStats, w3.previousStats, reportReadingRows, maxCpa);
       const coverage = campaignRegistrationCoverageCC(campaign, product, dailyCampaigns, lastComplete);
@@ -4067,7 +4281,8 @@ function buildDetailedCampaignReportCC({
         const ad30 = reportWindowCC(eligible, 30, 30, today);
         const spentVsMax = maxCpa > 0 ? (ad3.currentStats.spend / maxCpa) * 100 : null;
         const relational = buildRelationalAdDiagnosticCC(diag, contribution, maxCpa, ad, benchmark);
-        const readingAction = adReadingActionCC(diag, contribution, maxCpa);
+        const scaleAuthorization = buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory);
+        const readingAction = adReadingActionCC(diag, contribution, maxCpa, scaleAuthorization);
         const playbook = buildPlaybookProtocolCC(diag, maxCpa, reportChangeSafety, ad, campaign);
 
         lines.push('');
@@ -4078,6 +4293,8 @@ function buildDetailedCampaignReportCC({
         lines.push(`Fecha inicio anuncio: ${ad.effectiveStartDate || ad.createdDate || '—'}`);
         lines.push(`Días activos calculados: ${diag.ageDays}`);
         lines.push(`Confianza por volumen 3D: ${diag.volumeReference?.confidence || '—'} · ${fmtNum(diag.volumeReference?.purchases || 0, 2)} compras`);
+        lines.push(`Autorización Post ID / ABO: ${scaleAuthorization.label}${scaleAuthorization.allowed ? ` · ${scaleAuthorization.budgetLabel}` : ''}`);
+        lines.push(`Regla de capital: ${scaleAuthorization.reason}`);
         lines.push('');
         lines.push('ENTREGA META · 3D');
         lines.push(`Estado: ${diag.metaDelivery3d?.status || '—'}`);
@@ -5244,45 +5461,45 @@ function CampaignControlModule() {
           .cc-ui-shell [class*="text-[5.5px]"],
           .cc-ui-shell [class*="text-[6px]"],
           .cc-ui-shell [class*="text-[6.5px]"] {
-            font-size: 8.5px !important;
+            font-size: 8px !important;
             line-height: 1.32 !important;
           }
 
           .cc-ui-shell [class*="text-[7px]"],
           .cc-ui-shell [class*="text-[7.5px]"] {
-            font-size: 9.5px !important;
+            font-size: 9px !important;
             line-height: 1.35 !important;
           }
 
           .cc-ui-shell [class*="text-[8px]"],
           .cc-ui-shell [class*="text-[8.5px]"] {
-            font-size: 10.5px !important;
+            font-size: 10px !important;
             line-height: 1.38 !important;
           }
 
           .cc-ui-shell [class*="text-[9px]"],
           .cc-ui-shell [class*="text-[9.5px]"] {
-            font-size: 11.5px !important;
+            font-size: 11px !important;
             line-height: 1.4 !important;
           }
 
           .cc-ui-shell [class*="text-[10px]"] {
-            font-size: 12.5px !important;
+            font-size: 12px !important;
             line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[11px]"] {
-            font-size: 13.5px !important;
+            font-size: 13px !important;
             line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[12px]"] {
-            font-size: 14.5px !important;
+            font-size: 14px !important;
             line-height: 1.42 !important;
           }
 
           .cc-ui-shell [class*="text-[13px]"] {
-            font-size: 15.5px !important;
+            font-size: 15px !important;
             line-height: 1.42 !important;
           }
 
@@ -5401,56 +5618,63 @@ function CampaignControlModule() {
 
         .cc-ui-shell .cc-data-table tbody tr:last-child td { border-bottom: 0; }
 
-        /* Anchos de tabla para evitar encabezados y dinero comprimidos */
+        /* Tabla Dashboard: cabe en PC sin scroll horizontal */
+        .cc-ui-shell .cc-data-table {
+          width: 100% !important;
+          min-width: 0 !important;
+          table-layout: fixed;
+        }
+
         .cc-ui-shell .cc-data-table th,
         .cc-ui-shell .cc-data-table td {
-          padding-left: 10px;
-          padding-right: 10px;
+          padding-left: 5px;
+          padding-right: 5px;
+          overflow-wrap: break-word;
+          word-break: normal;
+          white-space: normal;
         }
 
         .cc-ui-shell .cc-data-table th:nth-child(1),
-        .cc-ui-shell .cc-data-table td:nth-child(1) { min-width: 150px; }
-
+        .cc-ui-shell .cc-data-table td:nth-child(1) { width: 8%; }
         .cc-ui-shell .cc-data-table th:nth-child(2),
-        .cc-ui-shell .cc-data-table td:nth-child(2) { min-width: 235px; }
-
+        .cc-ui-shell .cc-data-table td:nth-child(2) { width: 15%; }
         .cc-ui-shell .cc-data-table th:nth-child(3),
-        .cc-ui-shell .cc-data-table td:nth-child(3),
+        .cc-ui-shell .cc-data-table td:nth-child(3) { width: 8%; }
         .cc-ui-shell .cc-data-table th:nth-child(4),
-        .cc-ui-shell .cc-data-table td:nth-child(4),
+        .cc-ui-shell .cc-data-table td:nth-child(4) { width: 7%; }
         .cc-ui-shell .cc-data-table th:nth-child(5),
-        .cc-ui-shell .cc-data-table td:nth-child(5),
+        .cc-ui-shell .cc-data-table td:nth-child(5) { width: 6%; }
         .cc-ui-shell .cc-data-table th:nth-child(6),
-        .cc-ui-shell .cc-data-table td:nth-child(6),
+        .cc-ui-shell .cc-data-table td:nth-child(6) { width: 7%; }
         .cc-ui-shell .cc-data-table th:nth-child(7),
-        .cc-ui-shell .cc-data-table td:nth-child(7),
+        .cc-ui-shell .cc-data-table td:nth-child(7) { width: 6%; }
         .cc-ui-shell .cc-data-table th:nth-child(8),
-        .cc-ui-shell .cc-data-table td:nth-child(8) {
-          min-width: 112px;
-          white-space: nowrap;
-        }
-
+        .cc-ui-shell .cc-data-table td:nth-child(8) { width: 6%; }
         .cc-ui-shell .cc-data-table th:nth-child(9),
-        .cc-ui-shell .cc-data-table td:nth-child(9),
+        .cc-ui-shell .cc-data-table td:nth-child(9) { width: 5%; }
         .cc-ui-shell .cc-data-table th:nth-child(10),
-        .cc-ui-shell .cc-data-table td:nth-child(10) {
-          min-width: 92px;
-          white-space: nowrap;
+        .cc-ui-shell .cc-data-table td:nth-child(10) { width: 5%; }
+        .cc-ui-shell .cc-data-table th:nth-child(11),
+        .cc-ui-shell .cc-data-table td:nth-child(11) { width: 8%; }
+        .cc-ui-shell .cc-data-table th:nth-child(12),
+        .cc-ui-shell .cc-data-table td:nth-child(12) { width: 10%; }
+        .cc-ui-shell .cc-data-table th:nth-child(13),
+        .cc-ui-shell .cc-data-table td:nth-child(13) { width: 9%; }
+
+        .cc-ui-shell .cc-tech-table {
+          width: 100% !important;
+          min-width: 0 !important;
+          table-layout: auto;
         }
 
-        .cc-ui-shell .cc-data-table th:nth-child(11),
-        .cc-ui-shell .cc-data-table td:nth-child(11) { min-width: 190px; }
-
-        .cc-ui-shell .cc-data-table th:nth-child(12),
-        .cc-ui-shell .cc-data-table td:nth-child(12) { min-width: 245px; }
-
-        .cc-ui-shell .cc-data-table th:nth-child(13),
-        .cc-ui-shell .cc-data-table td:nth-child(13) { min-width: 235px; }
-
-        .cc-ui-shell .cc-data-table thead th {
-          white-space: normal;
-          overflow-wrap: normal;
+        .cc-ui-shell .cc-tech-table th,
+        .cc-ui-shell .cc-tech-table td {
+          padding: 5px 5px !important;
+          white-space: normal !important;
+          overflow-wrap: break-word;
           word-break: normal;
+          vertical-align: top;
+          line-height: 1.28;
         }
 
         .cc-ui-shell .cc-manager-ad {
@@ -5483,17 +5707,17 @@ function CampaignControlModule() {
         }
 
         .cc-ui-shell .cc-grid-metrics {
-          grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)) !important;
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
           gap: 12px !important;
         }
 
         .cc-ui-shell .cc-grid-diagnostic {
-          grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)) !important;
+          grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)) !important;
           gap: 12px !important;
         }
 
         .cc-ui-shell .cc-grid-mini {
-          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+          grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)) !important;
           gap: 10px !important;
         }
 
@@ -5518,7 +5742,7 @@ function CampaignControlModule() {
 
         /* Métricas: compactas, proporcionadas y sin columnas kilométricas */
         .cc-ui-shell .cc-metric-card {
-          min-height: 164px !important;
+          min-height: 148px !important;
           max-width: none;
         }
 
@@ -5532,8 +5756,8 @@ function CampaignControlModule() {
 
         @media (min-width: 1024px) {
           .cc-ui-shell .cc-module-view { font-size: 12px; }
-          .cc-ui-shell .cc-section-card { padding: 18px !important; }
-          .cc-ui-shell .cc-metric-card { min-height: 176px; }
+          .cc-ui-shell .cc-section-card { padding: 15px !important; }
+          .cc-ui-shell .cc-metric-card { min-height: 150px; }
         }
 
         @media (max-width: 639px) {
@@ -5591,9 +5815,9 @@ function CampaignControlModule() {
             </div>
           </div>
         </div>
-        <div className="max-w-full overflow-x-auto pb-1 xl:pb-0">
-          <div className="flex w-max min-w-full xl:min-w-0 bg-zinc-950 p-1 rounded-2xl">
-            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`shrink-0 flex items-center justify-center gap-2 px-3 sm:px-3.5 md:px-4.5 lg:px-5 py-2.5 lg:py-3 rounded-xl text-[8px] sm:text-[9px] font-black uppercase whitespace-nowrap ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-400 hover:text-white'}`}><t.icon size={13} />{t.label}{t.count > 0 ? <span className={`min-w-[18px] h-[18px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
+        <div className="w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 w-full bg-zinc-950 p-1 rounded-2xl gap-1">
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`min-w-0 flex items-center justify-center gap-1.5 px-2.5 lg:px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-normal leading-tight text-center ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-400 hover:text-white'}`}><t.icon size={12} />{t.label}{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
       </div>
@@ -5798,13 +6022,19 @@ function CampaignDashboard({
       dailyAds.filter(r=>r.adId===ad.id), product, ad, 'last', c
     )).filter(d => d.scale3d?.days > 0);
 
+    const dashboardScaleAuthorizations = adDiags
+      .map(diag => buildPostIdScaleAuthorizationCC(diag, maxCpa, completeHistory))
+      .filter(auth => auth?.allowed)
+      .sort((a, b) => toNumber(b.rank) - toNumber(a.rank));
+    const topDashboardScale = dashboardScaleAuthorizations[0] || null;
+
     // Dashboard operativo: SIEMPRE 3D. El 'last' de arriba solo alimenta
     // la lectura analítica del último día, no estas decisiones.
     const hasCritical = adDiags.some(d=>d.operational3dPriority==='critical');
     const hasAlert = adDiags.some(d=>d.operational3dPriority==='alert');
     const hasNoDelivery = adDiags.some(d=>d.metaDelivery3d?.isNoDelivery);
     const hasLimitedDelivery = adDiags.some(d=>d.metaDelivery3d?.isLimited);
-    const hasScalable = adDiags.some(d=>d.canScale);
+    const hasScalable = dashboardScaleAuthorizations.length > 0;
     const cpa = stats3.cpa;
     const cpaObservation3d = buildCpaObservation3D(stats3, split3.previousStats, maxCpa);
 
@@ -5856,8 +6086,8 @@ function CampaignDashboard({
         action='Revisar diagnóstico 3D';
       } else if (hasScalable && cpa <= maxCpa*0.8) {
         state='Escalable'; tone='normal';
-        diagnosis='3D estable/mejorando + margen';
-        action='Escalar +20%';
+        diagnosis=topDashboardScale ? `${topDashboardScale.code} · Post ID autorizado` : '3D estable/mejorando + margen';
+        action=topDashboardScale?.label || 'Escala Post ID / ABO';
       } else {
         state='Mantener'; tone='attention';
         diagnosis='Rentable 3D / observar';
@@ -6050,8 +6280,8 @@ function CampaignDashboard({
           </div>
         </div>
 
-        <div className="overflow-x-auto overscroll-x-contain">
-          <table className="cc-data-table w-full min-w-[1800px] text-[9px] lg:text-[10px]">
+        <div className="w-full overflow-visible">
+          <table className="cc-data-table w-full text-[8px] lg:text-[9px]">
             <thead className="bg-slate-50">
               <tr className="text-left uppercase text-[7px] lg:text-[8px] text-slate-400">
                 <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA último día</th>
@@ -6415,7 +6645,17 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
   // nunca el diagnóstico del selector visual.
   const critical = adRows.filter(x => x.diag.operational3dPriority === 'critical').length;
   const alert = adRows.filter(x => x.diag.operational3dPriority === 'alert').length;
-  const scalable = adRows.filter(x => x.diag.canScale).length;
+
+  const scaleAuthorizations = adRows
+    .map(row => ({
+      row,
+      authorization: buildPostIdScaleAuthorizationCC(row.diag, maxCpa, campaignHistory)
+    }))
+    .filter(x => x.authorization?.allowed)
+    .sort((a, b) => toNumber(b.authorization?.rank) - toNumber(a.authorization?.rank));
+
+  const topScaleAuthorization = scaleAuthorizations[0]?.authorization || null;
+  const scalable = scaleAuthorizations.length;
 
   if (campaign3d.spend > 0 && campaign3d.purchases <= 0) {
     const spentVsMax = campaign3d.spend / maxCpa;
@@ -6469,12 +6709,16 @@ function buildCampaignDecision(campaign, product, campaignHistory, adRows, scale
     };
   }
 
-  if (cpa3d > 0 && cpa3d <= maxCpa * 0.8 && scalable > 0 && toNumber(latest.budget) > 0) {
+  if (cpa3d > 0 && cpa3d <= maxCpa * 0.8 && scalable > 0) {
     return {
       status: 'Escalable',
-      action: 'Escalar +20%',
-      reason: `Decisión 3D: CPA de campaña ${fmtMoney(cpa3d)} con margen ≥20% y al menos un anuncio supera los 4 guardrails obligatorios. El volumen solo indica confianza.`,
-      recommendedBudget: Math.round((toNumber(latest.budget) * 1.2) / 1000) * 1000,
+      action: topScaleAuthorization?.label || 'Autorizar escala por Post ID / ABO',
+      reason:
+        `Decisión 3D: CPA de campaña ${fmtMoney(cpa3d)} con margen ≥20%. ` +
+        `${topScaleAuthorization?.reason || 'Existe al menos un anuncio con autorización de escala.'} ` +
+        `El volumen de compras solo informa confianza; no bloquea la autorización.`,
+      recommendedBudget: topScaleAuthorization?.targetBudget || null,
+      scaleAuthorization: topScaleAuthorization,
       cpaObservation3d
     };
   }
@@ -6506,7 +6750,8 @@ const METRIC_STANDARDS_CC = {
   ctrPoor: 1,
   cvrHealthy: 3,
   cvrAcceptable: 2,
-  cpmHealthyMax: 10000
+  cpmHealthyMax: 10000,
+  cpmAcceptableMax: 15000
 };
 
 function metricTrendCC(metric, delta) {
@@ -6692,18 +6937,31 @@ function metricAbsoluteHealthCC(metric, value, context = {}) {
         actionable: false,
         healthy: true,
         acceptable: true,
-        explanation: `CPM ${fmtMoney(v)} continúa por debajo del límite operativo de ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}.`,
-        standardText: `Bien ≤ ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}`
+        explanation: `CPM ${fmtMoney(v)} continúa en rango saludable para la lectura interna.`,
+        standardText: `Saludable ≤ ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)} · Aceptable ≤ ${fmtMoney(METRIC_STANDARDS_CC.cpmAcceptableMax)}`
       };
     }
+
+    if (v <= METRIC_STANDARDS_CC.cpmAcceptableMax) {
+      return {
+        level: 'ACEPTABLE · INFORMATIVO',
+        tone: 'attention',
+        actionable: false,
+        healthy: false,
+        acceptable: true,
+        explanation: `CPM ${fmtMoney(v)} está por encima de ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}, pero sigue dentro del rango informativo aceptable. No bloquea escala ni ordena pausa por sí solo.`,
+        standardText: `Saludable ≤ ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)} · Aceptable ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax + 1)}–${fmtMoney(METRIC_STANDARDS_CC.cpmAcceptableMax)}`
+      };
+    }
+
     return {
-      level: 'REVISAR',
+      level: 'ALTO · INFORMATIVO',
       tone: 'attention',
-      actionable: true,
+      actionable: false,
       healthy: false,
       acceptable: false,
-      explanation: `CPM ${fmtMoney(v)} supera ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)} y merece revisión, aunque no demuestra por sí solo la causa.`,
-      standardText: `Revisar > ${fmtMoney(METRIC_STANDARDS_CC.cpmHealthyMax)}`
+      explanation: `CPM ${fmtMoney(v)} es alto frente al rango interno, pero sigue siendo una señal diagnóstica: no bloquea escala ni ordena pausa mientras la economía y los demás guardrails permanezcan sanos.`,
+      standardText: `Alto > ${fmtMoney(METRIC_STANDARDS_CC.cpmAcceptableMax)} · interpretar con CTR/CPC/Frecuencia/CPA`
     };
   }
 
@@ -8712,7 +8970,7 @@ function buildPauseProtectionDecisionCC(diag, contribution, maxCpa) {
   };
 }
 
-function adReadingActionCC(diag, contribution, maxCpa) {
+function adReadingActionCC(diag, contribution, maxCpa, scaleAuthorization = null) {
   const pause = buildPauseProtectionDecisionCC(diag, contribution, maxCpa);
 
   if (pause.label === 'PAUSAR') {
@@ -8726,13 +8984,34 @@ function adReadingActionCC(diag, contribution, maxCpa) {
     };
   }
 
-  if (diag?.canScale && toNumber(diag?.scale3d?.cpa) > 0 && toNumber(diag?.scale3d?.cpa) <= Math.max(1, toNumber(maxCpa)) * 0.8) {
+  const scaleAuth =
+    scaleAuthorization ||
+    buildPostIdScaleAuthorizationCC(diag, maxCpa, []);
+
+  if (scaleAuth?.allowed && ['N1', 'N2', 'N3', 'N4', 'CEILING'].includes(scaleAuth.code)) {
     return {
       label: 'ESCALAR',
-      tone: 'good',
-      title: 'ESCALAR CON CONTROL',
-      reason: diag.operational3dReason,
-      simple: 'El anuncio está vendiendo con suficiente margen y supera los controles de estabilidad, creativo y post-clic. Puede recibir más presupuesto de forma gradual.',
+      tone: scaleAuth.tone || 'good',
+      title: scaleAuth.label,
+      reason: scaleAuth.reason,
+      simple: scaleAuth.summary,
+      scaleAuthorization: scaleAuth,
+      pause
+    };
+  }
+
+  if (
+    scaleAuth?.allowed === false &&
+    toNumber(diag?.scale3d?.cpa) > 0 &&
+    toNumber(diag?.scale3d?.cpa) <= Math.max(1, toNumber(maxCpa)) * 0.8
+  ) {
+    return {
+      label: 'VIGILAR',
+      tone: scaleAuth.tone === 'alert' ? 'alert' : 'attention',
+      title: scaleAuth.label,
+      reason: scaleAuth.reason,
+      simple: 'El CPA es fuerte, pero la autorización de capital está bloqueada por un guardrail de escala. Mantener el ganador activo y corregir/validar antes de mover el Post ID a un ABO mayor.',
+      scaleAuthorization: scaleAuth,
       pause
     };
   }
@@ -9292,7 +9571,7 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
   return (
     <div className="space-y-4 min-w-0">
       <section className="rounded-3xl border-2 border-indigo-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-4 sm:p-5 lg:p-6">
+        <div className="p-4 lg:p-5">
           <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -10370,8 +10649,20 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
   const maxCpa = Math.max(1, toNumber(product?.maxCpa));
 
   const rows = adRows.map(row => {
+    // Autorización de capital para Post ID / ABO siempre usa 3D y el nivel de presupuesto histórico.
+    const scaleAuthorization = buildPostIdScaleAuthorizationCC(
+      row.diag,
+      maxCpa,
+      campaignHistory
+    );
+
     // Acción siempre 3D.
-    const action = adReadingActionCC(row.diag, row.contribution, maxCpa);
+    const action = adReadingActionCC(
+      row.diag,
+      row.contribution,
+      maxCpa,
+      scaleAuthorization
+    );
 
     // Lectura analítica cambia con Último día / 3D / 7D / 14D / 30D.
     const readingDiag = readingDiagForPeriodCC(row.diag, analysisPeriod);
@@ -10401,6 +10692,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       analysisContribution,
       readingDiag,
       action,
+      scaleAuthorization,
       audience,
       messages,
       relational,
@@ -10453,9 +10745,9 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
         className="cc-diagnosis-card min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
         style={{ borderColor: campaignColors.border, boxShadow: `0 10px 28px ${campaignColors.border}12` }}
       >
-        <div className="p-4 sm:p-5 lg:p-6">
+        <div className="p-4 lg:p-5">
           {/* Cabecera: lectura a la izquierda, acción a la derecha solo cuando hay espacio real */}
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-4 xl:gap-6 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 xl:gap-6 items-start">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${campaignColors.badge}`}>
@@ -10810,6 +11102,23 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
         />
       ) : null}
 
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-3.5">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div>
+            <p className="text-[8px] font-black uppercase tracking-wider text-indigo-700">Matriz de escala · Post ID / ABO independiente</p>
+            <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1 leading-relaxed">
+              El CPA decide si el anuncio merece capital; CTR y estabilidad pre-clic determinan qué tan agresivo puede ser el salto. El volumen solo informa confianza.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <span className="px-2 py-1 rounded-lg bg-white border border-indigo-100 text-[7px] font-black text-indigo-700">N1 $200k–$300k</span>
+            <span className="px-2 py-1 rounded-lg bg-white border border-indigo-100 text-[7px] font-black text-indigo-700">N2 $500k</span>
+            <span className="px-2 py-1 rounded-lg bg-white border border-indigo-100 text-[7px] font-black text-indigo-700">N3 $1M</span>
+            <span className="px-2 py-1 rounded-lg bg-white border border-indigo-100 text-[7px] font-black text-indigo-700">N4 $1,5M–$2M</span>
+          </div>
+        </div>
+      </div>
+
       {/* Separador conceptual */}
       <div className="rounded-2xl bg-zinc-950 text-white p-3.5 sm:p-4">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] lg:items-center gap-2 lg:gap-5">
@@ -10831,7 +11140,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       </div>
 
       {/* CAPA 2 · ANUNCIOS */}
-      {rows.length ? rows.map(({ ad, diag, contribution, analysisContribution, readingDiag, action, audience, messages, relational, playbook }) => {
+      {rows.length ? rows.map(({ ad, diag, contribution, analysisContribution, readingDiag, action, scaleAuthorization, audience, messages, relational, playbook }) => {
         const colors = readingActionClassesCC(action.tone);
         const open = expandedReadAds[ad.id] === true;
         const hh = diag.hookHold3d;
@@ -10846,12 +11155,17 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             className="cc-diagnosis-card min-w-0 overflow-hidden rounded-3xl border-2 bg-white shadow-sm"
             style={{ borderColor: colors.border, boxShadow: `0 8px 24px ${colors.border}10` }}
           >
-            <div className="p-4 sm:p-5 lg:p-6">
+            <div className="p-4 lg:p-5">
               {/* Identidad + decisión, sin forzar las métricas en paralelo */}
-              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 xl:gap-6 items-start">
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_290px] gap-4 xl:gap-6 items-start">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${colors.badge}`}>{action.label}</span>
+                    {scaleAuthorization ? (
+                      <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${toneBadge(scaleAuthorization.tone || 'neutral')}`}>
+                        {scaleAuthorization.allowed ? `${scaleAuthorization.code} · ${scaleAuthorization.budgetLabel}` : scaleAuthorization.label}
+                      </span>
+                    ) : null}
                     <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase">
                       {hh?.isVideo ? 'VIDEO' : 'IMAGEN / CREATIVO'}
                     </span>
@@ -10875,6 +11189,18 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   <p className="text-[8px] font-black text-zinc-700 mt-3">
                     Prioridad: {relational.impact.level}
                   </p>
+
+                  {scaleAuthorization ? (
+                    <div className="mt-3 rounded-xl border border-white/80 bg-white/75 p-2.5">
+                      <p className="text-[6.5px] font-black uppercase text-slate-400">Escala Post ID / ABO</p>
+                      <p className={`text-[9px] font-black mt-1 ${toneText(scaleAuthorization.tone)}`}>
+                        {scaleAuthorization.label}
+                      </p>
+                      <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">
+                        {scaleAuthorization.action}
+                      </p>
+                    </div>
+                  ) : null}
 
                   {onOpenActionDraft ? (
                     <button
@@ -11134,6 +11460,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                       <div className="flex flex-wrap gap-1.5">
                         <GuardrailPill ok={diag.guardrails.cpaMargin} label="Margen CPA"/>
                         <GuardrailPill ok={diag.guardrails.stability} label="Estabilidad"/>
+                        <GuardrailPill ok={diag.guardrails.preClick} label="Pre-clic ≥1,2%"/>
                         <GuardrailPill ok={diag.guardrails.creative} label="Creativo"/>
                         <GuardrailPill ok={diag.guardrails.postClick} label="Post-clic"/>
                       </div>
@@ -11603,14 +11930,14 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             ) : null}
           </div>
 
-          <div className="max-w-full overflow-x-auto pb-1 lg:pb-0">
-            <div className="flex w-max min-w-full lg:min-w-0 bg-white border border-indigo-100 p-1 rounded-xl">
+          <div className="w-full lg:w-auto">
+            <div className="grid grid-cols-3 sm:grid-cols-5 w-full bg-white border border-indigo-100 p-1 rounded-xl gap-1">
               {MONITOR_PERIODS.map(p => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => setMonitorPeriod(p.id)}
-                  className={`shrink-0 flex-1 lg:flex-none px-3 sm:px-4 py-2.5 rounded-lg text-[9px] font-black transition ${
+                  className={`min-w-0 px-2.5 sm:px-3 py-2 rounded-lg text-[8px] sm:text-[9px] font-black transition ${
                     monitorPeriod === p.id
                       ? 'bg-indigo-600 text-white shadow-sm'
                       : 'text-slate-500 hover:text-zinc-900'
@@ -11746,7 +12073,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#2563eb' }}>
         <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#bfdbfe' }}><h4 className="text-xs font-black uppercase text-blue-800">Variaciones dinámicas por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1250px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
           key={ad.id}
           className="border-b-4 border-white"
           style={{ backgroundColor: ccVisualAccent(ad.id || ad.name).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name).border}` }}
@@ -11781,7 +12108,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
         {adRows.filter(({diag}) => diag.hookHold?.isVideo).length ? (
           <div className="overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[1500px] text-left text-[10px] border-separate border-spacing-y-1">
+            <table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1">
               <thead><tr className="text-[8px] font-black uppercase text-slate-400">
                 <th className="py-2">Video</th><th>Hook</th><th>Nivel Hook</th><th>Δ Hook</th><th>Hold</th><th>Nivel Hold</th><th>Δ Hold</th><th>Muestra</th><th>Diagnóstico creativo</th><th>Variación recomendada</th>
               </tr></thead>
@@ -11815,7 +12142,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             Si hay compras pero Visitas/ATC están en 0, el sistema lo marca como dato faltante: ya no presenta ese 0 como un embudo real ni como “estable”.
           </p>
         </div>
-        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1680px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
+        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
           const q = diag.postDataQuality || postClickDataQualityCC(diag.stats);
           const landingMissing = q.level === 'missing' && diag.stats.purchases > 0 && toNumber(diag.stats.landingViews) <= 0;
           const atcMissing = (q.level === 'missing' || q.label?.includes('ATC FALTANTE')) && diag.stats.purchases > 0 && toNumber(diag.stats.atc) <= 0;
@@ -11860,7 +12187,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             ))}
           </div>
         )}
-        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1950px] text-left text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
+        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
           const contributionClass =
             contribution?.tone === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
             contribution?.tone === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -11879,7 +12206,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             <td className="font-black">{fmtCpa(diag.stats.cpa)}</td>
             <td>{diag.dynamicDiagnosis}</td>
             <td>{diag.postDiagnosis}</td>
-            <td className="min-w-[220px] py-2 pr-3">
+            <td className="py-2 pr-2">
               <div className={`rounded-xl border p-2 ${
                 diag.metaDelivery3d?.isNoDelivery
                   ? 'bg-blue-50 border-blue-200 text-blue-700'
@@ -11895,7 +12222,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
                 </p>
               </div>
             </td>
-            <td className="min-w-[320px] py-2 pr-3">
+            <td className="py-2 pr-2">
               {contribution ? (
                 <div className="rounded-xl bg-white/80 border border-white p-2.5">
                   <span className={`inline-block px-2 py-1 rounded-full border text-[8px] font-black uppercase ${contributionClass}`}>
@@ -11948,12 +12275,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50/40 shadow-sm" style={{border:'2px solid #0891b2'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-cyan-800">Historial de cambios de presupuesto</h4>
-        {budgetRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[720px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
+        {budgetRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-[8px] lg:text-[9px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'1px solid #a7f3d0'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="w-full min-w-[1180px] text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>Gasto/día</th><th>Compras/día</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{r.spendDay === null ? '—' : fmtMoney(r.spendDay)}</td><td>{r.purchasesDay === null ? '—' : fmtNum(r.purchasesDay, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? (r.marginalExtraSpendDay > 0 && r.marginalExtraPurchasesDay <= 0 ? 'SIN GANANCIA' : '—') : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+        {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-[8px] lg:text-[9px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>Gasto/día</th><th>Compras/día</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{r.spendDay === null ? '—' : fmtMoney(r.spendDay)}</td><td>{r.purchasesDay === null ? '—' : fmtNum(r.purchasesDay, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? (r.marginalExtraSpendDay > 0 && r.marginalExtraPurchasesDay <= 0 ? 'SIN GANANCIA' : '—') : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'1px solid #c7d2fe'}}>
