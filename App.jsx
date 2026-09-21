@@ -1121,19 +1121,19 @@ function VistaDashboard({ configs, months }) {
         <div className="space-y-2"><SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />{openSections.costos && (<Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-2 md:gap-4 px-4 py-3 border-b border-slate-50 last:border-0"><div className="w-6 h-6 md:w-8 md:h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={12} /></div><div className="flex-1"><p className="text-[11px] md:text-xs font-black">{item.label}</p><p className="text-[7px] md:text-[9px] text-slate-400">{item.note}</p></div><p className="font-black font-mono text-xs md:text-sm">{fmt(item.value)}</p></div>))}<div className="flex items-center gap-2 md:gap-4 px-4 py-3 bg-slate-900 text-white"><div className="flex-1"><p className="text-[11px] md:text-xs font-black uppercase">Total Costos</p></div><p className="font-black font-mono text-sm md:text-lg text-rose-400">{fmt(totalCostos)}</p></div></Card>)}</div>
 
         {/* RANKING */}
-        <div className="space-y-2"><SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />{openSections.ranking && (<div className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-xs md:text-sm"><thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500"><tr><th className="p-2 rounded-l-xl">#</th><th className="p-2">Vendedora</th><th className="p-2 text-right">Pedidos</th><th className="p-2 text-right">Recaudo Neto</th><th className="p-2 text-right">Utilidad</th><th className="p-2 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.rankingVendedoras?.map((v,idx) => (<tr key={v.vendedora} className="hover:bg-slate-50"><td className="p-2 font-black text-emerald-600">{idx+1}</td><td className="p-2 font-bold uppercase">{v.vendedora}</td><td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td><td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td><td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td><td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio,2)}%</td></tr>))}</tbody></table></div>)}</div>
+        <div className="space-y-2"><SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />{openSections.ranking && (<div className="cc-tech-scroll w-full"><table className="w-full text-left border-collapse text-xs md:text-sm"><thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500"><tr><th className="p-2 rounded-l-xl">#</th><th className="p-2">Vendedora</th><th className="p-2 text-right">Pedidos</th><th className="p-2 text-right">Recaudo Neto</th><th className="p-2 text-right">Utilidad</th><th className="p-2 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.rankingVendedoras?.map((v,idx) => (<tr key={v.vendedora} className="hover:bg-slate-50"><td className="p-2 font-black text-emerald-600">{idx+1}</td><td className="p-2 font-bold uppercase">{v.vendedora}</td><td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td><td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td><td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td><td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio,2)}%</td></tr>))}</tbody></table></div>)}</div>
 
         {/* PROYECCIÓN */}
         <div className="space-y-2"><SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />{openSections.proyeccion && (<div className="flex flex-col md:grid md:grid-cols-2 gap-4"><Card dark className="space-y-3"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs"><div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div><div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div><div><p className="text-[8px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[8px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div></div></Card><div className={`rounded-2xl p-4 text-white shadow-xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><div><p className="text-[8px] font-black opacity-60">Proyección 30 Días</p><p className="text-[8px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-2xl md:text-4xl font-black">{fmt(proyeccion30)}</p><div className="bg-white/20 px-3 py-2 rounded-xl mt-2"><p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div><div className="flex justify-between text-[8px] font-black opacity-60 mt-3"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal, 2)}%</span></div></div>{targetProfit > 0 && (<Card className="col-span-2"><div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div></Card>)}</div>)}</div>
 
         {/* PRODUCTOS EN REVISIÓN */}
-        <div className="space-y-2"><button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500"><div className="flex items-center gap-1.5 md:gap-2"><AlertTriangle size={14} className="text-red-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-red-700">🚨 PRODUCTOS EN REVISIÓN ({productosEnRevision.length})</span></div>{openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.productosRevision && (<Card className="overflow-hidden p-0">{productosEnRevision.length === 0 ? <div className="p-6 text-center text-green-600 flex items-center justify-center gap-2"><CheckCircle2 size={20} /><span className="font-black text-sm">✅ No hay productos en revisión en este período</span></div> : (<div className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Meta Mensual</th><th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3">⚠️ Alertas</th></tr></thead><tbody className="divide-y divide-slate-100">{productosEnRevision.map(p => { const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0; const alertas = []; if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida'); if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`); if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`); if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto'); if (p.pedidos === 0) alertas.push('⚠️ sin pedidos'); if (!p.isActive) alertas.push('🔴 PRODUCTO DESACTIVADO'); return (<tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : ''}`}><td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-gray-500' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td><td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td><td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td><td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a,i) => <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : 'bg-red-100 text-red-600'}`}>{a}</span>)}</div></td></tr>); })}</tbody></table>{productosEnRevision.some(p => !p.isActive) && (<div className="p-3 bg-gray-100 text-[8px] font-black text-gray-600 flex items-center gap-2 border-t"><Info size={12} /><span>📌 Los productos tachados están DESACTIVADOS. Su historial se muestra solo para referencia, pero ya no requieren acción.</span></div>)}</div>)}</Card>)}</div>
+        <div className="space-y-2"><button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border-l-4 border-red-500"><div className="flex items-center gap-1.5 md:gap-2"><AlertTriangle size={14} className="text-red-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-red-700">🚨 PRODUCTOS EN REVISIÓN ({productosEnRevision.length})</span></div>{openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.productosRevision && (<Card className="overflow-hidden p-0">{productosEnRevision.length === 0 ? <div className="p-6 text-center text-green-600 flex items-center justify-center gap-2"><CheckCircle2 size={20} /><span className="font-black text-sm">✅ No hay productos en revisión en este período</span></div> : (<div className="cc-tech-scroll w-full"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-red-50 text-[7px] md:text-[8px] font-black uppercase text-red-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Meta Mensual</th><th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3">⚠️ Alertas</th></tr></thead><tbody className="divide-y divide-slate-100">{productosEnRevision.map(p => { const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0; const alertas = []; if (p.utilidadPeriodo < 0) alertas.push('💰 pérdida'); if (p.ier < 70) alertas.push(`📉 IER ${fmtDec(p.ier,1)}%`); if (p.roas < 1.5 && p.roas > 0) alertas.push(`📊 ROAS ${fmtDec(p.roas,2)}x`); if (p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio) alertas.push('🎯 CPA alto'); if (p.pedidos === 0) alertas.push('⚠️ sin pedidos'); if (!p.isActive) alertas.push('🔴 PRODUCTO DESACTIVADO'); return (<tr key={p.configId} className={`hover:bg-red-50/50 transition ${!p.isActive ? 'opacity-75 bg-gray-50' : ''}`}><td className="p-2 md:p-3 font-black text-red-700 uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-gray-500' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[8px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">⚠️ DESACTIVADO</span>}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-red-600' : 'text-amber-600'}`}>{fmt(p.utilidadPeriodo)}</td><td className="p-2 md:p-3 text-right font-mono font-black text-red-600">{fmt(p.proyeccion30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td><td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta < 50 ? 'text-red-600' : 'text-amber-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmt(p.cpaReal)}</td><td className="p-2 md:p-3"><div className="flex flex-wrap gap-1">{alertas.map((a,i) => <span key={i} className={`text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full ${a.includes('DESACTIVADO') ? 'bg-gray-300 text-gray-700' : 'bg-red-100 text-red-600'}`}>{a}</span>)}</div></td></tr>); })}</tbody></table>{productosEnRevision.some(p => !p.isActive) && (<div className="p-3 bg-gray-100 text-[8px] font-black text-gray-600 flex items-center gap-2 border-t"><Info size={12} /><span>📌 Los productos tachados están DESACTIVADOS. Su historial se muestra solo para referencia, pero ya no requieren acción.</span></div>)}</div>)}</Card>)}</div>
 
         {/* ANÁLISIS TEMPORAL POR PRODUCTO */}
-        <div className="space-y-2"><SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />{openSections.analisisProductos && (<div className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500"><tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Fecha creación</th><th className="p-2">Fecha desactivación</th><th className="p-2">Días activos</th><th className="p-2">Estado</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.detalleProductos.map(p => { const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000*60*60*24)) + 1; const isActive = p.activo !== false; return (<tr key={p.configId} className="hover:bg-slate-50"><td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaCreacion ? parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td><td className="p-2">{!isActive ? <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><PowerOff size={10} /> INACTIVO</span> : <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Power size={10} /> ACTIVO</span>}</td></tr>); })}</tbody></table></div>)}</div>
+        <div className="space-y-2"><SectionHeader title="ANÁLISIS TEMPORAL POR PRODUCTO" icon={CalendarDays} section="analisisProductos" totalItems={stats.detalleProductos.length} />{openSections.analisisProductos && (<div className="cc-tech-scroll w-full"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-slate-100 text-[7px] md:text-[8px] font-black uppercase text-slate-500"><tr><th className="p-2">Vendedora</th><th className="p-2">Producto</th><th className="p-2">Primer registro</th><th className="p-2">Último registro</th><th className="p-2">Fecha creación</th><th className="p-2">Fecha desactivación</th><th className="p-2">Días activos</th><th className="p-2">Estado</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.detalleProductos.map(p => { const diasActivos = Math.floor((parseColombiaDate(p.ultimoRegistro) - parseColombiaDate(p.primerRegistro)) / (1000*60*60*24)) + 1; const isActive = p.activo !== false; return (<tr key={p.configId} className="hover:bg-slate-50"><td className="p-2 font-bold uppercase text-[9px] md:text-xs">{p.vendedora}</td><td className={`p-2 font-semibold text-[9px] md:text-xs ${!isActive ? 'text-slate-400 line-through' : ''}`}>{p.productName}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.primerRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{parseColombiaDate(p.ultimoRegistro).toLocaleDateString('es-CO')}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaCreacion ? parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{p.fechaDesactivacion ? parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO') : '-'}</td><td className="p-2 font-mono text-[8px] md:text-[10px]">{diasActivos} días</td><td className="p-2">{!isActive ? <span className="text-[8px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><PowerOff size={10} /> INACTIVO</span> : <span className="text-[8px] font-black bg-green-100 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit"><Power size={10} /> ACTIVO</span>}</td></tr>); })}</tbody></table></div>)}</div>
 
         {/* COMPARATIVA ENTRE VENDEDORAS */}
-        <div className="space-y-2"><button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"><div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>{openSections.comparativaVendedoras ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.comparativaVendedoras && (<Card className="overflow-x-auto overscroll-x-contain"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-indigo-50 text-[7px] md:text-[8px] font-black uppercase text-indigo-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3 text-right">Inversión Ads</th><th className="p-2 md:p-3 text-right">CPA Promedio</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Facturación Real</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{selectedVendors.length === 0 ? (<tr><td colSpan="8" className="p-4 text-center text-slate-400">Selecciona al menos una vendedora en los filtros para ver la comparativa.</td></tr>) : selectedVendors.map(vendor => { const vendorRecords = filteredRecords.filter(r => { const c = configs.find(x => x.id === r.configId); return c && c.vendedora === vendor; }); const vendorStats = calcularStats(vendorRecords, configs); const activeDaysV = new Set(vendorRecords.filter(r => !r.restDay).map(r => r.date)).size; const proy30 = activeDaysV > 0 ? (vendorStats.net / activeDaysV) * 30 : 0; return (<tr key={vendor} className="hover:bg-indigo-50/50"><td className="p-2 md:p-3 font-black uppercase text-indigo-700">{vendor}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.totalAds)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.cpaReal)}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${vendorStats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(vendorStats.net)}</td><td className="p-2 md:p-3 text-right font-mono font-black">{fmt(proy30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.realRev)}</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.ierGlobal, 1)}%</td></tr>); })}</tbody></table>{selectedVendors.length > 0 && (<div className="p-3 bg-indigo-50 text-[8px] font-black text-indigo-600 flex justify-between"><span>Período: {filter.startDate} al {filter.endDate}</span><span>Registros analizados: {filteredRecords.length}</span></div>)}</Card>)}</div>
+        <div className="space-y-2"><button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"><div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>{openSections.comparativaVendedoras ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.comparativaVendedoras && (<Card className="cc-tech-scroll w-full"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-indigo-50 text-[7px] md:text-[8px] font-black uppercase text-indigo-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3 text-right">Inversión Ads</th><th className="p-2 md:p-3 text-right">CPA Promedio</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Facturación Real</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{selectedVendors.length === 0 ? (<tr><td colSpan="8" className="p-4 text-center text-slate-400">Selecciona al menos una vendedora en los filtros para ver la comparativa.</td></tr>) : selectedVendors.map(vendor => { const vendorRecords = filteredRecords.filter(r => { const c = configs.find(x => x.id === r.configId); return c && c.vendedora === vendor; }); const vendorStats = calcularStats(vendorRecords, configs); const activeDaysV = new Set(vendorRecords.filter(r => !r.restDay).map(r => r.date)).size; const proy30 = activeDaysV > 0 ? (vendorStats.net / activeDaysV) * 30 : 0; return (<tr key={vendor} className="hover:bg-indigo-50/50"><td className="p-2 md:p-3 font-black uppercase text-indigo-700">{vendor}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.totalAds)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.cpaReal)}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${vendorStats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(vendorStats.net)}</td><td className="p-2 md:p-3 text-right font-mono font-black">{fmt(proy30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.realRev)}</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.ierGlobal, 1)}%</td></tr>); })}</tbody></table>{selectedVendors.length > 0 && (<div className="p-3 bg-indigo-50 text-[8px] font-black text-indigo-600 flex justify-between"><span>Período: {filter.startDate} al {filter.endDate}</span><span>Registros analizados: {filteredRecords.length}</span></div>)}</Card>)}</div>
       </>)}
     </div>
   );
@@ -2596,7 +2596,23 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     confidence: volumeConfidenceLabel(scale3d.purchases)
   };
 
-  const canScale = Object.values(guardrails).every(Boolean);
+  const currentCpcHealth3d = metricAbsoluteHealthCC('cpc', scale3d.cpc, {
+    maxCpa,
+    cvr: scale3d.visitToPurchase
+  });
+  const currentCvrHealth3d = metricAbsoluteHealthCC('visitToPurchase', scale3d.visitToPurchase, {});
+  const currentPostDataUsable3d = !postClickIntegrityMissing3d;
+  const creativeHardBlock3d = scaleDynamic3d.diagnosis === 'Fatiga confirmada';
+
+  // Para Post ID/ABO la tendencia ya no bloquea por sí sola un N1.
+  // Aquí "canScale" significa: economía fuerte + salud ACTUAL utilizable.
+  const canScale =
+    guardrails.cpaMargin &&
+    guardrails.preClick &&
+    currentCpcHealth3d.acceptable === true &&
+    currentCvrHealth3d.acceptable === true &&
+    currentPostDataUsable3d &&
+    !creativeHardBlock3d;
 
   // DECISIÓN OPERATIVA: SIEMPRE 3D.
   // Nunca depende del selector visual Último día / 7D / 14D / 30D.
@@ -2784,24 +2800,60 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
   const ctr = current?.ctr;
   const previousCtr = previous?.ctr;
   const ctrDelta = delta?.ctr;
+  const cpaDelta = delta?.cpa;
+  const cpcDelta = delta?.cpc;
+  const cvrDelta = delta?.visitToPurchase;
 
   const currentFull3d = currentDays >= 3;
   const previousFull3d = previousDays >= 3;
 
-  const baseGuardrails =
-    diag?.guardrails?.cpaMargin === true &&
-    diag?.guardrails?.stability === true &&
-    diag?.guardrails?.creative === true &&
-    diag?.guardrails?.postClick === true;
-
   const ctrAvailable = ctr !== null && ctr !== undefined && Number.isFinite(Number(ctr));
   const ctrFloorOk = ctrAvailable && toNumber(ctr) >= METRIC_STANDARDS_CC.ctrAcceptable;
   const ctrHealthy = ctrAvailable && toNumber(ctr) >= METRIC_STANDARDS_CC.ctrHealthy;
+
+  const currentCpcHealth = metricAbsoluteHealthCC('cpc', current.cpc, {
+    maxCpa: max,
+    cvr: current.visitToPurchase
+  });
+  const currentCvrHealth = metricAbsoluteHealthCC('visitToPurchase', current.visitToPurchase, {});
+  const previousCpcHealth = metricAbsoluteHealthCC('cpc', previous.cpc, {
+    maxCpa: max,
+    cvr: previous.visitToPurchase
+  });
+  const previousCvrHealth = metricAbsoluteHealthCC('visitToPurchase', previous.visitToPurchase, {});
+
+  const postDataQuality = postClickDataQualityCC(current);
+  const currentPostDataUsable = postDataQuality.level !== 'missing';
+
+  const stabilityOk = diag?.guardrails?.stability === true;
+  const postTrendOk = diag?.guardrails?.postClick === true;
+  const creativeDiagnosis = diag?.scaleDynamic3d;
+  const creativeConfirmedBad = creativeDiagnosis === 'Fatiga confirmada';
+  const creativeWarning = creativeDiagnosis === 'Fatiga probable';
+
   const ctrCriticalDrop =
     ctrDelta !== null &&
     ctrDelta !== undefined &&
     Number.isFinite(Number(ctrDelta)) &&
     toNumber(ctrDelta) <= -30;
+
+  const cpaTrendWarning =
+    cpaDelta !== null &&
+    cpaDelta !== undefined &&
+    Number.isFinite(Number(cpaDelta)) &&
+    toNumber(cpaDelta) > 15;
+
+  const cpcTrendWarning =
+    cpcDelta !== null &&
+    cpcDelta !== undefined &&
+    Number.isFinite(Number(cpcDelta)) &&
+    toNumber(cpcDelta) >= 30;
+
+  const cvrTrendWarning =
+    cvrDelta !== null &&
+    cvrDelta !== undefined &&
+    Number.isFinite(Number(cvrDelta)) &&
+    toNumber(cvrDelta) <= -30;
 
   const previousHealthy =
     previousFull3d &&
@@ -2812,15 +2864,25 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
     previousCtr !== null &&
     previousCtr !== undefined &&
     toNumber(previousCtr) >= METRIC_STANDARDS_CC.ctrHealthy &&
+    previousCpcHealth.acceptable === true &&
+    previousCvrHealth.healthy === true &&
     postClickDataQualityCC(previous).level !== 'missing';
 
-  const currentStrong =
+  const currentEconomyStrong =
     currentFull3d &&
     currentCpa !== null &&
     currentCpa !== undefined &&
     toNumber(currentCpa) > 0 &&
-    toNumber(currentCpa) <= max * 0.8 &&
-    baseGuardrails;
+    toNumber(currentCpa) <= max * 0.8;
+
+  const currentAbsoluteHealthOk =
+    ctrFloorOk &&
+    currentCpcHealth.acceptable === true &&
+    currentCvrHealth.acceptable === true &&
+    currentPostDataUsable &&
+    !creativeConfirmedBad;
+
+  const currentStrong = currentEconomyStrong && currentAbsoluteHealthOk;
 
   const blocked = (code, title, reason, tone = 'attention') => ({
     allowed: false,
@@ -2837,8 +2899,10 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
     currentStrong,
     ctrHealthy,
     ctrCriticalDrop,
+    stabilityOk,
+    postTrendOk,
     reason,
-    action: 'No extraer el Post ID para una escala nueva todavía. Mantener/optimizar y volver a evaluar con un 3D completo.',
+    action: 'Mantener el anuncio activo si sigue rentable y volver a evaluar al completar el guardrail faltante. No mover todavía el Post ID a un ABO de escala nuevo.',
     summary: reason
   });
 
@@ -2850,11 +2914,13 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
     );
   }
 
-  if (!currentStrong) {
+  if (!currentEconomyStrong) {
     return blocked(
-      'NO_SCALE',
-      'NO ESCALAR · GUARDRAILS INCOMPLETOS',
-      'El CPA o alguno de los guardrails de estabilidad, creativo o post-clic todavía no autoriza una nueva escala por Post ID.',
+      'ECONOMY_BLOCK',
+      'NO ESCALAR · SIN MARGEN ECONÓMICO',
+      currentCpa !== null && currentCpa !== undefined
+        ? `CPA ${fmtCpa(currentCpa)} no está en la zona de escala (debe ser ≤ ${fmtMoney(max * 0.8)}).`
+        : 'No existe un CPA 3D calculable con margen suficiente para autorizar escala.',
       'alert'
     );
   }
@@ -2863,7 +2929,7 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
     return blocked(
       'NO_CTR',
       'NO ESCALAR · CTR NO DISPONIBLE',
-      'El anuncio es económicamente fuerte, pero falta CTR 3D para validar la capacidad pre-clic antes de exponerlo a un ABO de mayor capital.'
+      'El CPA es fuerte, pero falta CTR 3D para validar la capacidad pre-clic antes de exponer el Post ID a mayor capital.'
     );
   }
 
@@ -2871,20 +2937,60 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
     return blocked(
       'CTR_BLOCK',
       'NO ESCALAR · PRE-CLIC DÉBIL',
-      `CPA ${fmtCpa(currentCpa)} con margen, pero CTR ${fmtRate(ctr)} está por debajo del piso operativo de ${fmtRate(METRIC_STANDARDS_CC.ctrAcceptable)}. Mantener el ganador activo, pero no moverlo todavía a un ABO de escala.`,
+      `CPA ${fmtCpa(currentCpa)} conserva margen, pero CTR ${fmtRate(ctr)} está por debajo del piso operativo de ${fmtRate(METRIC_STANDARDS_CC.ctrAcceptable)}.`,
       'alert'
     );
   }
 
-  // Primer ciclo fuerte, CTR aceptable (<2%) o caída crítica:
-  // se protege capital con N1 aunque el CPA sea excelente.
-  if (!previousHealthy || !ctrHealthy || ctrCriticalDrop) {
-    const level = POST_ID_SCALE_LEVELS_CC.N1;
-    const warnings = [];
-    if (!previousHealthy) warnings.push('no hay dos ciclos 3D saludables consecutivos');
-    if (!ctrHealthy) warnings.push(`CTR ${fmtRate(ctr)} está aceptable, pero por debajo del 2% saludable`);
-    if (ctrCriticalDrop) warnings.push(`CTR cayó ${fmtNum(Math.abs(ctrDelta), 1)}%`);
+  if (!currentPostDataUsable) {
+    return blocked(
+      'POST_DATA_BLOCK',
+      'NO ESCALAR · DATOS POST-CLIC INCOMPLETOS',
+      'La economía parece fuerte, pero faltan datos post-clic indispensables para confirmar que el resultado actual es confiable.'
+    );
+  }
 
+  if (currentCvrHealth.acceptable !== true) {
+    return blocked(
+      'CVR_BLOCK',
+      'NO ESCALAR · CVR ACTUAL FUERA DEL ESTÁNDAR',
+      `El CPA sigue rentable, pero el CVR actual (${fmtRate(current.visitToPurchase)}) ya está por debajo del mínimo aceptable de 2%.`,
+      'alert'
+    );
+  }
+
+  if (currentCpcHealth.acceptable !== true) {
+    return blocked(
+      'CPC_BLOCK',
+      'NO ESCALAR · CPC ACTUAL SIN MARGEN',
+      `El CPC actual (${fmtMoneyOrDashCC(current.cpc)}) supera el límite sostenible calculado con el CVR actual.`,
+      'alert'
+    );
+  }
+
+  if (creativeConfirmedBad) {
+    return blocked(
+      'FATIGUE_BLOCK',
+      'NO ESCALAR · FATIGA CONFIRMADA',
+      'El anuncio conserva CPA rentable, pero el patrón creativo ya cumple fatiga confirmada. Primero renovar/variar antes de asignar nuevo capital.',
+      'alert'
+    );
+  }
+
+  // La tendencia NO bloquea N1 cuando los valores actuales siguen sanos.
+  // Sirve para limitar el tamaño del salto y exigir una validación.
+  const n1Limiters = [];
+  if (!previousHealthy) n1Limiters.push('no hay dos ciclos 3D saludables consecutivos');
+  if (!stabilityOk || cpaTrendWarning) n1Limiters.push(`CPA se deterioró ${cpaDelta === null ? '' : `${fmtNum(Math.abs(cpaDelta), 1)}%`} frente al bloque anterior`.trim());
+  if (!ctrHealthy) n1Limiters.push(`CTR ${fmtRate(ctr)} está aceptable, pero por debajo del 2% saludable`);
+  if (ctrCriticalDrop) n1Limiters.push(`CTR cayó ${fmtNum(Math.abs(ctrDelta), 1)}%`);
+  if (!postTrendOk || cvrTrendWarning) n1Limiters.push(`CVR se deterioró${cvrDelta === null ? '' : ` ${fmtNum(Math.abs(cvrDelta), 1)}%`}, aunque el nivel actual sigue utilizable`);
+  if (cpcTrendWarning) n1Limiters.push(`CPC subió ${fmtNum(Math.abs(cpcDelta), 1)}%, aunque todavía está dentro de su límite rentable`);
+  if (creativeWarning) n1Limiters.push('hay fatiga probable, pero no confirmada');
+  if (!currentCvrHealth.healthy) n1Limiters.push(`CVR ${fmtRate(current.visitToPurchase)} está aceptable, pero no en zona saludable`);
+
+  if (n1Limiters.length) {
+    const level = POST_ID_SCALE_LEVELS_CC.N1;
     return {
       allowed: true,
       code: 'N1',
@@ -2896,17 +3002,19 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
       currentStrong,
       ctrHealthy,
       ctrCriticalDrop,
+      stabilityOk,
+      postTrendOk,
       reason:
-        `El anuncio tiene CPA ${fmtCpa(currentCpa)} en zona fuerte, pero ${warnings.join(' y ')}. ` +
-        'Se autoriza únicamente una validación de capital antes de escalar más agresivamente.',
+        `CPA actual ${fmtCpa(currentCpa)} equivale a ${fmtNum((toNumber(currentCpa) / max) * 100, 1)}% del máximo y conserva margen. ` +
+        `La tendencia limita el salto, no cancela la escala: ${n1Limiters.join('; ')}.`,
       action:
-        `Extraer/usar el Post ID en un ABO independiente de ${formatScaleBudgetRangeCC(level)}. ` +
-        'Observar un nuevo ciclo 3D completo; si conserva CPA ≤80% del máximo y recupera/mantiene salud pre-clic, puede aspirar a N2.',
-      summary: 'Ganador rentable, pero todavía debe demostrar resiliencia antes de recibir capital alto.'
+        `AUTORIZAR N1: usar el Post ID en un ABO independiente de ${formatScaleBudgetRangeCC(level)}. ` +
+        'No subir todavía a N2/N3. Esperar un nuevo ciclo 3D completo y comprobar que el CPA continúa ≤80% del máximo y que la tendencia se estabiliza.',
+      summary: 'Ganador rentable con deterioro relativo: escala permitida solo como validación N1.'
     };
   }
 
-  // Dos ciclos saludables. El nivel siguiente depende de cuánto capital ya absorbió.
+  // Dos ciclos saludables + salud absoluta fuerte.
   let levelCode = 'N2';
   if (currentBudget >= 1500000) levelCode = 'CEILING';
   else if (currentBudget >= 1000000) levelCode = 'N4';
@@ -2927,11 +3035,13 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
       currentStrong,
       ctrHealthy,
       ctrCriticalDrop,
+      stabilityOk,
+      postTrendOk,
       reason:
-        `El anuncio encadena dos ciclos 3D saludables y ya opera en una zona de presupuesto alta (${fmtMoney(currentBudget)}).`,
+        `El anuncio encadena ciclos 3D saludables y ya opera en una zona de presupuesto alta (${fmtMoney(currentBudget)}).`,
       action:
-        `Mantener dentro del techo operativo de hasta ${fmtMoney(level.maxBudget)}. No autorizar más capital automáticamente; cualquier aumento superior debe tratarse como una decisión extraordinaria.`,
-      summary: 'El Post ID ya alcanzó el techo de la matriz de escala definida.'
+        `Mantener dentro del techo operativo de hasta ${fmtMoney(level.maxBudget)}. Cualquier aumento superior debe tratarse como decisión extraordinaria.`,
+      summary: 'El Post ID alcanzó el techo de la matriz de escala definida.'
     };
   }
 
@@ -2951,14 +3061,17 @@ function buildPostIdScaleAuthorizationCC(diag, maxCpa, campaignHistory = []) {
     currentStrong,
     ctrHealthy,
     ctrCriticalDrop,
+    stabilityOk,
+    postTrendOk,
     reason:
-      `El anuncio ${previousLevelText}, mantiene CPA ${fmtCpa(currentCpa)} ≤80% del máximo y CTR ${fmtRate(ctr)} en zona saludable.`,
+      `El anuncio ${previousLevelText}, mantiene CPA ${fmtCpa(currentCpa)} ≤80% del máximo, CTR ${fmtRate(ctr)} saludable y no presenta limitadores de tendencia.`,
     action:
       `Autorizar ${level.label}: usar el Post ID en un ABO independiente de ${formatScaleBudgetRangeCC(level)}. ` +
       'Después del cambio, observar un ciclo 3D completo antes de autorizar el siguiente nivel.',
     summary: `Autorización de capital: ${level.label} · ${formatScaleBudgetRangeCC(level)}.`
   };
 }
+
 
 function buildCampaignContributionPeriodCC(campaign, product, allAds = [], dailyAds = [], periodId = '3d') {
   const today = todayColombiaCC();
@@ -5703,7 +5816,7 @@ function CampaignControlModule() {
         }
 
         .cc-ui-shell .cc-grid-metrics {
-          grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)) !important;
+          grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)) !important;
           gap: 12px !important;
         }
 
@@ -5738,7 +5851,7 @@ function CampaignControlModule() {
 
         /* Métricas: compactas, proporcionadas y sin columnas kilométricas */
         .cc-ui-shell .cc-metric-card {
-          min-height: 144px !important;
+          min-height: 138px !important;
           max-width: none;
         }
 
@@ -5754,7 +5867,7 @@ function CampaignControlModule() {
         @media (min-width: 1024px) {
           .cc-ui-shell .cc-module-view { font-size: 11px; }
           .cc-ui-shell .cc-section-card { padding: 14px !important; }
-          .cc-ui-shell .cc-metric-card { min-height: 146px; }
+          .cc-ui-shell .cc-metric-card { min-height: 138px; }
         }
 
         .cc-ui-shell .cc-period-switcher {
@@ -5786,6 +5899,260 @@ function CampaignControlModule() {
             min-width: 74px;
             max-width: none;
           }
+        }
+
+        /* UX FINAL · SIN SCROLL HORIZONTAL Y TIPOGRAFÍA LEGIBLE */
+        .cc-ui-shell {
+          overflow-x: hidden;
+        }
+
+        .cc-ui-shell * {
+          box-sizing: border-box;
+        }
+
+        .cc-ui-shell .cc-dashboard-table {
+          table-layout: fixed;
+        }
+
+        .cc-ui-shell .cc-dashboard-table th,
+        .cc-ui-shell .cc-dashboard-table td {
+          white-space: normal !important;
+          overflow-wrap: break-word !important;
+          word-break: normal !important;
+          vertical-align: middle;
+          padding-left: 8px !important;
+          padding-right: 8px !important;
+        }
+
+        .cc-ui-shell .cc-dashboard-table th:nth-child(1) { width: 10%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(2) { width: 18%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(3) { width: 9%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(4) { width: 10%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(5) { width: 10%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(6) { width: 10%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(7) { width: 9%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(8) { width: 9%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(9) { width: 8%; }
+        .cc-ui-shell .cc-dashboard-table th:nth-child(10) { width: 9%; }
+
+        .cc-ui-shell .cc-tech-scroll {
+          width: 100%;
+          overflow-x: hidden !important;
+        }
+
+        .cc-ui-shell .cc-tech-table {
+          width: 100% !important;
+          min-width: 0 !important;
+          table-layout: auto;
+          font-size: 10px !important;
+        }
+
+        .cc-ui-shell .cc-tech-table th,
+        .cc-ui-shell .cc-tech-table td {
+          font-size: 10px !important;
+          line-height: 1.35 !important;
+          padding: 7px 6px !important;
+          white-space: normal !important;
+          overflow-wrap: break-word !important;
+          word-break: normal !important;
+        }
+
+        .cc-ui-shell .cc-tech-table th {
+          font-size: 9px !important;
+        }
+
+        .cc-ui-shell .cc-metric-card {
+          min-height: 138px !important;
+        }
+
+        .cc-ui-shell .cc-metric-card .cc-value {
+          font-size: clamp(18px, 1.05vw, 22px) !important;
+        }
+
+        .cc-ui-shell .cc-metric-card span,
+        .cc-ui-shell .cc-mini-card span {
+          word-break: normal !important;
+          overflow-wrap: break-word !important;
+        }
+
+        .cc-ui-shell .cc-period-switcher button {
+          font-size: 10px !important;
+          min-height: 40px !important;
+        }
+
+        @media (min-width: 1024px) {
+          .cc-ui-shell [class*="text-[5.5px]"],
+          .cc-ui-shell [class*="text-[6px]"],
+          .cc-ui-shell [class*="text-[6.5px]"] {
+            font-size: 8.5px !important;
+            line-height: 1.3 !important;
+          }
+
+          .cc-ui-shell [class*="text-[7px]"],
+          .cc-ui-shell [class*="text-[7.5px]"] {
+            font-size: 9.5px !important;
+            line-height: 1.35 !important;
+          }
+
+          .cc-ui-shell [class*="text-[8px]"],
+          .cc-ui-shell [class*="text-[8.5px]"] {
+            font-size: 10.5px !important;
+            line-height: 1.38 !important;
+          }
+
+          .cc-ui-shell [class*="text-[9px]"],
+          .cc-ui-shell [class*="text-[9.5px]"] {
+            font-size: 11.5px !important;
+            line-height: 1.42 !important;
+          }
+
+          .cc-ui-shell [class*="text-[10px]"] {
+            font-size: 12.5px !important;
+            line-height: 1.42 !important;
+          }
+
+          .cc-ui-shell [class*="text-[11px]"] {
+            font-size: 13px !important;
+            line-height: 1.44 !important;
+          }
+
+          .cc-ui-shell [class*="text-[12px]"],
+          .cc-ui-shell [class*="text-[13px]"] {
+            font-size: 14px !important;
+            line-height: 1.44 !important;
+          }
+
+          .cc-ui-shell .cc-pro-card {
+            padding: 14px !important;
+          }
+
+          .cc-ui-shell .cc-section-card {
+            padding: 14px !important;
+          }
+        }
+
+        @media (max-width: 767px) {
+          .cc-ui-shell .cc-tech-table,
+          .cc-ui-shell .cc-tech-table tbody,
+          .cc-ui-shell .cc-tech-table tr,
+          .cc-ui-shell .cc-tech-table td {
+            display: block !important;
+            width: 100% !important;
+          }
+
+          .cc-ui-shell .cc-tech-table thead {
+            display: none !important;
+          }
+
+          .cc-ui-shell .cc-tech-table tbody tr {
+            margin-bottom: 12px;
+            padding: 8px;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 16px;
+            background: #fff !important;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .04);
+          }
+
+          .cc-ui-shell .cc-tech-table td {
+            display: grid !important;
+            grid-template-columns: minmax(105px, 38%) minmax(0, 1fr);
+            gap: 10px;
+            align-items: start;
+            border-bottom: 1px solid #f1f5f9;
+            padding: 8px 7px !important;
+            font-size: 11px !important;
+          }
+
+          .cc-ui-shell .cc-tech-table td:last-child {
+            border-bottom: 0;
+          }
+
+          .cc-ui-shell .cc-tech-table td::before {
+            font-size: 9px;
+            font-weight: 900;
+            text-transform: uppercase;
+            color: #94a3b8;
+            line-height: 1.25;
+          }
+
+          /* Variaciones dinámicas */
+          .cc-tech-dynamic td:nth-child(1)::before{content:"Anuncio";}
+          .cc-tech-dynamic td:nth-child(2)::before{content:"CPA";}
+          .cc-tech-dynamic td:nth-child(3)::before{content:"Δ CPA";}
+          .cc-tech-dynamic td:nth-child(4)::before{content:"CTR";}
+          .cc-tech-dynamic td:nth-child(5)::before{content:"Δ CTR";}
+          .cc-tech-dynamic td:nth-child(6)::before{content:"CPC";}
+          .cc-tech-dynamic td:nth-child(7)::before{content:"Δ CPC";}
+          .cc-tech-dynamic td:nth-child(8)::before{content:"CPM";}
+          .cc-tech-dynamic td:nth-child(9)::before{content:"Δ CPM";}
+          .cc-tech-dynamic td:nth-child(10)::before{content:"Frecuencia";}
+          .cc-tech-dynamic td:nth-child(11)::before{content:"Δ Frecuencia";}
+          .cc-tech-dynamic td:nth-child(12)::before{content:"CVR";}
+          .cc-tech-dynamic td:nth-child(13)::before{content:"Δ CVR";}
+          .cc-tech-dynamic td:nth-child(14)::before{content:"Diagnóstico";}
+          .cc-tech-dynamic td:nth-child(15)::before{content:"Acción";}
+
+          /* Hook / Hold */
+          .cc-tech-video td:nth-child(1)::before{content:"Video";}
+          .cc-tech-video td:nth-child(2)::before{content:"Hook";}
+          .cc-tech-video td:nth-child(3)::before{content:"Nivel Hook";}
+          .cc-tech-video td:nth-child(4)::before{content:"Δ Hook";}
+          .cc-tech-video td:nth-child(5)::before{content:"Hold";}
+          .cc-tech-video td:nth-child(6)::before{content:"Nivel Hold";}
+          .cc-tech-video td:nth-child(7)::before{content:"Δ Hold";}
+          .cc-tech-video td:nth-child(8)::before{content:"Muestra";}
+          .cc-tech-video td:nth-child(9)::before{content:"Diagnóstico";}
+          .cc-tech-video td:nth-child(10)::before{content:"Variación";}
+
+          /* Embudo */
+          .cc-tech-funnel td:nth-child(1)::before{content:"Anuncio";}
+          .cc-tech-funnel td:nth-child(2)::before{content:"Clics";}
+          .cc-tech-funnel td:nth-child(3)::before{content:"Visitas";}
+          .cc-tech-funnel td:nth-child(4)::before{content:"ATC";}
+          .cc-tech-funnel td:nth-child(5)::before{content:"Compras";}
+          .cc-tech-funnel td:nth-child(6)::before{content:"C→Landing";}
+          .cc-tech-funnel td:nth-child(7)::before{content:"Δ";}
+          .cc-tech-funnel td:nth-child(8)::before{content:"V→ATC";}
+          .cc-tech-funnel td:nth-child(9)::before{content:"Δ";}
+          .cc-tech-funnel td:nth-child(10)::before{content:"V→Compra";}
+          .cc-tech-funnel td:nth-child(11)::before{content:"Δ";}
+          .cc-tech-funnel td:nth-child(12)::before{content:"ATC→Compra";}
+          .cc-tech-funnel td:nth-child(13)::before{content:"Δ";}
+          .cc-tech-funnel td:nth-child(14)::before{content:"Calidad datos";}
+          .cc-tech-funnel td:nth-child(15)::before{content:"Diagnóstico";}
+          .cc-tech-funnel td:nth-child(16)::before{content:"Acción";}
+
+          /* Decisión operativa */
+          .cc-tech-decision td:nth-child(1)::before{content:"Anuncio";}
+          .cc-tech-decision td:nth-child(2)::before{content:"CPA";}
+          .cc-tech-decision td:nth-child(3)::before{content:"Dinámico";}
+          .cc-tech-decision td:nth-child(4)::before{content:"Post-clic";}
+          .cc-tech-decision td:nth-child(5)::before{content:"Entrega Meta";}
+          .cc-tech-decision td:nth-child(6)::before{content:"Contribución";}
+          .cc-tech-decision td:nth-child(7)::before{content:"Decisión 3D";}
+          .cc-tech-decision td:nth-child(8)::before{content:"Confianza";}
+          .cc-tech-decision td:nth-child(9)::before{content:"Por qué";}
+          .cc-tech-decision td:nth-child(10)::before{content:"Acción";}
+
+          /* Presupuesto */
+          .cc-tech-budget td:nth-child(1)::before{content:"Fecha";}
+          .cc-tech-budget td:nth-child(2)::before{content:"Anterior";}
+          .cc-tech-budget td:nth-child(3)::before{content:"Nuevo";}
+          .cc-tech-budget td:nth-child(4)::before{content:"Cambio";}
+          .cc-tech-budget td:nth-child(5)::before{content:"Origen";}
+
+          /* Escala histórica */
+          .cc-tech-scalehistory td:nth-child(1)::before{content:"Presupuesto";}
+          .cc-tech-scalehistory td:nth-child(2)::before{content:"Días";}
+          .cc-tech-scalehistory td:nth-child(3)::before{content:"Gasto";}
+          .cc-tech-scalehistory td:nth-child(4)::before{content:"Compras";}
+          .cc-tech-scalehistory td:nth-child(5)::before{content:"Gasto/día";}
+          .cc-tech-scalehistory td:nth-child(6)::before{content:"Compras/día";}
+          .cc-tech-scalehistory td:nth-child(7)::before{content:"CPA ponderado";}
+          .cc-tech-scalehistory td:nth-child(8)::before{content:"ROAS";}
+          .cc-tech-scalehistory td:nth-child(9)::before{content:"CPA marginal";}
+          .cc-tech-scalehistory td:nth-child(10)::before{content:"Estado";}
+          .cc-tech-scalehistory td:nth-child(11)::before{content:"Acción";}
         }
 
         @media (max-width: 639px) {
@@ -6270,7 +6637,7 @@ function CampaignDashboard({
             <p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p>
             <p className="text-[8px] text-slate-500 mt-1">Solo informativo. Estos datos NO participan en diagnósticos, alertas, fatiga, guardrails ni decisiones de escala.</p>
           </div>
-          <div className="cc-grid-kpi min-w-full lg:min-w-[440px]">
+          <div className="cc-grid-kpi min-w-full ">
             <MiniCard label="Gasto hoy" value={fmtMoney(provisionalToday.spend)} />
             <MiniCard label="Compras hoy" value={fmtNum(provisionalToday.purchases, 2)} />
             <MiniCard label="CPA provisional" value={provisionalToday.purchases > 0 ? fmtMoney(provisionalToday.cpa) : '—'} />
@@ -6308,76 +6675,155 @@ function CampaignDashboard({
           </div>
         </div>
 
-        <div className="w-full overflow-visible">
-          <table className="cc-data-table w-full text-[8px] lg:text-[9px]">
+        <div className="hidden lg:block w-full">
+          <table className="cc-data-table cc-dashboard-table w-full text-[10px] xl:text-[11px]">
             <thead className="bg-slate-50">
-              <tr className="text-left uppercase text-[7px] lg:text-[8px] text-slate-400">
-                <th className="p-3">Estado</th><th>Producto / campaña</th><th>Presupuesto</th><th>CPA último día</th>
-                <th>CPA 3D</th><th>Δ vs 3D</th><th>CPA 7D</th><th>Δ 7D</th>
-                <th>Compras</th><th>Frecuencia</th><th>Salud tráfico/creativo</th><th>Diagnóstico · 3D</th><th>Acción · 3D</th>
+              <tr className="text-left uppercase text-[9px] text-slate-400">
+                <th className="p-3">Estado</th>
+                <th>Producto / campaña</th>
+                <th>Presupuesto</th>
+                <th>CPA último día</th>
+                <th>CPA 3D / variación</th>
+                <th>CPA 7D / variación</th>
+                <th>Compras / frecuencia</th>
+                <th>Salud</th>
+                <th>Diagnóstico 3D</th>
+                <th>Acción 3D</th>
               </tr>
             </thead>
             <tbody>
-              {filteredRows.length===0 ? <tr><td colSpan="13" className="p-8 text-center text-slate-400">No hay campañas que coincidan con el filtro.</td></tr> :
-                filteredRows.map(r=>(
-                  <tr
-                    key={r.campaign.id}
-                    onClick={()=>openDrawer(r.campaign.id)}
-                    className={`border-t cursor-pointer transition-colors ${
-                      r.campaign.dashboardAuditedHighlight === true
-                        ? 'bg-amber-100/80 hover:bg-amber-100'
-                        : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={event => toggleCampaignAuditHighlight(event, r.campaign)}
-                          disabled={auditHighlightBusyId === r.campaign.id}
-                          title={r.campaign.dashboardAuditedHighlight === true ? 'Quitar resaltado de auditoría' : 'Marcar campaña como auditada'}
-                          aria-label={r.campaign.dashboardAuditedHighlight === true ? 'Quitar resaltado de auditoría' : 'Marcar campaña como auditada'}
-                          className={`shrink-0 w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-all disabled:opacity-50 ${
-                            r.campaign.dashboardAuditedHighlight === true
-                              ? 'bg-amber-400 border-amber-500 text-zinc-950 shadow-sm'
-                              : 'bg-white border-slate-200 text-slate-400 hover:text-amber-700 hover:border-amber-300 hover:bg-amber-50'
-                          }`}
-                        >
-                          <Paintbrush size={13}/>
-                        </button>
+              {filteredRows.length === 0 ? (
+                <tr><td colSpan="10" className="p-8 text-center text-slate-400">No hay campañas que coincidan con el filtro.</td></tr>
+              ) : filteredRows.map(r => (
+                <tr
+                  key={r.campaign.id}
+                  onClick={()=>openDrawer(r.campaign.id)}
+                  className={`border-t cursor-pointer transition-colors ${
+                    r.campaign.dashboardAuditedHighlight === true
+                      ? 'bg-amber-100/80 hover:bg-amber-100'
+                      : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={event => toggleCampaignAuditHighlight(event, r.campaign)}
+                        disabled={auditHighlightBusyId === r.campaign.id}
+                        title={r.campaign.dashboardAuditedHighlight === true ? 'Quitar resaltado de auditoría' : 'Marcar campaña como auditada'}
+                        aria-label={r.campaign.dashboardAuditedHighlight === true ? 'Quitar resaltado de auditoría' : 'Marcar campaña como auditada'}
+                        className={`shrink-0 w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-all disabled:opacity-50 ${
+                          r.campaign.dashboardAuditedHighlight === true
+                            ? 'bg-amber-400 border-amber-500 text-zinc-950 shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-400 hover:text-amber-700 hover:border-amber-300 hover:bg-amber-50'
+                        }`}
+                      >
+                        <Paintbrush size={13}/>
+                      </button>
+                      <span className={`px-2 py-1.5 rounded-full font-black text-center leading-tight ${
+                        r.state==='Crítico'?'bg-rose-100 text-rose-700':
+                        r.state==='Alerta'?'bg-orange-100 text-orange-700':
+                        r.state==='Escalable'?'bg-emerald-100 text-emerald-700':
+                        'bg-amber-100 text-amber-700'
+                      }`}>
+                        ● {r.state}
+                      </span>
+                    </div>
+                  </td>
 
-                        <span className={`px-2.5 py-1.5 rounded-full font-black text-center leading-tight ${r.state==='Crítico'?'bg-rose-100 text-rose-700':r.state==='Alerta'?'bg-orange-100 text-orange-700':r.state==='Escalable'?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>
-                          ● {r.state}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <p className="font-black leading-tight break-words">{r.product?.name||'Producto'}</p>
-                        {r.campaign.dashboardAuditedHighlight === true ? (
-                          <span className="px-1.5 py-0.5 rounded-md bg-amber-300/80 text-amber-900 text-[6px] font-black uppercase">
-                            Auditada
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="text-[7px] lg:text-[8px] text-slate-400 leading-tight break-words">{r.campaign.name}</p>
-                    </td>
-                    <td className="font-black whitespace-nowrap">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
-                    <td className={`font-black whitespace-nowrap ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}</td>
-                    <td className="whitespace-nowrap">{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</td>
-                    <td><span className={`font-black ${metricDirectionClass('cpa', r.delta3)}`}>{r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}</span></td>
-                    <td className="whitespace-nowrap">{r.stats7.purchases>0?fmtCpa(r.stats7.cpa):'—'}</td>
-                    <td><span className={`font-black ${metricDirectionClass('cpa', r.delta7)}`}>{r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}</span></td>
-                    <td className="whitespace-nowrap">{fmtNum(r.purchases, 2)}</td>
-                    <td className="whitespace-nowrap">{fmtNum(r.frequency,2)}</td>
-                    <td><span className="font-black">{r.creativeHealth}</span></td>
-                    <td><span className="font-black">{r.diagnosis}</span></td>
-                    <td><span className="font-black text-blue-600">{r.action}</span></td>
-                  </tr>
-                ))
-              }
+                  <td>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-black leading-tight">{r.product?.name||'Producto'}</p>
+                      {r.campaign.dashboardAuditedHighlight === true ? (
+                        <span className="px-1.5 py-0.5 rounded-md bg-amber-300/80 text-amber-900 text-[8px] font-black uppercase">Auditada</span>
+                      ) : null}
+                    </div>
+                    <p className="text-[9px] text-slate-400 leading-snug mt-0.5">{r.campaign.name}</p>
+                  </td>
+
+                  <td className="font-black whitespace-nowrap">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
+                  <td className={`font-black whitespace-nowrap ${r.lastStats.cpa>r.maxCpa?'text-rose-600':''}`}>{r.lastComplete?fmtCpa(r.lastStats.cpa):'—'}</td>
+
+                  <td>
+                    <p className="font-black whitespace-nowrap">{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</p>
+                    <p className={`font-black mt-1 ${metricDirectionClass('cpa', r.delta3)}`}>
+                      {r.delta3===null?'—':`${r.delta3>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta3), 2)}%`}
+                    </p>
+                  </td>
+
+                  <td>
+                    <p className="font-black whitespace-nowrap">{r.stats7.purchases>0?fmtCpa(r.stats7.cpa):'—'}</p>
+                    <p className={`font-black mt-1 ${metricDirectionClass('cpa', r.delta7)}`}>
+                      {r.delta7===null?'—':`${r.delta7>0?'▲':'▼'} ${fmtNum(Math.abs(r.delta7), 2)}%`}
+                    </p>
+                  </td>
+
+                  <td>
+                    <p className="font-black">{fmtNum(r.purchases, 2)} compras</p>
+                    <p className="text-slate-500 mt-1">Frec. {fmtNum(r.frequency,2)}</p>
+                  </td>
+
+                  <td><span className="font-black">{r.creativeHealth}</span></td>
+                  <td><span className="font-black">{r.diagnosis}</span></td>
+                  <td><span className="font-black text-blue-600">{r.action}</span></td>
+                </tr>
+              ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="lg:hidden p-2 space-y-2">
+          {filteredRows.length === 0 ? (
+            <div className="p-6 text-center text-slate-400">No hay campañas que coincidan con el filtro.</div>
+          ) : filteredRows.map(r => (
+            <button
+              key={r.campaign.id}
+              type="button"
+              onClick={()=>openDrawer(r.campaign.id)}
+              className={`w-full text-left rounded-2xl border p-3 ${
+                r.campaign.dashboardAuditedHighlight === true
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-white border-slate-200'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-black text-zinc-900 break-words">{r.product?.name||'Producto'}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5 break-words">{r.campaign.name}</p>
+                </div>
+                <span className={`shrink-0 px-2 py-1.5 rounded-full text-[9px] font-black ${
+                  r.state==='Crítico'?'bg-rose-100 text-rose-700':
+                  r.state==='Alerta'?'bg-orange-100 text-orange-700':
+                  r.state==='Escalable'?'bg-emerald-100 text-emerald-700':
+                  'bg-amber-100 text-amber-700'
+                }`}>● {r.state}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <div className="rounded-xl bg-slate-50 p-2.5">
+                  <p className="text-[9px] font-black uppercase text-slate-400">Presupuesto</p>
+                  <p className="text-[13px] font-black mt-1">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2.5">
+                  <p className="text-[9px] font-black uppercase text-slate-400">CPA 3D</p>
+                  <p className="text-[13px] font-black mt-1">{r.stats3.purchases>0?fmtCpa(r.stats3.cpa):'—'}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2.5">
+                  <p className="text-[9px] font-black uppercase text-slate-400">Compras</p>
+                  <p className="text-[13px] font-black mt-1">{fmtNum(r.purchases, 2)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2.5">
+                  <p className="text-[9px] font-black uppercase text-slate-400">Frecuencia</p>
+                  <p className="text-[13px] font-black mt-1">{fmtNum(r.frequency,2)}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <p className="text-[10px] font-black text-zinc-800">{r.diagnosis}</p>
+                <p className="text-[10px] font-black text-blue-600 mt-1">{r.action}</p>
+              </div>
+            </button>
+          ))}
         </div>
       </SectionCard>
 
@@ -6385,9 +6831,10 @@ function CampaignDashboard({
 
       {drawerCampaign && (
         <>
-          <div className="fixed inset-0 bg-black/35 z-[80]" onClick={()=>setDrawerCampaignId('')}></div>
-          <aside className="fixed right-0 top-0 w-full sm:w-[730px] sm:max-w-[96vw] h-screen bg-white shadow-2xl z-[90] overflow-y-auto p-3 sm:p-4 md:p-6">
-            <button onClick={()=>setDrawerCampaignId('')} className="absolute right-4 top-4 w-9 h-9 rounded-xl bg-slate-100 font-black">✕</button>
+          <div className="fixed inset-0 bg-zinc-950/45 backdrop-blur-[1px] z-[80]" onClick={()=>setDrawerCampaignId('')}></div>
+          <section className="fixed inset-0 z-[90] flex items-center justify-center p-0 sm:p-3 lg:p-5 pointer-events-none">
+            <div className="relative pointer-events-auto w-full sm:max-w-[96vw] 2xl:max-w-[1600px] h-[100dvh] sm:h-[96vh] bg-white sm:rounded-3xl shadow-2xl overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-5 xl:p-6">
+            <button onClick={()=>setDrawerCampaignId('')} className="sticky z-20 top-2 ml-auto flex w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 items-center justify-center font-black shadow-sm">✕</button>
 
             <div className="pr-12">
               <h3 className="text-xl md:text-2xl font-black uppercase">{drawerProduct?.name}</h3>
@@ -6445,7 +6892,8 @@ function CampaignDashboard({
                 period={drawerPeriod}
               />
             </div>
-          </aside>
+            </div>
+          </section>
         </>
       )}
     </div>
@@ -9668,7 +10116,7 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
                   <p className="text-[8px] text-slate-500 mt-1">{row.sampleDays} {row.label.toLowerCase()} analizado(s) en todo el historial · {row.confidence.text}</p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:min-w-[190px]">
+                <div className="grid grid-cols-2 gap-2 ">
                   <div className="rounded-xl bg-white/80 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Gasto histórico</p>
                     <p className="text-[10px] font-black tabular-nums whitespace-nowrap mt-1">{fmtMoney(row.stats.spend)}</p>
@@ -10559,7 +11007,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
               CPA marginal
             </p>
             <span
-              className={`inline-flex max-w-[65%] px-1.5 py-1 rounded-md text-[5.5px] sm:text-[6px] lg:text-[7px] font-black uppercase leading-tight text-center ${toneBadge(marginalDisplay.tone)}`}
+              className={`inline-flex max-w-full px-1.5 py-1 rounded-md text-[5.5px] sm:text-[6px] lg:text-[7px] font-black uppercase leading-tight text-center ${toneBadge(marginalDisplay.tone)}`}
               style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
             >
               {marginalDisplay.status}
@@ -10775,7 +11223,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       >
         <div className="p-4 lg:p-5">
           {/* Cabecera: lectura a la izquierda, acción a la derecha solo cuando hay espacio real */}
-          <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.9fr)] gap-4 xl:gap-5 items-start">
+          <div className="grid grid-cols-1 gap-4 items-start">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${campaignColors.badge}`}>
@@ -11185,7 +11633,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           >
             <div className="p-4 lg:p-5">
               {/* Identidad + decisión, sin forzar las métricas en paralelo */}
-              <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.9fr)] gap-4 xl:gap-5 items-start">
+              <div className="grid grid-cols-1 gap-4 items-start">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${colors.badge}`}>{action.label}</span>
@@ -12056,7 +12504,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           )}
         </div>
         <div className="rounded-2xl p-3 bg-blue-50" style={{border:'1px solid #bfdbfe'}}><p className="text-[8px] font-black uppercase text-blue-700">Salud de tráfico y creativo</p><p className="font-black text-sm mt-1">{adRows.length} anuncios activos</p><p className="text-[9px] text-slate-500 mt-1">Estables: {dynamicCounts['Estable'] || 0} · Fatiga temprana: {dynamicCounts['Fatiga temprana'] || 0} · Probable/confirmada: {(dynamicCounts['Fatiga probable'] || 0) + (dynamicCounts['Fatiga confirmada'] || 0)}</p></div>
-        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Distribución / costo de impresiones</p><p className="text-[9px] text-slate-600 mt-1">CPM se lee en dos capas: tendencia vs período anterior y nivel actual. Un CPM puede subir y seguir saludable si permanece ≤ $10.000. Si supera $10.000 entra en revisión; la causa no se demuestra solo con CPM.</p></div>
+        <div className="rounded-2xl p-3 bg-orange-50" style={{border:'2px solid #ea580c'}}><p className="text-[8px] font-black uppercase text-orange-700">Distribución / costo de impresiones</p><p className="text-[9px] text-slate-600 mt-1">CPM es informativo: ≤ $10.000 saludable · $10.001–$15.000 aceptable · &gt; $15.000 alto. Nunca bloquea escala ni ordena pausa por sí solo; se interpreta junto con CTR, CPC, frecuencia y CPA.</p></div>
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50" style={{border:'2px solid #0891b2'}}>
@@ -12101,7 +12549,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl border-2 p-3 md:p-4 bg-white shadow-sm" style={{ borderColor: '#2563eb' }}>
         <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b" style={{ borderColor: '#bfdbfe' }}><h4 className="text-xs font-black uppercase text-blue-800">Variaciones dinámicas por anuncio</h4><span className="px-2 py-1 rounded-full bg-zinc-950 text-white text-[8px] font-black">{monitorPeriod === 'last' ? 'ÚLTIMO DÍA' : monitorPeriod.toUpperCase()}</span></div>
-        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
+        {adRows.length ? <div className="cc-tech-scroll w-full"><table className="cc-tech-table cc-tech-dynamic w-full text-left text-[10px] lg:text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Δ CPA</th><th>CTR</th><th>Δ CTR</th><th>CPC</th><th>Δ CPC</th><th>CPM</th><th>Δ CPM</th><th>Frecuencia</th><th>Δ Frec.</th><th>CVR</th><th>Δ CVR</th><th>Diagnóstico dinámico</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => <tr
           key={ad.id}
           className="border-b-4 border-white"
           style={{ backgroundColor: ccVisualAccent(ad.id || ad.name).soft, boxShadow: `inset 5px 0 0 ${ccVisualAccent(ad.id || ad.name).border}` }}
@@ -12135,8 +12583,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
         </div>
 
         {adRows.filter(({diag}) => diag.hookHold?.isVideo).length ? (
-          <div className="overflow-x-auto overscroll-x-contain">
-            <table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1">
+          <div className="cc-tech-scroll w-full">
+            <table className="cc-tech-table cc-tech-video w-full text-left text-[10px] lg:text-[10px] border-separate border-spacing-y-1">
               <thead><tr className="text-[8px] font-black uppercase text-slate-400">
                 <th className="py-2">Video</th><th>Hook</th><th>Nivel Hook</th><th>Δ Hook</th><th>Hold</th><th>Nivel Hold</th><th>Δ Hold</th><th>Muestra</th><th>Diagnóstico creativo</th><th>Variación recomendada</th>
               </tr></thead>
@@ -12170,7 +12618,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             Si hay compras pero Visitas/ATC están en 0, el sistema lo marca como dato faltante: ya no presenta ese 0 como un embudo real ni como “estable”.
           </p>
         </div>
-        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
+        {adRows.length ? <div className="cc-tech-scroll w-full"><table className="cc-tech-table cc-tech-funnel w-full text-left text-[10px] lg:text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>Clics</th><th>Visitas</th><th>ATC</th><th>Compras</th><th>C→Landing</th><th>Δ</th><th>V→ATC</th><th>Δ</th><th>V→Compra</th><th>Δ</th><th>ATC→Compra</th><th>Δ</th><th>Calidad datos</th><th>Diagnóstico post-clic</th><th>Acción</th></tr></thead><tbody>{adRows.map(({ad,diag}) => {
           const q = diag.postDataQuality || postClickDataQualityCC(diag.stats);
           const landingMissing = q.level === 'missing' && diag.stats.purchases > 0 && toNumber(diag.stats.landingViews) <= 0;
           const atcMissing = (q.level === 'missing' || q.label?.includes('ATC FALTANTE')) && diag.stats.purchases > 0 && toNumber(diag.stats.atc) <= 0;
@@ -12215,7 +12663,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             ))}
           </div>
         )}
-        {adRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-left text-[8px] lg:text-[9px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
+        {adRows.length ? <div className="cc-tech-scroll w-full"><table className="cc-tech-table cc-tech-decision w-full text-left text-[10px] lg:text-[10px] border-separate border-spacing-y-1"><thead><tr className="border-b text-[8px] font-black uppercase text-slate-400"><th className="py-2">Anuncio</th><th>CPA</th><th>Dinámico</th><th>Post-clic</th><th>Entrega Meta · 3D</th><th>Contribución campaña · 3D</th><th>Decisión operativa · 3D</th><th>Confianza</th><th>Por qué · 3D</th><th>Acción · 3D</th></tr></thead><tbody>{adRows.map(({ad,diag,contribution}) => {
           const contributionClass =
             contribution?.tone === 'critical' ? 'bg-rose-100 text-rose-700 border-rose-200' :
             contribution?.tone === 'good' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -12303,12 +12751,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
       <div className="rounded-2xl p-3 md:p-4 bg-cyan-50/40 shadow-sm" style={{border:'2px solid #0891b2'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-cyan-800">Historial de cambios de presupuesto</h4>
-        {budgetRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-[8px] lg:text-[9px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
+        {budgetRows.length ? <div className="cc-tech-scroll w-full"><table className="cc-tech-table cc-tech-budget w-full text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Fecha</th><th>Anterior</th><th>Nuevo</th><th>Cambio</th><th>Origen</th></tr></thead><tbody>{budgetRows.map((r,i) => <tr key={r.id} className="border-t" style={{backgroundColor:i%2===0?'#ecfeff':'#ffffff'}}><td className="py-2">{r.date}</td><td>{fmtMoney(r.previousBudget)}</td><td>{fmtMoney(r.newBudget)}</td><td className="font-black">{fmtNum(r.changePct, 2)}%</td><td>{r.origin === 'recommendation' ? 'Recomendación aplicada' : 'Cambio manual'}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente al detectar cambios entre registros diarios.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-emerald-50/40 shadow-sm" style={{border:'1px solid #a7f3d0'}}>
         <h4 className="text-xs font-black uppercase mb-3 text-emerald-800">Historial de escala rentable</h4>
-        {scaleRows.length ? <div className="overflow-x-auto overscroll-x-contain"><table className="cc-tech-table w-full text-[8px] lg:text-[9px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>Gasto/día</th><th>Compras/día</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{r.spendDay === null ? '—' : fmtMoney(r.spendDay)}</td><td>{r.purchasesDay === null ? '—' : fmtNum(r.purchasesDay, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? (r.marginalExtraSpendDay > 0 && r.marginalExtraPurchasesDay <= 0 ? 'SIN GANANCIA' : '—') : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
+        {scaleRows.length ? <div className="cc-tech-scroll w-full"><table className="cc-tech-table cc-tech-scalehistory w-full text-[10px]"><thead><tr className="text-left text-slate-400 uppercase text-[8px]"><th>Presupuesto</th><th>Días</th><th>Gasto</th><th>Compras</th><th>Gasto/día</th><th>Compras/día</th><th>CPA ponderado</th><th>ROAS</th><th>CPA marginal</th><th>Estado</th><th>Acción</th></tr></thead><tbody>{scaleRows.map((r,i) => <tr key={r.budget} className="border-t" style={{backgroundColor:i%2===0?'#ecfdf5':'#ffffff'}}><td className="py-2 font-black">{fmtMoney(r.budget)}</td><td>{r.days}</td><td>{fmtMoney(r.spend)}</td><td>{fmtNum(r.purchases, 2)}</td><td>{r.spendDay === null ? '—' : fmtMoney(r.spendDay)}</td><td>{r.purchasesDay === null ? '—' : fmtNum(r.purchasesDay, 2)}</td><td>{fmtCpa(r.cpa)}</td><td>{fmtNum(r.roas,2)}</td><td>{r.marginalCpa === null ? (r.marginalExtraSpendDay > 0 && r.marginalExtraPurchasesDay <= 0 ? 'SIN GANANCIA' : '—') : fmtMoney(r.marginalCpa)}</td><td className={`font-black ${r.status === 'Rentable' ? 'text-emerald-600' : r.status.includes('Sobreescalado') || r.status.includes('ineficiente') ? 'text-rose-600' : 'text-amber-600'}`}>{r.status}</td><td className="font-black">{r.action}</td></tr>)}</tbody></table></div> : <EmptyState>Se construirá automáticamente con los datos diarios registrados.</EmptyState>}
       </div>
 
       <div className="rounded-2xl p-3 md:p-4 bg-indigo-50/40 shadow-sm" style={{border:'1px solid #c7d2fe'}}>
@@ -14144,7 +14592,7 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
 
                       return (
                         <div className="bg-white border-t" style={{ borderColor: campaignAccent.border }}>
-                          <div className="flex gap-1 p-2 bg-slate-50/80 overflow-x-auto">
+                          <div className="grid grid-cols-2 gap-1 p-2 bg-slate-50/80">
                             <button
                               type="button"
                               onClick={() => setCampaignPane(x => ({ ...x, [campaign.id]: 'register' }))}
@@ -14795,7 +15243,7 @@ function CsvPreview({ rows, onApply }) {
       </div>
     )}
 
-    <div className="overflow-x-auto overscroll-x-contain">
+    <div className="cc-tech-scroll w-full">
       <table className="w-full min-w-[900px] text-[10px]">
         <thead>
           <tr className="text-left text-[8px] uppercase text-slate-400">
