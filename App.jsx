@@ -4524,9 +4524,15 @@ function buildDetailedCampaignReportCC({
       lines.push('PROTOCOLO · CIERRE DE CAMPAÑA / REINICIO DE TESTEO');
       lines.push('-'.repeat(78));
       if (reportShutdown?.active) {
+        const shutdownGuide = shutdownStageGuideCC(reportShutdown);
         lines.push(`Estado: ${reportShutdown.status}`);
-        lines.push(`Acción: ${reportShutdown.action}`);
-        lines.push(`Lectura: ${reportShutdown.summary}`);
+        lines.push(`Etapa: ${shutdownGuide.label}`);
+        lines.push(`Qué significa: ${shutdownGuide.meaning}`);
+        lines.push(`Por qué estamos aquí: ${shutdownGuide.whyCurrent}`);
+        lines.push(`Qué hacer ahora: ${shutdownGuide.currentAction}`);
+        lines.push(`Qué NO hacer: ${shutdownGuide.doNot}`);
+        lines.push(`Qué debe pasar para avanzar: ${shutdownGuide.next}`);
+        lines.push('Evidencia:');
         (reportShutdown.evidence || []).forEach(item => lines.push(`  • ${item}`));
       } else {
         lines.push(`Estado: ${reportShutdown?.status || 'APAGADO NO APLICA'}`);
@@ -9885,6 +9891,202 @@ function QuickMetricCC({
 }
 
 
+const SHUTDOWN_PROTOCOL_STEPS_CC = [
+  {
+    id: 'evidence',
+    number: 1,
+    title: 'Confirmar pérdida real',
+    short: 'Evidencia 3D',
+    description: 'Primero se confirma que no es un mal día aislado. Se exige un bloque 3D completo y una pérdida económica real frente al CPA máximo.'
+  },
+  {
+    id: 'scope',
+    number: 2,
+    title: 'Confirmar deterioro generalizado',
+    short: 'Alcance',
+    description: 'Se verifica si el problema afecta a gran parte de la campaña y no solamente a uno o dos anuncios corregibles.'
+  },
+  {
+    id: 'rescue',
+    number: 3,
+    title: 'Intentar rescate',
+    short: 'Rescate',
+    description: 'Antes de apagar toda la campaña se protege cualquier núcleo sano y se prueba la intervención estructural razonable: poda, reducción de presupuesto o corrección post-clic.'
+  },
+  {
+    id: 'recovery',
+    number: 4,
+    title: 'Medir recuperación',
+    short: 'Validación',
+    description: 'Después de la intervención se mide un nuevo ciclo completo para comprobar si CPA, CVR, CPC y volumen recuperan eficiencia.'
+  },
+  {
+    id: 'decision',
+    number: 5,
+    title: 'Decidir cierre o continuidad',
+    short: 'Decisión final',
+    description: 'Si los rescates fallan, no queda núcleo sano y la campaña sigue perdiendo, se apaga la estructura y se reinicia el testeo desde cero.'
+  }
+];
+
+function shutdownStageGuideCC(protocolOrStage) {
+  const protocol = typeof protocolOrStage === 'string'
+    ? { stage: protocolOrStage }
+    : (protocolOrStage || {});
+  const stage = protocol.stage || 'not_applicable';
+
+  const guides = {
+    insufficient_data: {
+      step: 1,
+      label: 'ETAPA 1 · CONFIRMAR EVIDENCIA',
+      meaning: 'Todavía no existe información suficiente para decidir si la campaña debe cerrarse.',
+      why: 'El protocolo exige 3 días activos completos. Un día parcial o una ventana incompleta puede exagerar pérdidas o recuperaciones.',
+      doNow: 'No apagar ni encadenar cambios estructurales. Completar el 3D y seguir registrando datos limpios.',
+      doNot: 'No interpretar una mala jornada como agotamiento definitivo de la campaña.',
+      next: 'Avanza cuando exista un 3D completo. Entonces el sistema decidirá si hay pérdida real y si el deterioro es suficientemente amplio.'
+    },
+    not_applicable: {
+      step: 2,
+      label: 'ETAPA 2 · VALIDAR ALCANCE',
+      meaning: 'El apagado total no está justificado porque la campaña no está perdiendo lo suficiente o el problema todavía está concentrado.',
+      why: 'Apagar toda la campaña solo tiene sentido cuando el daño es económico y generalizado. Si el problema está en pocos anuncios, es mejor corregir esos anuncios.',
+      doNow: 'Seguir con acciones específicas: pausar drenajes, La Poda, corregir post-clic o mantener si la economía sigue sana.',
+      doNot: 'No apagar anuncios sanos ni reiniciar toda la campaña por un problema aislado.',
+      next: 'Solo entra a rescate global si el CPA queda fuera del objetivo y el deterioro alcanza al menos 60% del gasto con amplitud suficiente de anuncios.'
+    },
+    healthy_core: {
+      step: 3,
+      label: 'ETAPA 3 · PROTEGER NÚCLEO SANO',
+      meaning: 'La campaña está deteriorada, pero todavía existe una parte relevante del presupuesto sostenida por anuncios que aportan.',
+      why: 'Cerrar toda la campaña destruiría también un núcleo que todavía produce valor. El sistema exige protegerlo antes de considerar un reinicio total.',
+      doNow: 'Conservar los anuncios que aportan, cortar drenajes y medir si el núcleo sano puede absorber presupuesto de forma rentable.',
+      doNot: 'No apagar la campaña completa mientras el núcleo sano represente aproximadamente 40% o más del gasto.',
+      next: 'Si el núcleo sano desaparece y la campaña sigue fuera del objetivo, el protocolo pasa a rescate estructural.'
+    },
+    rescue_required: {
+      step: 3,
+      label: 'ETAPA 3 · ÚLTIMO RESCATE',
+      meaning: 'La campaña está en pérdida generalizada, pero todavía no se ha demostrado que una intervención estructural sea incapaz de recuperarla.',
+      why: 'Antes de abandonar una campaña se debe probar al menos un rescate medible. Reducir presupuesto puede devolver eficiencia después de un sobreescalamiento.',
+      doNow: 'Ejecutar únicamente la reducción o intervención indicada por el motor y registrar el cambio. Después dejar correr un nuevo ciclo 3D.',
+      doNot: 'No apagar todavía y no encadenar varias reducciones el mismo día; eso impediría saber qué intervención funcionó.',
+      next: 'Pasa a validación cuando exista un ciclo completo posterior al rescate. Si recupera, se conserva; si falla, aumenta la evidencia de agotamiento.'
+    },
+    recovery: {
+      step: 4,
+      label: 'ETAPA 4 · RECUPERACIÓN DETECTADA',
+      meaning: 'La campaña sigue bajo presión, pero la última intervención empezó a mejorar la economía.',
+      why: 'Una recuperación reciente puede significar que la reducción o ajuste está funcionando. Apagar ahora podría cortar una campaña que está volviendo a zona rentable.',
+      doNow: 'Mantener el presupuesto actual y observar al menos un cierre completo adicional. Confirmar CPA, CVR, CPC y volumen.',
+      doNot: 'No volver a reducir ni apagar mientras la recuperación esté mejorando y no haya nueva evidencia de deterioro.',
+      next: 'Si la recuperación se sostiene, el protocolo se desactiva. Si vuelve a deteriorarse y el rescate termina fallando, avanza hacia decisión final.'
+    },
+    safety_wait: {
+      step: 4,
+      label: 'ETAPA 4 · ESPERAR VENTANA DE SEGURIDAD',
+      meaning: 'La evidencia ya es preocupante, pero todavía es demasiado pronto para atribuir el resultado al último cambio.',
+      why: 'El sistema evita hacer cambios estructurales encadenados antes de que el presupuesto y la distribución tengan tiempo de estabilizarse.',
+      doNow: 'No tocar nuevamente la estructura hasta terminar la ventana de seguridad. Seguir observando cierres y registrar cualquier recuperación.',
+      doNot: 'No reducir otra vez ni apagar anticipadamente solo porque las primeras horas posteriores al cambio siguen débiles.',
+      next: 'Al terminar la ventana, si continúa la pérdida, no hay recuperación y los rescates ya fallaron, puede confirmarse el apagado.'
+    },
+    last_rescue: {
+      step: 4,
+      label: 'ETAPA 4 · RESCATE INSUFICIENTE',
+      meaning: 'Una o más reducciones no recuperaron todavía la campaña, pero el umbral final de cierre aún no está completamente confirmado.',
+      why: 'El sistema distingue entre una reducción que ayudó parcialmente y una campaña definitivamente agotada. Se necesita suficiente evidencia para no abandonar capital recuperable.',
+      doNow: 'Mantener el nivel actual o ejecutar solamente la siguiente reducción ya autorizada. Medir nuevamente un 3D completo.',
+      doNot: 'No seguir bajando presupuesto sin control ni abrir cambios simultáneos que impidan medir el efecto real de cada intervención.',
+      next: 'Si el siguiente rescate también falla sin núcleo sano ni recuperación, el protocolo pasa a APAGAR CAMPAÑA · REINICIAR TESTEO.'
+    },
+    confirmed_shutdown: {
+      step: 5,
+      label: 'ETAPA 5 · CIERRE CONFIRMADO',
+      meaning: 'La campaña agotó las opciones razonables de rescate y seguir financiándola mantiene una pérdida generalizada.',
+      why: 'El CPA continúa fuera del objetivo, el deterioro afecta gran parte del gasto, los rescates no recuperaron la eficiencia y no queda un núcleo sano relevante.',
+      doNow: 'Apagar la campaña completa, conservar todo el histórico y abrir un NUEVO TEST con creativos, ángulos o estructura fresca.',
+      doNot: 'No seguir reduciendo presupuesto indefinidamente ni reactivar la misma estructura esperando que se recupere sin nueva evidencia.',
+      next: 'El siguiente ciclo ya no es una optimización de esta campaña: es un test nuevo. Los ganadores históricos sirven como referencia, no como garantía.'
+    }
+  };
+
+  const base = guides[stage] || guides.not_applicable;
+  return {
+    ...base,
+    whyCurrent: protocol.summary || base.why,
+    currentAction: protocol.action || base.doNow,
+    steps: SHUTDOWN_PROTOCOL_STEPS_CC
+  };
+}
+
+function ShutdownProtocolGuideCC({ protocol = null, alwaysShow = false }) {
+  const guide = shutdownStageGuideCC(protocol || 'not_applicable');
+  const currentStep = guide.step;
+
+  if (!alwaysShow && !protocol) return null;
+
+  return (
+    <details className="mt-3 rounded-2xl border border-slate-200 bg-white/90 overflow-hidden group">
+      <summary className="cursor-pointer list-none px-3.5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50">
+        <div className="min-w-0">
+          <p className="text-[8px] font-black uppercase tracking-wider text-slate-500">Cómo funciona este protocolo</p>
+          <p className="text-[10px] sm:text-[11px] font-black text-zinc-900 mt-0.5">{protocol ? guide.label : 'Ruta completa · de deterioro a cierre/retest'}</p>
+        </div>
+        <span className="shrink-0 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase group-open:bg-zinc-950 group-open:text-white">Ver explicación</span>
+      </summary>
+
+      <div className="border-t border-slate-100 p-3.5 sm:p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+          {guide.steps.map(step => {
+            const active = protocol && step.number === currentStep;
+            const completed = protocol && step.number < currentStep;
+            return (
+              <div key={step.id} className={`rounded-xl border p-2.5 ${active ? 'border-indigo-300 bg-indigo-50' : completed ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`w-6 h-6 rounded-full inline-flex items-center justify-center text-[8px] font-black ${active ? 'bg-indigo-600 text-white' : completed ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>{step.number}</span>
+                  <p className="text-[8px] font-black uppercase text-zinc-800">{step.short}</p>
+                </div>
+                <p className="text-[8px] text-slate-600 mt-2 leading-relaxed">{step.description}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        {protocol ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mt-3.5">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+              <p className="text-[7px] font-black uppercase text-indigo-700">Qué significa esta etapa</p>
+              <p className="text-[9px] font-semibold text-zinc-800 mt-1.5 leading-relaxed">{guide.meaning}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-[7px] font-black uppercase text-slate-500">Por qué estamos aquí</p>
+              <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">{guide.whyCurrent}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-[7px] font-black uppercase text-emerald-700">Qué hacer ahora</p>
+              <p className="text-[9px] font-semibold text-zinc-800 mt-1.5 leading-relaxed">{guide.currentAction}</p>
+            </div>
+            <div className="rounded-xl border border-rose-100 bg-rose-50/70 p-3">
+              <p className="text-[7px] font-black uppercase text-rose-700">Qué NO hacer</p>
+              <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">{guide.doNot}</p>
+            </div>
+            <div className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-[7px] font-black uppercase text-amber-700">Qué debe pasar para avanzar</p>
+              <p className="text-[9px] font-semibold text-zinc-800 mt-1.5 leading-relaxed">{guide.next}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[9px] text-slate-600 leading-relaxed">
+              El protocolo no busca apagar campañas rápido. Su objetivo es demostrar, paso a paso, cuándo todavía existe una vía razonable de recuperación y cuándo seguir invirtiendo deja de tener sentido económico.
+            </p>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function buildCampaignShutdownProtocolCC({
   campaign3d,
   rows = [],
@@ -12286,6 +12488,8 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             maxCpa={maxCpa}
           />
 
+          <ShutdownProtocolGuideCC alwaysShow />
+
           {campaignOverview.shutdownProtocol?.active ? (
             <div className={`mt-4 rounded-2xl border-2 p-3.5 sm:p-4 ${toneBg(campaignOverview.shutdownProtocol.tone)}`}>
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
@@ -12309,6 +12513,8 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   <p className="text-[9px] font-black text-zinc-900 mt-2 leading-relaxed">
                     Acción: {campaignOverview.shutdownProtocol.action}
                   </p>
+
+                  <ShutdownProtocolGuideCC protocol={campaignOverview.shutdownProtocol} />
                 </div>
 
                 <div className="lg:w-[360px] rounded-xl border border-white/70 bg-white/80 p-3">
