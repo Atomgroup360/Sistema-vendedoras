@@ -5461,50 +5461,46 @@ function CampaignControlModule() {
           .cc-ui-shell [class*="text-[5.5px]"],
           .cc-ui-shell [class*="text-[6px]"],
           .cc-ui-shell [class*="text-[6.5px]"] {
-            font-size: 8px !important;
-            line-height: 1.32 !important;
+            font-size: 7px !important;
+            line-height: 1.28 !important;
           }
 
           .cc-ui-shell [class*="text-[7px]"],
           .cc-ui-shell [class*="text-[7.5px]"] {
-            font-size: 9px !important;
-            line-height: 1.35 !important;
+            font-size: 8px !important;
+            line-height: 1.32 !important;
           }
 
           .cc-ui-shell [class*="text-[8px]"],
           .cc-ui-shell [class*="text-[8.5px]"] {
-            font-size: 10px !important;
-            line-height: 1.38 !important;
+            font-size: 9px !important;
+            line-height: 1.35 !important;
           }
 
           .cc-ui-shell [class*="text-[9px]"],
           .cc-ui-shell [class*="text-[9.5px]"] {
+            font-size: 10px !important;
+            line-height: 1.38 !important;
+          }
+
+          .cc-ui-shell [class*="text-[10px]"] {
             font-size: 11px !important;
             line-height: 1.4 !important;
           }
 
-          .cc-ui-shell [class*="text-[10px]"] {
+          .cc-ui-shell [class*="text-[11px]"] {
             font-size: 12px !important;
             line-height: 1.42 !important;
           }
 
-          .cc-ui-shell [class*="text-[11px]"] {
+          .cc-ui-shell [class*="text-[12px]"],
+          .cc-ui-shell [class*="text-[13px]"] {
             font-size: 13px !important;
             line-height: 1.42 !important;
           }
 
-          .cc-ui-shell [class*="text-[12px]"] {
-            font-size: 14px !important;
-            line-height: 1.42 !important;
-          }
-
-          .cc-ui-shell [class*="text-[13px]"] {
-            font-size: 15px !important;
-            line-height: 1.42 !important;
-          }
-
           .cc-ui-shell button[class*="text-["] {
-            min-height: 38px;
+            min-height: 34px;
           }
 
           .cc-ui-shell input,
@@ -5707,7 +5703,7 @@ function CampaignControlModule() {
         }
 
         .cc-ui-shell .cc-grid-metrics {
-          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+          grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)) !important;
           gap: 12px !important;
         }
 
@@ -5742,12 +5738,13 @@ function CampaignControlModule() {
 
         /* Métricas: compactas, proporcionadas y sin columnas kilométricas */
         .cc-ui-shell .cc-metric-card {
-          min-height: 148px !important;
+          min-height: 144px !important;
           max-width: none;
         }
 
         .cc-ui-shell .cc-metric-card .cc-value {
-          font-size: clamp(17px, 1.1vw, 22px) !important;
+          font-size: clamp(15px, 0.95vw, 20px) !important;
+          letter-spacing: -0.01em !important;
         }
 
         .cc-ui-shell .cc-mini-card .cc-value {
@@ -5755,9 +5752,40 @@ function CampaignControlModule() {
         }
 
         @media (min-width: 1024px) {
-          .cc-ui-shell .cc-module-view { font-size: 12px; }
-          .cc-ui-shell .cc-section-card { padding: 15px !important; }
-          .cc-ui-shell .cc-metric-card { min-height: 150px; }
+          .cc-ui-shell .cc-module-view { font-size: 11px; }
+          .cc-ui-shell .cc-section-card { padding: 14px !important; }
+          .cc-ui-shell .cc-metric-card { min-height: 146px; }
+        }
+
+        .cc-ui-shell .cc-period-switcher {
+          display: flex !important;
+          flex-wrap: wrap !important;
+          gap: 8px !important;
+          align-items: stretch;
+        }
+
+        .cc-ui-shell .cc-period-switcher button {
+          flex: 1 1 70px;
+          min-width: 70px;
+          max-width: 92px;
+          min-height: 40px !important;
+          padding: 10px 12px !important;
+          white-space: normal !important;
+          line-height: 1.1 !important;
+          text-align: center !important;
+          justify-content: center !important;
+        }
+
+        .cc-ui-shell .cc-period-switcher.cc-period-switcher--wide button {
+          max-width: 100px;
+        }
+
+        @media (min-width: 640px) {
+          .cc-ui-shell .cc-period-switcher button {
+            flex: 0 0 auto;
+            min-width: 74px;
+            max-width: none;
+          }
         }
 
         @media (max-width: 639px) {
@@ -9074,7 +9102,7 @@ function QuickMetricCC({
   const prevLabel = previousPeriodLabel || periodLabel;
 
   return (
-    <div className="cc-metric-card min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3.5 sm:px-3.5 sm:py-3.5 lg:px-4 lg:py-4 cc-pro-card">
+    <div className="cc-metric-card min-w-0 h-full rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 sm:px-3.5 sm:py-3.5 lg:px-3.5 lg:py-3.5 cc-pro-card">
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0">
           <p className="text-[7px] font-black uppercase tracking-wide text-slate-400 leading-tight">{label}</p>
@@ -9088,10 +9116,10 @@ function QuickMetricCC({
         </span>
       </div>
 
-      <div className="mt-3 min-h-[30px] flex items-center min-w-0 w-full">
+      <div className="mt-2.5 min-h-[28px] flex items-center min-w-0 w-full overflow-hidden">
         <p
           className="cc-value min-w-0 max-w-full font-black leading-tight tracking-[-0.015em] tabular-nums text-zinc-900 whitespace-nowrap"
-          style={{ fontSize: 'clamp(17px, 1.05vw, 22px)' }}
+          style={{ fontSize: 'clamp(15px, 0.95vw, 20px)' }}
         >
           {value}
         </p>
@@ -10747,7 +10775,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
       >
         <div className="p-4 lg:p-5">
           {/* Cabecera: lectura a la izquierda, acción a la derecha solo cuando hay espacio real */}
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 xl:gap-6 items-start">
+          <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.9fr)] gap-4 xl:gap-5 items-start">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${campaignColors.badge}`}>
@@ -11157,7 +11185,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
           >
             <div className="p-4 lg:p-5">
               {/* Identidad + decisión, sin forzar las métricas en paralelo */}
-              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_290px] gap-4 xl:gap-6 items-start">
+              <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.9fr)] gap-4 xl:gap-5 items-start">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${colors.badge}`}>{action.label}</span>
@@ -11888,7 +11916,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           <p className="text-[9px] font-black uppercase text-zinc-900">Cómo quieres leer la campaña</p>
           <p className="text-[9px] text-slate-500 mt-0.5 leading-relaxed">Modo lectura resume la decisión en segundos. Días de la semana descubre patrones históricos. Vista detallada conserva la lectura técnica completa anterior para investigar métricas, embudo, variaciones y diagnósticos a profundidad.</p>
         </div>
-        <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto overflow-x-auto">
+        <div className="cc-period-switcher cc-period-switcher--wide bg-slate-100 p-1 rounded-xl w-full md:w-auto">
           <button
             type="button"
             onClick={() => setViewMode('reading')}
@@ -11931,7 +11959,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           </div>
 
           <div className="w-full lg:w-auto">
-            <div className="grid grid-cols-3 sm:grid-cols-5 w-full bg-white border border-indigo-100 p-1 rounded-xl gap-1">
+            <div className="cc-period-switcher w-full lg:w-auto bg-white border border-indigo-100 p-1 rounded-xl">
               {MONITOR_PERIODS.map(p => (
                 <button
                   key={p.id}
@@ -12037,7 +12065,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             <p className="text-[9px] font-black uppercase text-cyan-800">Período de monitoreo por anuncio</p>
             <p className="text-[8px] text-slate-500 mt-1">Controla la lectura analítica de Variaciones dinámicas y Embudo post-clic. NO modifica decisiones, Guardrails, Contribución ni observaciones operativas: todo eso se determina en 3D.</p>
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto overflow-x-auto">
+          <div className="cc-period-switcher cc-period-switcher--wide bg-slate-100 p-1 rounded-xl w-full md:w-auto">
             {MONITOR_PERIODS.map(p => (
               <button
                 key={p.id}
