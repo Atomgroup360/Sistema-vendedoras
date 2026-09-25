@@ -1985,14 +1985,30 @@ function daysBetween(from, to = todayColombiaCC()) {
 
 function entityActiveOnDate(entity, date) {
   if (!entity || !date) return true;
-  const effectiveStart = entity.effectiveStartDate || entity.createdDate;
-  if (effectiveStart && String(date) < String(effectiveStart)) return false;
+  const targetDate = String(date);
+  const effectiveStart = dateToIso(entity.effectiveStartDate || entity.createdDate);
+  if (effectiveStart && targetDate < String(effectiveStart)) return false;
+
+  // La fecha efectiva de desactivación es INCLUSIVA: desde ese día la entidad
+  // ya no puede aparecer en Registro diario, aunque exista un registro histórico.
+  const deactivatedDate = dateToIso(entity.deactivatedDate || entity.archivedDate);
+  if (deactivatedDate && targetDate >= String(deactivatedDate)) {
+    const laterReactivation = (Array.isArray(entity.stateHistory) ? entity.stateHistory : [])
+      .filter(event => event?.date && String(event.date) > String(deactivatedDate) && String(event.date) <= targetDate)
+      .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+      .slice(-1)[0];
+    if (!laterReactivation || laterReactivation.active === false) return false;
+  }
+
   const history = Array.isArray(entity.stateHistory) ? [...entity.stateHistory] : [];
-  if (!history.length) return true;
+  if (!history.length) {
+    if (entity.active === false && entity.stateChangedDate && targetDate >= String(entity.stateChangedDate)) return false;
+    return true;
+  }
   history.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
   let state = true;
   for (const event of history) {
-    if (!event?.date || String(event.date) > String(date)) break;
+    if (!event?.date || String(event.date) > targetDate) break;
     state = event.active !== false;
   }
   return state;
@@ -4411,7 +4427,7 @@ function buildDetailedCampaignReportCC({
       lines.push(`Estado actual: ${campaignCurrentStateLabelCC(campaign)}`);
       lines.push(`Fecha inicio campaña: ${campaign.effectiveStartDate || campaign.createdDate || '—'}`);
       if (campaign.active === false || campaign.archived) {
-        lines.push(`Fecha efectiva de apagado: ${campaign.deactivatedDate || campaign.archivedDate || campaign.stateChangedDate || '—'}`);
+        lines.push(`Paso 2 · Selecciona la fecha de desactivación: ${campaign.deactivatedDate || campaign.archivedDate || campaign.stateChangedDate || '—'}`);
         lines.push('Histórico: CONSERVADO · la campaña continúa disponible en este informe mientras no sea eliminada definitivamente.');
       }
       lines.push(`Días registrados históricos: ${campaignHistory.length}`);
@@ -14561,6 +14577,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const [showArchived, setShowArchived] = useState(false);
   const [managerMessage, setManagerMessage] = useState(null);
   const [busyKey, setBusyKey] = useState('');
+  const [productOffPicker, setProductOffPicker] = useState(null);
   const [campaignOffPicker, setCampaignOffPicker] = useState(null);
   const today = todayColombiaCC();
   const safetyNowMs = useSafetyClockCC();
@@ -14762,9 +14779,68 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo cambiar la fecha del producto'));
     }
   };
-  const toggleProduct = async product => {
-    const next = product.active === false;
-    await updateDoc(doc(db, COLLECTIONS.products, product.id), { active: next, stateChangedDate: today, stateHistory: [...(product.stateHistory || []), { date: today, active: next }], stateChangedAt: serverTimestamp() });
+  const requestProductOff = product => {
+    const productStart = dateToIso(product.effectiveStartDate || product.createdDate) || today;
+    setProductOffPicker({
+      productId: product.id,
+      productName: product.name,
+      date: today,
+      minDate: productStart
+    });
+  };
+
+  const toggleProduct = async (product, requestedOffDate = null) => {
+    try {
+      if (product.active !== false) {
+        const offDate = dateToIso(requestedOffDate || today);
+        const productStart = dateToIso(product.effectiveStartDate || product.createdDate) || today;
+
+        if (!offDate) {
+          showManagerMessage('error', 'Selecciona una fecha válida para desactivar el producto.');
+          return;
+        }
+        if (offDate > today) {
+          showManagerMessage('error', 'La fecha de desactivación no puede ser posterior a hoy.');
+          return;
+        }
+        if (offDate < productStart) {
+          showManagerMessage('error', `El producto no puede desactivarse antes de su fecha de inicio (${productStart}).`);
+          return;
+        }
+
+        if (!window.confirm(
+          `Desactivar "${product.name}" con fecha efectiva ${offDate}?\n\n` +
+          `Desde ESA FECHA, inclusive, el producto y sus campañas dejarán de aparecer en Registro diario. ` +
+          `Los registros anteriores se conservarán en el histórico.`
+        )) return;
+
+        await updateDoc(doc(db, COLLECTIONS.products, product.id), {
+          active: false,
+          stateChangedDate: offDate,
+          deactivatedDate: offDate,
+          stateHistory: terminalStateHistoryCC(product.stateHistory, offDate, false),
+          stateChangedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+
+        setProductOffPicker(null);
+        showManagerMessage('success', `"${product.name}" desactivado desde ${offDate}. Ya no aparecerá en Registro diario desde esa fecha.`);
+        return;
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.products, product.id), {
+        active: true,
+        stateChangedDate: today,
+        deactivatedDate: null,
+        stateHistory: [...(product.stateHistory || []), { date: today, active: true }],
+        stateChangedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      showManagerMessage('success', `"${product.name}" reactivado desde ${today}. Las campañas conservan su estado individual.`);
+    } catch (error) {
+      console.error('Lectura de Campañas · estado producto', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo cambiar el estado del producto'));
+    }
   };
   const deleteProduct = async product => {
     if (campaigns.some(c => c.productId === product.id)) return alert('Primero archiva o elimina las campañas de este producto.');
@@ -14949,7 +15025,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       }
 
       if (!window.confirm(
-        `Apagar "${campaign.name}" con fecha efectiva ${offDate}?\n\n` +
+        `Desactivar "${campaign.name}" con fecha efectiva ${offDate}?\n\n` +
         `Desde esa fecha dejará de aparecer en Registro diario. ` +
         `Los datos anteriores se conservarán y seguirán disponibles en los informes.`
       )) return;
@@ -14982,12 +15058,12 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         ownerUid,
         campaign,
         null,
-        'Campaña apagada',
-        `Fecha efectiva de apagado: ${offDate}. Desde esa fecha quedó excluida de Registro diario; histórico anterior conservado.`,
+        'Campaña desactivada',
+        `Fecha efectiva de desactivación: ${offDate}. Desde esa fecha, inclusive, quedó excluida de Registro diario; histórico anterior conservado.`,
         { changeType: 'campaign_state', safetyHours: 48 }
       );
       setCampaignOffPicker(null);
-      showManagerMessage('success', `"${campaign.name}" apagada con fecha efectiva ${offDate}.`);
+      showManagerMessage('success', `"${campaign.name}" desactivada con fecha efectiva ${offDate}.`);
     } else {
       const previous = campaign.previousAdStates || {};
 
@@ -15018,11 +15094,11 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         ownerUid,
         campaign,
         null,
-        'Campaña encendida',
+        'Campaña reactivada',
         `Reactivada el ${today}. Se restauró el estado individual previo de los anuncios.`,
         { changeType: 'campaign_state', safetyHours: 48 }
       );
-      showManagerMessage('success', `"${campaign.name}" encendida desde ${today}.`);
+      showManagerMessage('success', `"${campaign.name}" reactivada desde ${today}.`);
     }
   };
   const archiveCampaign = async campaign => {
@@ -15219,11 +15295,58 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           <div className="flex gap-1">
             <button title="Editar nombre y CPA" onClick={()=>editProduct(product)} className="px-2.5 py-2 rounded-xl bg-slate-100 text-slate-600 text-[8px] font-black uppercase inline-flex items-center gap-1.5"><Pencil size={13}/> Editar</button>
             <button title="Editar fecha de creación / inicio" onClick={()=>editProductStartDate(product)} className="p-2 rounded-xl bg-blue-50 text-blue-600"><CalendarDays size={14}/></button>
-            <button onClick={()=>toggleProduct(product)} className={`p-2 rounded-xl ${product.active===false?'bg-emerald-100 text-emerald-600':'bg-rose-100 text-rose-600'}`}>{product.active===false?<Power size={14}/>:<PowerOff size={14}/>}</button>
+            <button
+              type="button"
+              title={product.active===false ? 'Reactivar producto desde hoy' : 'Desactivar producto por fecha'}
+              onClick={()=>product.active===false ? toggleProduct(product) : requestProductOff(product)}
+              className={`px-2.5 py-2 rounded-xl text-[8px] font-black uppercase inline-flex items-center gap-1.5 ${product.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`}
+            >
+              {product.active===false?<><Power size={13}/> Reactivar</>:<><PowerOff size={13}/> Desactivar</>}
+            </button>
             <button onClick={()=>deleteProduct(product)} className="p-2 rounded-xl bg-rose-50 text-rose-500"><Trash2 size={14}/></button>
             <button type="button" title="Cerrar producto" onClick={()=>setExpandedProductsManager(x=>({...x,[product.id]:false}))} className="p-2 rounded-xl bg-slate-100 text-slate-500"><ChevronUp size={14}/></button>
           </div>
         </div>
+
+        {productOffPicker?.productId === product.id && product.active !== false && (
+          <div className="mt-3 rounded-2xl border-2 border-rose-200 bg-rose-50 p-3">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-black uppercase text-rose-700">Paso 2 · Selecciona la fecha de desactivación</p>
+                <p className="text-[8px] text-rose-600 mt-1 leading-relaxed">
+                  Desde la fecha elegida, inclusive, este producto NO aparecerá en Registro diario. Sus campañas tampoco aparecerán mientras el producto esté fuera de vigencia. El histórico anterior se conserva.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <p className="text-[7px] font-black uppercase text-rose-500 mb-1">Desactivar desde</p>
+                  <input
+                    type="date"
+                    min={productOffPicker.minDate}
+                    max={today}
+                    value={productOffPicker.date}
+                    onChange={e=>setProductOffPicker(x=>x ? ({...x,date:e.target.value}) : x)}
+                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={()=>toggleProduct(product, productOffPicker.date)}
+                  className="px-3 py-2 rounded-xl bg-rose-600 text-white text-[8px] font-black uppercase"
+                >
+                  Confirmar desactivación
+                </button>
+                <button
+                  type="button"
+                  onClick={()=>setProductOffPicker(null)}
+                  className="px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-600 text-[8px] font-black uppercase"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 mt-4">
         <div>
@@ -15300,9 +15423,10 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                 <button title="Editar nombre de campaña" onClick={()=>editCampaignName(campaign)} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={11}/> Editar</button>
                 <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
                 {!campaign.archived&&<button
+                  title={campaign.active===false ? 'Reactivar campaña desde hoy' : 'Desactivar campaña por fecha'}
                   onClick={()=>campaign.active===false ? toggleCampaign(campaign) : requestCampaignOff(campaign)}
-                  className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}`}
-                >{campaign.active===false?'Encender':'Apagar'}</button>}
+                  className={`px-2 py-1.5 rounded-lg text-[8px] font-black uppercase inline-flex items-center gap-1 ${campaign.active===false?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'}`}
+                >{campaign.active===false?<><Power size={11}/> Reactivar</>:<><PowerOff size={11}/> Desactivar</>}</button>}
                 {!campaign.archived?<button onClick={()=>archiveCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-[8px] font-black uppercase flex items-center gap-1"><Archive size={11}/> Archivar</button>:<button onClick={()=>restoreCampaign(campaign)} className="px-2 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-[8px] font-black uppercase flex items-center gap-1"><ArchiveRestore size={11}/> Restaurar</button>}
                 <button title="Eliminar campaña definitivamente" onClick={()=>permanentDeleteCampaign(campaign)} className="p-1.5 rounded-lg bg-rose-50 text-rose-500"><Trash2 size={12}/></button>
                 <button type="button" onClick={()=>setExpanded(x=>({...x,[campaign.id]:false}))} className="px-2 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-[8px] font-black uppercase flex items-center gap-1"><ChevronUp size={10}/> Cerrar campaña</button>
@@ -15328,12 +15452,12 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                   <div>
                     <p className="text-[9px] font-black uppercase text-rose-700">Fecha efectiva de apagado</p>
                     <p className="text-[8px] text-rose-600 mt-1">
-                      Desde esta fecha la campaña dejará de aparecer en Registro diario. El histórico anterior seguirá disponible en informes.
+                      Desde la fecha elegida, inclusive, la campaña dejará de aparecer en Registro diario. El histórico anterior seguirá disponible en informes.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-end gap-2">
                     <div>
-                      <p className="text-[7px] font-black uppercase text-rose-500 mb-1">Apagar desde</p>
+                      <p className="text-[7px] font-black uppercase text-rose-500 mb-1">Desactivar desde</p>
                       <input
                         type="date"
                         min={campaignOffPicker.minDate}
@@ -15348,7 +15472,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                       onClick={()=>toggleCampaign(campaign, campaignOffPicker.date)}
                       className="px-3 py-2 rounded-xl bg-rose-600 text-white text-[8px] font-black uppercase"
                     >
-                      Confirmar apagado
+                      Confirmar desactivación
                     </button>
                     <button
                       type="button"
@@ -15559,13 +15683,11 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
     .filter(p => {
       const productStart = dateToIso(p.effectiveStartDate || p.createdDate);
       const productAlreadyExists = !productStart || productStart <= date;
-      const hasHistoricalCampaign = campaigns.some(c =>
-        c.productId === p.id &&
-        !c.archived &&
-        (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
-        entityActiveOnDate(c, date)
-      );
-      return productAlreadyExists || hasHistoricalCampaign;
+      if (!productAlreadyExists) return false;
+
+      // Regla de vigencia: un producto desaparece de Registro diario DESDE su
+      // fecha efectiva de desactivación, inclusive. El histórico previo no se borra.
+      return entityActiveOnDate(p, date);
     })
     .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
 
@@ -15576,6 +15698,7 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
       campaigns.filter(x =>
         x.productId === product.id &&
         !x.archived &&
+        entityActiveOnDate(product, date) &&
         (!(x.effectiveStartDate || x.createdDate) || (x.effectiveStartDate || x.createdDate) <= date) &&
         entityActiveOnDate(x, date)
       ).forEach(campaign => { c[campaign.id] = true; });
@@ -15589,11 +15712,15 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
     setExpandedCampaigns({});
   };
 
-  const availableCampaignsForDate = campaigns.filter(c =>
-    !c.archived &&
-    (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
-    entityActiveOnDate(c, date)
-  );
+  const availableCampaignsForDate = campaigns.filter(c => {
+    const parentProduct = products.find(p => p.id === c.productId);
+    return (
+      !c.archived &&
+      (!parentProduct || entityActiveOnDate(parentProduct, date)) &&
+      (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
+      entityActiveOnDate(c, date)
+    );
+  });
   const availableCampaignIdsForDate = new Set(availableCampaignsForDate.map(c => c.id));
   const registeredCampaigns = new Set(
     dailyCampaigns
@@ -15637,6 +15764,7 @@ function DailyRegisterFull({ ownerUid, products, campaigns, ads, dailyCampaigns,
             .filter(c =>
               c.productId === product.id &&
               !c.archived &&
+              entityActiveOnDate(product, date) &&
               (!(c.effectiveStartDate || c.createdDate) || (c.effectiveStartDate || c.createdDate) <= date) &&
               entityActiveOnDate(c, date)
             )
@@ -15907,6 +16035,11 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
   const inheritedNeedsConfirmation = !!existingCampaignRecord && !hasRecordedBudgetForDay && isInheritedBudget;
 
   const save = async () => {
+    if (!entityActiveOnDate(product, date) || !entityActiveOnDate(campaign, date)) {
+      window.alert('Este producto o campaña está desactivado para la fecha seleccionada. No se puede guardar un Registro diario desde su fecha efectiva de desactivación.');
+      return;
+    }
+
     const campaignRecordId = `${date}_${campaign.id}`;
     const budgetValueToSave = toNumber(campaignForm.budget);
     const budgetIsInherited = previousBudgetValue > 0 && budgetValueToSave === previousBudgetValue && !hasRecordedBudgetForDay;
@@ -15979,6 +16112,10 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
 
     const imported = [];
     for (const item of csvPreview) {
+      // Protección de vigencia del producto/campaña: ninguna fila puede crear
+      // datos diarios desde la fecha efectiva de desactivación en adelante.
+      if (!entityActiveOnDate(product, item.reportDate) || !entityActiveOnDate(campaign, item.reportDate)) continue;
+
       // Protección crítica: un anuncio marcado como desactivado/pausado
       // en el CSV de Meta NO se crea y NO genera registro diario.
       if (item.status === 'ignored_inactive' || item.ignoredFromImport) continue;
