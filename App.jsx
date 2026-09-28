@@ -6604,7 +6604,15 @@ function CampaignDashboard({
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
   const [auditHighlightBusyId, setAuditHighlightBusyId] = useState('');
 
-  const activeCampaignList = activeCampaigns.filter(c => !c.archived);
+  // RESUMEN = estado operativo actual. Si un producto fue desactivado,
+  // ninguna de sus campañas debe aparecer ni contaminar los indicadores del Resumen.
+  const activeProductIdsForSummary = useMemo(
+    () => new Set(products.filter(p => p.active !== false).map(p => p.id)),
+    [products]
+  );
+  const activeCampaignList = activeCampaigns.filter(
+    c => !c.archived && activeProductIdsForSummary.has(c.productId)
+  );
 
   const toggleCampaignAuditHighlight = async (event, campaign) => {
     event?.stopPropagation?.();
@@ -6757,7 +6765,12 @@ function CampaignDashboard({
   const today = todayColombiaCC();
   const todayCampaignRecords = dailyCampaigns.filter(r =>
     String(r.date) === today &&
-    campaigns.some(c => c.id === r.campaignId && c.active !== false && !c.archived)
+    campaigns.some(c =>
+      c.id === r.campaignId &&
+      c.active !== false &&
+      !c.archived &&
+      activeProductIdsForSummary.has(c.productId)
+    )
   );
   const provisionalToday = aggregateRecords(todayCampaignRecords);
   const scalableCount = campaignRows.filter(r=>r.state==='Escalable').length;
@@ -6765,7 +6778,9 @@ function CampaignDashboard({
   const alertCount = campaignRows.filter(r=>r.state==='Alerta').length;
   const criticalCount = campaignRows.filter(r=>r.state==='Crítico').length;
 
-  const drawerCampaign = campaigns.find(c=>c.id===drawerCampaignId) || null;
+  const drawerCampaign = campaigns.find(c =>
+    c.id === drawerCampaignId && activeProductIdsForSummary.has(c.productId)
+  ) || null;
   const drawerProduct = drawerCampaign ? products.find(p=>p.id===drawerCampaign.productId) : null;
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
     dailyCampaigns.filter(r=>r.campaignId===drawerCampaign.id), drawerCampaign
