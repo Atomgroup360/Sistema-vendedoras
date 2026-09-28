@@ -1359,6 +1359,20 @@ const META_CSV_ALIASES = {
     'ATC'
   ],
   roas: ['ROAS (retorno del gasto publicitario) de compras', 'ROAS (retorno del gasto publicitario) de compras en el sitio web', 'Purchase ROAS', 'ROAS'],
+  aov: [
+    'AOV',
+    'Average order value',
+    'Average Order Value',
+    'Valor promedio del pedido',
+    'Valor promedio de pedido',
+    'Valor medio del pedido',
+    'Valor medio de pedido',
+    'Valor promedio de compra',
+    'Average purchase value',
+    'Average purchase conversion value',
+    'Valor promedio de conversión de compra',
+    'Valor de conversión promedio de compras'
+  ],
   startDate: ['Inicio del informe', 'Reporting starts', 'Fecha de inicio'],
   endDate: ['Fin del informe', 'Reporting ends', 'Fecha de fin']
 };
@@ -1546,6 +1560,25 @@ function resolveCsvValue(row, aliases) {
   return '';
 }
 
+function resolveCsvAovValueCC(row = {}) {
+  const direct = resolveCsvValue(row, META_CSV_ALIASES.aov);
+  if (hasCsvMetricValueCC(direct)) return direct;
+
+  for (const [key, value] of Object.entries(row || {})) {
+    if (!hasCsvMetricValueCC(value)) continue;
+    const normalizedKey = normalizeHeader(key);
+    if (
+      /(^|\b)aov(\b|$)/i.test(normalizedKey) ||
+      normalizedKey.includes('average order value') ||
+      ((normalizedKey.includes('valor promedio') || normalizedKey.includes('valor medio')) &&
+        (normalizedKey.includes('pedido') || normalizedKey.includes('orden')))
+    ) {
+      return value;
+    }
+  }
+  return '';
+}
+
 function hasCsvMetricValueCC(value) {
   return value !== null && value !== undefined && String(value).trim() !== '';
 }
@@ -1600,6 +1633,392 @@ function fmtMoneyOrDashCC(value) {
 function fmtRate(value, suffix = '%') {
   if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
   return `${fmtNum(value, 2)}${suffix}`;
+}
+
+const AOV_PRICE_TOLERANCE_CC = 100;
+
+function normalizeEconomyOfferCC(offer = {}, fallbackIndex = 0) {
+  return {
+    id: String(offer.id || `offer_${fallbackIndex + 1}`),
+    name: String(offer.name || `Oferta ${fallbackIndex + 1}`).trim() || `Oferta ${fallbackIndex + 1}`,
+    quantity: Math.max(1, toNumber(offer.quantity) || 1),
+    price: Math.max(0, toNumber(offer.price)),
+    cost: Math.max(0, toNumber(offer.cost))
+  };
+}
+
+function normalizeEconomyVersionsCC(productOrVersions = []) {
+  const raw = Array.isArray(productOrVersions)
+    ? productOrVersions
+    : (Array.isArray(productOrVersions?.economyVersions) ? productOrVersions.economyVersions : []);
+
+  const versions = raw
+    .map((version, index) => {
+      const offers = (Array.isArray(version?.offers) ? version.offers : [])
+        .map((offer, offerIndex) => normalizeEconomyOfferCC(offer, offerIndex))
+        .filter(offer => offer.price > 0);
+
+      const effectiveFrom = dateToIso(version?.effectiveFrom || version?.date || '');
+      const effectiveTo = dateToIso(version?.effectiveTo || '');
+
+      return {
+        id: String(version?.id || `economy_${effectiveFrom || index}`),
+        effectiveFrom,
+        effectiveTo: effectiveTo || null,
+        maxCpa: Math.max(0, toNumber(version?.maxCpa)),
+        baseOfferId: String(version?.baseOfferId || offers[0]?.id || ''),
+        offers,
+        recordedAtMs: toNumber(version?.recordedAtMs)
+      };
+    })
+    .filter(version => version.effectiveFrom && version.offers.length > 0)
+    .sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)));
+
+  return versions.map((version, index) => ({
+    ...version,
+    effectiveTo: versions[index + 1]
+      ? shiftIsoDateCC(versions[index + 1].effectiveFrom, -1)
+      : null
+  }));
+}
+
+function getProductEconomyVersionCC(product, dateStr = todayColombiaCC()) {
+  const targetDate = dateToIso(dateStr) || todayColombiaCC();
+  const versions = normalizeEconomyVersionsCC(product);
+  const valid = versions.filter(version =>
+    version.effectiveFrom <= targetDate &&
+    (!version.effectiveTo || targetDate <= version.effectiveTo)
+  );
+  return valid.length ? valid[valid.length - 1] : null;
+}
+
+function upsertProductEconomyVersionCC(product, nextVersion) {
+  const effectiveFrom = dateToIso(nextVersion?.effectiveFrom);
+  if (!effectiveFrom) return normalizeEconomyVersionsCC(product);
+
+  const normalizedOffers = (Array.isArray(nextVersion?.offers) ? nextVersion.offers : [])
+    .map((offer, index) => normalizeEconomyOfferCC(offer, index))
+    .filter(offer => offer.price > 0);
+
+  if (!normalizedOffers.length) return normalizeEconomyVersionsCC(product);
+
+  const baseOfferId = normalizedOffers.some(offer => offer.id === nextVersion.baseOfferId)
+    ? nextVersion.baseOfferId
+    : normalizedOffers[0].id;
+
+  const replacement = {
+    id: String(nextVersion.id || `economy_${effectiveFrom}`),
+    effectiveFrom,
+    effectiveTo: null,
+    maxCpa: Math.max(1, toNumber(nextVersion.maxCpa || product?.maxCpa)),
+    baseOfferId,
+    offers: normalizedOffers,
+    recordedAtMs: toNumber(nextVersion.recordedAtMs) || Date.now()
+  };
+
+  const withoutSameDate = normalizeEconomyVersionsCC(product)
+    .filter(version => version.effectiveFrom !== effectiveFrom);
+
+  return normalizeEconomyVersionsCC([...withoutSameDate, replacement]);
+}
+
+function productEconomyMarginTargetCC(version) {
+  if (!version) return null;
+  const offers = Array.isArray(version.offers) ? version.offers : [];
+  const base = offers.find(offer => offer.id === version.baseOfferId) || offers[0] || null;
+  if (!base) return null;
+  return toNumber(base.price) - toNumber(base.cost) - Math.max(1, toNumber(version.maxCpa));
+}
+
+function conservativeOfferCostForAovCC(version, aovValue) {
+  if (!version) return { ok: false, reason: 'no_economy' };
+  const offers = (Array.isArray(version.offers) ? version.offers : [])
+    .map((offer, index) => normalizeEconomyOfferCC(offer, index))
+    .filter(offer => offer.price > 0);
+
+  if (!offers.length) return { ok: false, reason: 'no_offers' };
+
+  const rawAov = toNumber(aovValue);
+  if (!(rawAov > 0)) return { ok: false, reason: 'no_aov' };
+
+  const minPrice = Math.min(...offers.map(offer => offer.price));
+  const maxPrice = Math.max(...offers.map(offer => offer.price));
+
+  if (rawAov < minPrice - AOV_PRICE_TOLERANCE_CC || rawAov > maxPrice + AOV_PRICE_TOLERANCE_CC) {
+    return { ok: false, reason: 'aov_out_of_range', minPrice, maxPrice, aov: rawAov };
+  }
+
+  const target = Math.min(maxPrice, Math.max(minPrice, rawAov));
+  const candidates = [];
+
+  offers.forEach(offer => {
+    if (Math.abs(offer.price - target) <= AOV_PRICE_TOLERANCE_CC) {
+      candidates.push({
+        estimatedCost: offer.cost,
+        mix: [{ offerId: offer.id, name: offer.name, quantity: offer.quantity, weight: 1 }]
+      });
+    }
+  });
+
+  for (let i = 0; i < offers.length; i += 1) {
+    for (let j = i + 1; j < offers.length; j += 1) {
+      const a = offers[i];
+      const b = offers[j];
+      if (Math.abs(a.price - b.price) < 0.000001) {
+        if (Math.abs(a.price - target) <= AOV_PRICE_TOLERANCE_CC) {
+          const expensive = a.cost >= b.cost ? a : b;
+          candidates.push({
+            estimatedCost: expensive.cost,
+            mix: [{ offerId: expensive.id, name: expensive.name, quantity: expensive.quantity, weight: 1 }]
+          });
+        }
+        continue;
+      }
+
+      const low = Math.min(a.price, b.price);
+      const high = Math.max(a.price, b.price);
+      if (target < low - AOV_PRICE_TOLERANCE_CC || target > high + AOV_PRICE_TOLERANCE_CC) continue;
+
+      const weightA = (target - b.price) / (a.price - b.price);
+      const weightB = 1 - weightA;
+
+      if (weightA < -0.000001 || weightA > 1.000001 || weightB < -0.000001 || weightB > 1.000001) continue;
+
+      candidates.push({
+        estimatedCost: (Math.max(0, Math.min(1, weightA)) * a.cost) + (Math.max(0, Math.min(1, weightB)) * b.cost),
+        mix: [
+          { offerId: a.id, name: a.name, quantity: a.quantity, weight: Math.max(0, Math.min(1, weightA)) },
+          { offerId: b.id, name: b.name, quantity: b.quantity, weight: Math.max(0, Math.min(1, weightB)) }
+        ].filter(item => item.weight > 0.000001)
+      });
+    }
+  }
+
+  if (!candidates.length) {
+    return { ok: false, reason: 'no_compatible_mix', minPrice, maxPrice, aov: rawAov };
+  }
+
+  const conservative = candidates.sort((a, b) => b.estimatedCost - a.estimatedCost)[0];
+  return {
+    ok: true,
+    aov: target,
+    estimatedCost: conservative.estimatedCost,
+    mix: conservative.mix,
+    minPrice,
+    maxPrice
+  };
+}
+
+function buildAovEconomicDiagnosticCC(product, records = []) {
+  const purchaseRows = [...(records || [])]
+    .filter(record => toNumber(record?.purchases) > 0)
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+
+  if (!purchaseRows.length) {
+    return {
+      evaluable: false,
+      code: 'NO_PURCHASES',
+      tone: 'neutral',
+      label: 'ECONOMÍA AOV · SIN COMPRAS',
+      message: 'No existen compras en la ventana evaluada; AOV y margen económico no son calculables.',
+      purchases: 0
+    };
+  }
+
+  let totalPurchases = 0;
+  let totalAovValue = 0;
+  let totalSpend = 0;
+  let totalEstimatedMargin = 0;
+  let totalTargetMargin = 0;
+  let totalContextualMaxCpa = 0;
+  let totalBaseMaxCpa = 0;
+  const issues = [];
+
+  for (const record of purchaseRows) {
+    const purchases = toNumber(record.purchases);
+    const aovAvailable =
+      record.aovDataAvailable === true ||
+      (record.aovDataAvailable !== false && record.aov !== null && record.aov !== undefined && record.aov !== '' && toNumber(record.aov) > 0);
+
+    if (!aovAvailable || !(toNumber(record.aov) > 0)) {
+      issues.push({ code: 'MISSING_AOV', date: record.date });
+      continue;
+    }
+
+    const version = getProductEconomyVersionCC(product, record.date);
+    if (!version) {
+      issues.push({ code: 'NO_ECONOMY', date: record.date });
+      continue;
+    }
+
+    const marginTarget = productEconomyMarginTargetCC(version);
+    if (marginTarget === null) {
+      issues.push({ code: 'NO_BASE_OFFER', date: record.date });
+      continue;
+    }
+
+    const conservative = conservativeOfferCostForAovCC(version, record.aov);
+    if (!conservative.ok) {
+      issues.push({
+        code: conservative.reason === 'aov_out_of_range' ? 'AOV_OUT_OF_RANGE' : 'NO_COMPATIBLE_MIX',
+        date: record.date,
+        minPrice: conservative.minPrice,
+        maxPrice: conservative.maxPrice,
+        aov: conservative.aov
+      });
+      continue;
+    }
+
+    const spend = toNumber(record.spend);
+    const cpa = calcCpa(spend, purchases);
+    if (cpa === null) {
+      issues.push({ code: 'NO_CPA', date: record.date });
+      continue;
+    }
+
+    const estimatedMarginPerPurchase = conservative.aov - conservative.estimatedCost - cpa;
+    const contextualMaxCpa = conservative.aov - conservative.estimatedCost - marginTarget;
+
+    totalPurchases += purchases;
+    totalAovValue += conservative.aov * purchases;
+    totalSpend += spend;
+    totalEstimatedMargin += estimatedMarginPerPurchase * purchases;
+    totalTargetMargin += marginTarget * purchases;
+    totalContextualMaxCpa += contextualMaxCpa * purchases;
+    totalBaseMaxCpa += Math.max(1, toNumber(version.maxCpa)) * purchases;
+  }
+
+  if (issues.length > 0 || totalPurchases <= 0) {
+    const first = issues[0] || { code: 'UNKNOWN' };
+    let label = 'ECONOMÍA AOV · NO EVALUABLE';
+    let message = 'Faltan datos para estimar la economía del pedido con seguridad.';
+
+    if (first.code === 'MISSING_AOV') {
+      label = 'ECONOMÍA AOV · FALTA AOV META';
+      message = `Hay compras sin AOV disponible${first.date ? ` (${first.date})` : ''}. El diagnóstico operativo actual continúa intacto.`;
+    } else if (first.code === 'NO_ECONOMY' || first.code === 'NO_BASE_OFFER') {
+      label = 'ECONOMÍA AOV · NO CONFIGURADA';
+      message = `Falta configurar ofertas/costos vigentes${first.date ? ` para ${first.date}` : ''}.`;
+    } else if (first.code === 'AOV_OUT_OF_RANGE') {
+      label = 'ECONOMÍA AOV · FUERA DE OFERTAS';
+      message = `El AOV ${fmtMoney(first.aov)} queda fuera del rango configurado ${fmtMoney(first.minPrice)}–${fmtMoney(first.maxPrice)}${first.date ? ` (${first.date})` : ''}. Winner no extrapola ni inventa una mezcla.`;
+    } else if (first.code === 'NO_COMPATIBLE_MIX') {
+      label = 'ECONOMÍA AOV · MEZCLA NO COMPATIBLE';
+      message = 'No existe una combinación de ofertas configuradas compatible con el AOV reportado.';
+    }
+
+    return {
+      evaluable: false,
+      code: first.code,
+      tone: first.code === 'AOV_OUT_OF_RANGE' ? 'alert' : 'neutral',
+      label,
+      message,
+      issues,
+      purchases: purchaseRows.reduce((sum, row) => sum + toNumber(row.purchases), 0)
+    };
+  }
+
+  const weightedAov = totalAovValue / totalPurchases;
+  const weightedCpa = totalSpend / totalPurchases;
+  const estimatedMargin = totalEstimatedMargin / totalPurchases;
+  const marginTarget = totalTargetMargin / totalPurchases;
+  const deltaPerPurchase = estimatedMargin - marginTarget;
+  const impact = deltaPerPurchase * totalPurchases;
+  const contextualMaxCpa = totalContextualMaxCpa / totalPurchases;
+  const baseMaxCpa = totalBaseMaxCpa / totalPurchases;
+
+  let tone = 'good';
+  let code = 'MARGIN_PROTECTED';
+  let label = 'ECONOMÍA AOV · MARGEN PROTEGIDO';
+  let message = `El ticket mantiene o supera el margen objetivo con un colchón de ${fmtMoney(deltaPerPurchase)} por compra.`;
+
+  if (estimatedMargin < 0) {
+    tone = 'critical';
+    code = 'ECONOMIC_LOSS';
+    label = 'ECONOMÍA AOV · PÉRDIDA ESTIMADA';
+    message = `El margen estimado es negativo en ${fmtMoney(Math.abs(estimatedMargin))} por compra.`;
+  } else if (deltaPerPurchase < 0) {
+    tone = 'alert';
+    code = 'BELOW_TARGET';
+    label = 'ECONOMÍA AOV · MARGEN BAJO OBJETIVO';
+    message = `La operación sigue con margen positivo, pero queda ${fmtMoney(Math.abs(deltaPerPurchase))} por compra por debajo del margen objetivo.`;
+  } else if (weightedCpa > baseMaxCpa) {
+    tone = 'good';
+    code = 'AOV_COMPENSATES_CPA';
+    label = 'CPA POR ENCIMA · AOV COMPENSA';
+    message = `El CPA supera el máximo base, pero el ticket estimado conserva el margen objetivo con ${fmtMoney(deltaPerPurchase)} de colchón por compra.`;
+  }
+
+  return {
+    evaluable: true,
+    code,
+    tone,
+    label,
+    message,
+    purchases: totalPurchases,
+    aov: weightedAov,
+    cpa: weightedCpa,
+    baseMaxCpa,
+    contextualMaxCpa,
+    marginTarget,
+    estimatedMargin,
+    deltaPerPurchase,
+    impact
+  };
+}
+
+function aovEconomicToneClassCC(tone = 'neutral') {
+  if (tone === 'critical') return 'bg-rose-50 border-rose-200 text-rose-700';
+  if (tone === 'alert') return 'bg-amber-50 border-amber-200 text-amber-800';
+  if (tone === 'good') return 'bg-emerald-50 border-emerald-200 text-emerald-700';
+  return 'bg-slate-50 border-slate-200 text-slate-600';
+}
+
+function AovEconomicDiagnosticCardCC({ diagnostic, compact = false }) {
+  if (!diagnostic) return null;
+
+  if (compact) {
+    return (
+      <div className={`mt-1.5 rounded-lg border px-2 py-1.5 ${aovEconomicToneClassCC(diagnostic.tone)}`}>
+        <p className="text-[8px] font-black uppercase leading-tight">{diagnostic.label}</p>
+        {diagnostic.evaluable ? (
+          <p className="text-[8px] mt-0.5 leading-tight">
+            AOV {fmtMoney(diagnostic.aov)} · margen {fmtMoney(diagnostic.estimatedMargin)}/compra · {diagnostic.deltaPerPurchase >= 0 ? 'colchón' : 'déficit'} {diagnostic.deltaPerPurchase >= 0 ? '+' : '−'}{fmtMoney(Math.abs(diagnostic.deltaPerPurchase))}
+          </p>
+        ) : (
+          <p className="text-[8px] mt-0.5 leading-tight">{diagnostic.message}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-2xl border-2 p-3 sm:p-4 ${aovEconomicToneClassCC(diagnostic.tone)}`}>
+      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase">Diagnóstico económico AOV · complemento</p>
+          <p className="text-[11px] sm:text-xs font-black mt-1">{diagnostic.label}</p>
+          <p className="text-[8px] sm:text-[9px] mt-1 leading-relaxed">{diagnostic.message}</p>
+          <p className="text-[7px] sm:text-[8px] mt-1 opacity-80">
+            Este bloque NO cambia N1–N4, fatiga, CVR, CTR/CPC, La Poda, rescates ni apagado. Solo contextualiza la economía del ticket.
+          </p>
+        </div>
+        {diagnostic.evaluable ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 min-w-0 lg:min-w-[520px]">
+            <MiniCard label="AOV Meta" value={fmtMoney(diagnostic.aov)} />
+            <MiniCard label="CPA actual" value={fmtCpa(diagnostic.cpa)} />
+            <MiniCard label="CPA máximo base" value={fmtMoney(diagnostic.baseMaxCpa)} />
+            <MiniCard label="CPA máx. contextual" value={fmtMoney(diagnostic.contextualMaxCpa)} />
+            <MiniCard label="Margen objetivo" value={`${fmtMoney(diagnostic.marginTarget)}/compra`} />
+            <MiniCard label="Margen estimado" value={`${fmtMoney(diagnostic.estimatedMargin)}/compra`} tone={diagnostic.estimatedMargin < 0 ? 'bad' : 'good'} />
+            <MiniCard label={diagnostic.deltaPerPurchase >= 0 ? 'Colchón/compra' : 'Déficit/compra'} value={`${diagnostic.deltaPerPurchase >= 0 ? '+' : '−'}${fmtMoney(Math.abs(diagnostic.deltaPerPurchase))}`} tone={diagnostic.deltaPerPurchase >= 0 ? 'good' : 'bad'} />
+            <MiniCard label="Impacto estimado" value={`${diagnostic.impact >= 0 ? '+' : '−'}${fmtMoney(Math.abs(diagnostic.impact))}`} tone={diagnostic.impact >= 0 ? 'good' : 'bad'} />
+            <MiniCard label="Compras evaluadas" value={fmtNum(diagnostic.purchases, 0)} />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function parseMetaPercentCC(value) {
@@ -1801,6 +2220,7 @@ function aggregateRecords(records = []) {
   if (!records.length) return {
     days: 0, spend: 0, purchases: 0, cpa: null, ctr: null, cpc: null, cpm: null,
     frequency: null, impressions: null, clicks: null, landingViews: null, atc: null, roas: null,
+    aov: null, aovDataAvailable: false, aovComplete: false, aovPurchaseCoveragePct: null, purchaseValueEstimated: null,
     hookRate: null, holdRate: null, video3sPlaysEstimated: null, video15sPlaysEstimated: null,
     videoMetricAvailable: false,
     clickToLanding: null, visitToAtc: null, visitToPurchase: null, atcToPurchase: null,
@@ -1859,6 +2279,22 @@ function aggregateRecords(records = []) {
   // cuando Meta entrega ROAS por fila.
   const roas = weightedAllowZero('roas', 'spend');
 
+  // AOV agregado: NUNCA se promedian AOV diarios/filas en forma simple.
+  // Se pondera por compras para reconstruir el ticket promedio real del periodo.
+  const aovRows = records.filter(r =>
+    toNumber(r.purchases) > 0 &&
+    (r.aovDataAvailable === true ||
+      (r.aovDataAvailable !== false && r.aov !== null && r.aov !== undefined && r.aov !== '' && toNumber(r.aov) > 0))
+  );
+  const aovCoveredPurchases = aovRows.reduce((sum, r) => sum + toNumber(r.purchases), 0);
+  const aov = aovCoveredPurchases > 0
+    ? aovRows.reduce((sum, r) => sum + toNumber(r.aov) * toNumber(r.purchases), 0) / aovCoveredPurchases
+    : null;
+  const aovPurchaseCoveragePct = purchases > 0 ? (aovCoveredPurchases / purchases) * 100 : null;
+  const aovComplete = purchases > 0 && aovCoveredPurchases >= purchases - 0.000001;
+  const aovDataAvailable = aovCoveredPurchases > 0;
+  const purchaseValueEstimated = aovDataAvailable ? aov * aovCoveredPurchases : null;
+
   // HOOK/HOLD de video.
   // Hook agregado = reproducciones estimadas 3 s / impresiones.
   // Hold agregado = reproducciones estimadas 15 s/ThruPlay / reproducciones estimadas 3 s.
@@ -1913,6 +2349,11 @@ function aggregateRecords(records = []) {
     landingViews,
     atc,
     roas,
+    aov,
+    aovDataAvailable,
+    aovComplete,
+    aovPurchaseCoveragePct,
+    purchaseValueEstimated,
     hookRate,
     holdRate,
     video3sPlaysEstimated,
@@ -3665,6 +4106,7 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
     const landingViewsRaw = resolveCsvValue(row, META_CSV_ALIASES.landingViews);
     const atcRaw = resolveCsvValue(row, META_CSV_ALIASES.atc);
     const roasRaw = resolveCsvValue(row, META_CSV_ALIASES.roas);
+    const aovRaw = resolveCsvAovValueCC(row);
 
     const impressions = toNumber(impressionsRaw);
     const clicks = toNumber(clicksRaw);
@@ -3679,6 +4121,7 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
     const landingViews = toNumber(landingViewsRaw);
     const atc = toNumber(atcRaw);
     const roas = toNumber(roasRaw);
+    const aov = hasCsvMetricValueCC(aovRaw) ? toNumber(aovRaw) : null;
     const nameSuggestsVideo = /(^|\s)(video|reel|ugc|vsl)(\s|$)/i.test(normalizedName);
     const videoMetricAvailable = (hasCsvMetricValueCC(hookRateRaw) || hasCsvMetricValueCC(holdRateRaw)) &&
       (nameSuggestsVideo || (holdRate !== null && holdRate > 0) || (hookRate !== null && hookRate >= 1));
@@ -3719,6 +4162,8 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
         landingViews,
         atc,
         roas,
+        aov,
+        aovDataAvailable: hasCsvMetricValueCC(aovRaw) && purchases > 0 && toNumber(aovRaw) > 0,
         clicksDataAvailable: hasCsvMetricValueCC(clicksRaw),
         landingViewsDataAvailable: hasCsvMetricValueCC(landingViewsRaw),
         atcDataAvailable: hasCsvMetricValueCC(atcRaw)
@@ -3798,6 +4243,8 @@ function parseMetaRows(rows, existingAds, selectedDate, campaign = null) {
             landingViews: 0,
             atc: 0,
             roas: 0,
+            aov: null,
+            aovDataAvailable: false,
             clicksDataAvailable: true,
             landingViewsDataAvailable: true,
             atcDataAvailable: true
@@ -3829,6 +4276,7 @@ const REPORT_METRICS_CC = [
   { key: 'clickToLanding', label: 'Clic → Landing', type: 'rate', direction: 'higher' },
   { key: 'atc', label: 'Añadidos al carrito', type: 'number', direction: 'higher' },
   { key: 'roas', label: 'ROAS', type: 'roas', direction: 'higher' },
+  { key: 'aov', label: 'AOV', type: 'money', direction: 'neutral' },
   { key: 'visitToAtc', label: 'Visita → ATC', type: 'rate', direction: 'higher' },
   { key: 'visitToPurchase', label: 'Visita → Compra', type: 'rate', direction: 'higher' },
   { key: 'atcToPurchase', label: 'ATC → Compra', type: 'rate', direction: 'higher' }
@@ -4311,6 +4759,9 @@ function buildDetailedCampaignReportCC({
   lines.push('• CVR = Visita → Compra. Es una métrica principal para localizar deterioro post-clic.');
   lines.push('• HECHO, INTERPRETACIÓN e HIPÓTESIS se separan: una hipótesis nunca se presenta como causa demostrada.');
   lines.push('• TENDENCIA y SALUD ACTUAL son distintas: una métrica puede deteriorarse frente al bloque anterior y seguir saludable/aceptable por estándar operativo.');
+  lines.push('• AOV = ticket promedio reportado por Meta. El diagnóstico económico AOV es COMPLEMENTARIO: contextualiza margen estimado, pero NO cambia por sí solo N1–N4, fatiga, CVR, CTR/CPC, La Poda, rescates ni apagado.');
+  lines.push('• AOV agregado se pondera por compras. Nunca se promedian AOV diarios de forma simple.');
+  lines.push('• Economía de ofertas usa precios/costos versionados por fecha y selecciona la mezcla de ofertas económicamente más conservadora compatible con el AOV; si el AOV queda fuera del rango configurado, no extrapola.');
   lines.push('• CAPA PLAYBOOK: frecuencia 2,5–3,0 es una alerta diagnóstica, no una ley universal. Fatiga exige repetición + deterioro de respuesta + impacto económico.');
   lines.push('• Los protocolos Playbook estrictos solo se confirman cuando el CPA 3D ya está fuera del límite rentable (o existe gasto ≥ CPA máximo sin compras). Si el CPA sigue rentable, la salida es señal temprana/alerta, no protocolo confirmado.');
   lines.push('• Protocolo A: CVR cae de forma marcada mientras CPM/CTR/CPC permanecen relativamente estables. Protocolo B: frecuencia elevada/subiendo + CTR cae + CPC/CPM presionan + CPA empeora.');
@@ -4391,6 +4842,7 @@ function buildDetailedCampaignReportCC({
 
       const scaleRows = buildScaleHistory(campaignHistory, maxCpa);
       const campaignDecision = buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows);
+      const economic3d = buildAovEconomicDiagnosticCC(product, w3.current);
       const reportReadingRows = adRows.map(row => {
         const relational = buildRelationalAdDiagnosticCC(row.diag, row.contribution, maxCpa, row.ad, benchmark);
         const scaleAuthorization = buildPostIdScaleAuthorizationCC(row.diag, maxCpa, campaignHistory);
@@ -4441,6 +4893,20 @@ function buildDetailedCampaignReportCC({
       lines.push(`Presupuesto recomendado: ${campaignDecision.recommendedBudget ? fmtMoney(campaignDecision.recommendedBudget) : '—'}`);
       lines.push(`Lectura CPA 3D: ${campaignDecision.cpaObservation3d?.title || '—'}`);
       lines.push(`Detalle CPA 3D: ${campaignDecision.cpaObservation3d?.text || '—'}`);
+      lines.push('');
+      lines.push('DIAGNÓSTICO ECONÓMICO AOV · COMPLEMENTO');
+      lines.push(`Estado: ${economic3d.label || '—'}`);
+      lines.push(`Detalle: ${economic3d.message || '—'}`);
+      if (economic3d.evaluable) {
+        lines.push(`AOV Meta ponderado: ${fmtMoney(economic3d.aov)}`);
+        lines.push(`CPA 3D: ${fmtCpa(economic3d.cpa)} · CPA máximo base vigente ponderado: ${fmtMoney(economic3d.baseMaxCpa)}`);
+        lines.push(`CPA máximo contextual por AOV: ${fmtMoney(economic3d.contextualMaxCpa)}`);
+        lines.push(`Margen objetivo: ${fmtMoney(economic3d.marginTarget)}/compra`);
+        lines.push(`Margen estimado: ${fmtMoney(economic3d.estimatedMargin)}/compra`);
+        lines.push(`${economic3d.deltaPerPurchase >= 0 ? 'Colchón' : 'Déficit'}: ${economic3d.deltaPerPurchase >= 0 ? '+' : '−'}${fmtMoney(Math.abs(economic3d.deltaPerPurchase))}/compra`);
+        lines.push(`Impacto estimado (${fmtNum(economic3d.purchases, 0)} compras): ${economic3d.impact >= 0 ? '+' : '−'}${fmtMoney(Math.abs(economic3d.impact))}`);
+      }
+      lines.push('Regla: este bloque contextualiza la economía; no sustituye la decisión operativa 3D.');
       lines.push('');
       lines.push('CAPA 1 · MIRADA GENERAL DE CAMPAÑA');
       lines.push('-'.repeat(78));
@@ -6653,6 +7119,7 @@ function CampaignDashboard({
     const split7 = splitPeriodRecords(history, '7d');
     const stats3 = split3.currentStats;
     const stats7 = split7.currentStats;
+    const economic3d = buildAovEconomicDiagnosticCC(product, split3.current);
     const delta3 = pctChange(split3.currentStats.cpa, split3.previousStats.cpa);
     const delta7 = pctChange(split7.currentStats.cpa, split7.previousStats.cpa);
 
@@ -6740,7 +7207,7 @@ function CampaignDashboard({
       : 'Creativo sano 3D';
 
     return {
-      campaign:c, product, todayRecord, lastComplete, lastStats, stats3, stats7, delta3, delta7,
+      campaign:c, product, todayRecord, lastComplete, lastStats, stats3, stats7, economic3d, delta3, delta7,
       maxCpa, state, tone, diagnosis, action, creativeHealth, cpaObservation3d,
       purchases:lastStats.purchases, frequency:lastStats.frequency
     };
@@ -7019,7 +7486,10 @@ function CampaignDashboard({
                   </td>
 
                   <td><span className="font-black">{r.creativeHealth}</span></td>
-                  <td><span className="font-black">{r.diagnosis}</span></td>
+                  <td>
+                    <span className="font-black">{r.diagnosis}</span>
+                    <AovEconomicDiagnosticCardCC diagnostic={r.economic3d} compact />
+                  </td>
                   <td><span className="font-black text-blue-600">{r.action}</span></td>
                 </tr>
               ))}
@@ -7076,6 +7546,7 @@ function CampaignDashboard({
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <p className="text-[10px] font-black text-zinc-800">{r.diagnosis}</p>
                 <p className="text-[10px] font-black text-blue-600 mt-1">{r.action}</p>
+                <AovEconomicDiagnosticCardCC diagnostic={r.economic3d} compact />
               </div>
             </button>
           ))}
@@ -13543,6 +14014,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     [product?.id, product?.maxCpa, dailyAds, dailyCampaigns, allAds, allCampaigns, ads, campaign]
   );
   const campaignDecision = useMemo(() => buildCampaignDecision(campaign, product, campaignHistory, adRows, scaleRows), [campaign, product, campaignHistory, adRows, scaleRows]);
+  const economic3d = buildAovEconomicDiagnosticCC(product, splitPeriodRecords(campaignHistory, '3d').current);
 
   useEffect(() => {
     if (!ownerUid || !campaignDecision.recommendedBudget || !campaign?.id) return;
@@ -13660,6 +14132,8 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           </div>
         </div>
       </div>
+
+      <AovEconomicDiagnosticCardCC diagnostic={economic3d} />
 
       {viewMode === 'reading' && (
         <CampaignReadingView
@@ -14597,6 +15071,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const [busyKey, setBusyKey] = useState('');
   const [productOffPicker, setProductOffPicker] = useState(null);
   const [campaignOffPicker, setCampaignOffPicker] = useState(null);
+  const [economyEditor, setEconomyEditor] = useState(null);
   const today = todayColombiaCC();
   const safetyNowMs = useSafetyClockCC();
 
@@ -14639,6 +15114,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       effectiveStartDate: startDate,
       stateChangedDate: startDate,
       stateHistory: [{ date: startDate, active: true }],
+      economyVersions: [],
       createdAt: serverTimestamp()
     });
     setProductForm({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
@@ -14660,15 +15136,161 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     }
 
     try {
-      await updateDoc(doc(db, COLLECTIONS.products, product.id), {
+      const nextMaxCpa = toNumber(maxCpa);
+      const patch = {
         name: cleanName,
-        maxCpa: toNumber(maxCpa),
+        maxCpa: nextMaxCpa,
         updatedAt: serverTimestamp()
-      });
-      showManagerMessage('success', `Producto actualizado: "${cleanName}".`);
+      };
+
+      // Si ya existe economía de ofertas, un cambio de CPA máximo crea una
+      // nueva vigencia económica desde hoy. Así el histórico anterior conserva
+      // el CPA máximo que protegía el margen en ese momento.
+      if (nextMaxCpa !== toNumber(product.maxCpa)) {
+        const currentEconomy = getProductEconomyVersionCC(product, today);
+        if (currentEconomy) {
+          patch.economyVersions = upsertProductEconomyVersionCC(product, {
+            effectiveFrom: today,
+            maxCpa: nextMaxCpa,
+            baseOfferId: currentEconomy.baseOfferId,
+            offers: currentEconomy.offers,
+            recordedAtMs: Date.now()
+          });
+        }
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.products, product.id), patch);
+      showManagerMessage('success', `Producto actualizado: "${cleanName}".${patch.economyVersions ? ' El nuevo CPA máximo quedó versionado desde hoy.' : ''}`);
     } catch (error) {
       console.error('Lectura de Campañas · editar producto', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo editar el producto'));
+    }
+  };
+
+  const openEconomyEditor = product => {
+    const current = getProductEconomyVersionCC(product, today);
+    const defaultOfferId = `offer_${Date.now()}_1`;
+    const offers = current?.offers?.length
+      ? current.offers.map(offer => ({
+          ...offer,
+          price: String(offer.price ?? ''),
+          cost: String(offer.cost ?? ''),
+          quantity: String(offer.quantity ?? 1)
+        }))
+      : [{
+          id: defaultOfferId,
+          name: 'Oferta base',
+          quantity: '1',
+          price: '',
+          cost: ''
+        }];
+
+    setEconomyEditor({
+      productId: product.id,
+      effectiveFrom: today,
+      baseOfferId: current?.baseOfferId || offers[0]?.id || defaultOfferId,
+      offers
+    });
+  };
+
+  const updateEconomyOfferDraft = (offerId, key, value) => {
+    setEconomyEditor(current => current ? ({
+      ...current,
+      offers: current.offers.map(offer => offer.id === offerId ? { ...offer, [key]: value } : offer)
+    }) : current);
+  };
+
+  const addEconomyOfferDraft = () => {
+    setEconomyEditor(current => {
+      if (!current) return current;
+      const id = `offer_${Date.now()}_${current.offers.length + 1}`;
+      return {
+        ...current,
+        offers: [
+          ...current.offers,
+          { id, name: `Oferta ${current.offers.length + 1}`, quantity: '1', price: '', cost: '' }
+        ]
+      };
+    });
+  };
+
+  const removeEconomyOfferDraft = offerId => {
+    setEconomyEditor(current => {
+      if (!current || current.offers.length <= 1) return current;
+      const offers = current.offers.filter(offer => offer.id !== offerId);
+      const baseOfferId = current.baseOfferId === offerId ? offers[0]?.id || '' : current.baseOfferId;
+      return { ...current, offers, baseOfferId };
+    });
+  };
+
+  const saveEconomyEditor = async product => {
+    if (!economyEditor || economyEditor.productId !== product.id) return;
+
+    const effectiveFrom = dateToIso(economyEditor.effectiveFrom);
+    const productStart = dateToIso(product.effectiveStartDate || product.createdDate) || today;
+
+    if (!effectiveFrom) {
+      showManagerMessage('error', 'Selecciona una fecha de vigencia válida para la economía de ofertas.');
+      return;
+    }
+    if (effectiveFrom < productStart) {
+      showManagerMessage('error', `La economía no puede iniciar antes del producto (${productStart}).`);
+      return;
+    }
+    if (effectiveFrom > today) {
+      showManagerMessage('error', 'La vigencia económica no puede comenzar después de hoy.');
+      return;
+    }
+
+    const offers = economyEditor.offers.map((offer, index) => ({
+      id: String(offer.id || `offer_${index + 1}`),
+      name: String(offer.name || '').trim() || `Oferta ${index + 1}`,
+      quantity: Math.max(1, toNumber(offer.quantity) || 1),
+      price: toNumber(offer.price),
+      cost: toNumber(offer.cost)
+    }));
+
+    if (!offers.length || offers.some(offer => !(offer.price > 0) || offer.cost < 0)) {
+      showManagerMessage('error', 'Cada oferta debe tener precio final mayor que 0 y costo total válido.');
+      return;
+    }
+
+    if (!offers.some(offer => offer.id === economyEditor.baseOfferId)) {
+      showManagerMessage('error', 'Selecciona una oferta base para calcular el margen objetivo.');
+      return;
+    }
+
+    const existingSameDate = normalizeEconomyVersionsCC(product).find(version => version.effectiveFrom === effectiveFrom);
+    if (existingSameDate && effectiveFrom < today) {
+      const ok = window.confirm(
+        `Ya existe una versión económica con vigencia ${effectiveFrom}.\n\n` +
+        `Guardar con esa misma fecha corregirá esa versión histórica. Las demás vigencias se conservarán.\n\n` +
+        `¿Deseas continuar?`
+      );
+      if (!ok) return;
+    }
+
+    const nextVersions = upsertProductEconomyVersionCC(product, {
+      effectiveFrom,
+      maxCpa: product.maxCpa,
+      baseOfferId: economyEditor.baseOfferId,
+      offers,
+      recordedAtMs: Date.now()
+    });
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.products, product.id), {
+        economyVersions: nextVersions,
+        updatedAt: serverTimestamp()
+      });
+      setEconomyEditor(null);
+      showManagerMessage(
+        'success',
+        `Economía de "${product.name}" guardada desde ${effectiveFrom}. El histórico anterior conserva sus precios, costos y CPA máximo.`
+      );
+    } catch (error) {
+      console.error('Lectura de Campañas · economía de ofertas', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo guardar la economía de ofertas'));
     }
   };
 
@@ -15288,7 +15910,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   return <div className="cc-module-view cc-manager space-y-5">
     {managerMessage && <div className={`rounded-2xl border p-3 text-[10px] font-black ${managerMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{managerMessage.type === 'success' ? '✓ ' : '⚠ '}{managerMessage.text}</div>}
     <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto · Lectura de campañas</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
-    {products.length===0?<EmptyState>No existen productos en Lectura de Campañas.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}>
+    {products.length===0?<EmptyState>No existen productos en Lectura de Campañas.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;const economyVersions=normalizeEconomyVersionsCC(product);const currentEconomy=getProductEconomyVersionCC(product,today);const currentMarginTarget=productEconomyMarginTargetCC(currentEconomy);const economyEditing=economyEditor?.productId===product.id;return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}>
       <button
         type="button"
         aria-expanded={productOpen}
@@ -15365,6 +15987,138 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
             </div>
           </div>
         )}
+
+        <div className="mt-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/45 p-3 sm:p-4">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-[9px] font-black uppercase text-indigo-800">Economía de ofertas · AOV inteligente</p>
+                <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase ${currentEconomy ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {currentEconomy ? 'Configurada' : 'Pendiente'}
+                </span>
+              </div>
+              <p className="text-[8px] text-slate-600 mt-1 leading-relaxed">
+                Precios y costos se versionan por fecha. Cambiar una oferta crea una nueva vigencia y no reescribe silenciosamente el histórico.
+              </p>
+              {currentEconomy && (
+                <p className="text-[8px] font-black text-indigo-700 mt-1">
+                  Vigente desde {currentEconomy.effectiveFrom} · CPA máximo de esta vigencia {fmtMoney(currentEconomy.maxCpa)} · margen objetivo {currentMarginTarget === null ? '—' : `${fmtMoney(currentMarginTarget)}/compra`} · {economyVersions.length} versión(es)
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={()=>economyEditing ? setEconomyEditor(null) : openEconomyEditor(product)}
+              className={`px-3 py-2 rounded-xl text-[8px] font-black uppercase inline-flex items-center gap-1.5 ${economyEditing ? 'bg-white border border-indigo-200 text-indigo-700' : 'bg-indigo-600 text-white'}`}
+            >
+              {economyEditing ? <><X size={12}/> Cancelar edición</> : <><Pencil size={12}/> {currentEconomy ? 'Editar ofertas/costos' : 'Configurar ofertas/costos'}</>}
+            </button>
+          </div>
+
+          {!economyEditing && (
+            currentEconomy ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 mt-3">
+                {currentEconomy.offers.map(offer => (
+                  <div key={offer.id} className="rounded-xl border border-indigo-100 bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[9px] font-black text-zinc-900">{offer.name}</p>
+                      {offer.id === currentEconomy.baseOfferId && <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[7px] font-black uppercase">Base</span>}
+                    </div>
+                    <p className="text-[8px] text-slate-500 mt-1">{fmtNum(offer.quantity, 0)} unidad(es)</p>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div>
+                        <p className="text-[7px] font-black uppercase text-slate-400">Precio final</p>
+                        <p className="text-[11px] font-black text-emerald-700 mt-0.5">{fmtMoney(offer.price)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[7px] font-black uppercase text-slate-400">Costo antes Ads</p>
+                        <p className="text-[11px] font-black text-rose-700 mt-0.5">{fmtMoney(offer.cost)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-dashed border-amber-300 bg-amber-50 p-3">
+                <p className="text-[9px] font-black text-amber-800">Economía todavía no configurada.</p>
+                <p className="text-[8px] text-amber-700 mt-1">AOV podrá importarse desde Meta, pero Winner mostrará ECONOMÍA NO CONFIGURADA hasta que registres al menos una oferta con precio y costo.</p>
+              </div>
+            )
+          )}
+
+          {economyEditing && (
+            <div className="mt-3 pt-3 border-t border-indigo-100 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-[220px_1fr] gap-3 items-end">
+                <div>
+                  <p className="text-[8px] font-black uppercase text-indigo-700 mb-1">Nueva vigencia desde</p>
+                  <input
+                    type="date"
+                    min={dateToIso(product.effectiveStartDate || product.createdDate) || today}
+                    max={today}
+                    value={economyEditor?.effectiveFrom || today}
+                    onChange={e=>setEconomyEditor(current=>current ? ({...current,effectiveFrom:e.target.value}) : current)}
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-black"
+                  />
+                </div>
+                <p className="text-[8px] text-slate-500 leading-relaxed">
+                  Si eliges hoy, los precios/costos actuales quedan vigentes desde hoy. Puedes elegir una fecha anterior si esa economía realmente ya aplicaba en ese período.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                {(economyEditor?.offers || []).map((offer, index) => (
+                  <div key={offer.id} className="rounded-xl border border-indigo-100 bg-white p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.3fr_110px_1fr_1fr_auto] gap-2 items-end">
+                      <div>
+                        <p className="text-[7px] font-black uppercase text-slate-400 mb-1">Nombre oferta</p>
+                        <input value={offer.name} onChange={e=>updateEconomyOfferDraft(offer.id,'name',e.target.value)} placeholder="Ej: 2 unidades" className="w-full rounded-lg bg-slate-50 px-2.5 py-2 text-xs font-bold"/>
+                      </div>
+                      <div>
+                        <p className="text-[7px] font-black uppercase text-slate-400 mb-1">Cantidad</p>
+                        <input type="number" min="1" step="1" value={offer.quantity} onChange={e=>updateEconomyOfferDraft(offer.id,'quantity',e.target.value)} className="w-full rounded-lg bg-slate-50 px-2.5 py-2 text-xs font-bold"/>
+                      </div>
+                      <div>
+                        <p className="text-[7px] font-black uppercase text-slate-400 mb-1">Precio final cliente</p>
+                        <input type="number" min="0" step="any" value={offer.price} onChange={e=>updateEconomyOfferDraft(offer.id,'price',e.target.value)} className="w-full rounded-lg bg-slate-50 px-2.5 py-2 text-xs font-bold"/>
+                      </div>
+                      <div>
+                        <p className="text-[7px] font-black uppercase text-slate-400 mb-1">Costo total antes Ads</p>
+                        <input type="number" min="0" step="any" value={offer.cost} onChange={e=>updateEconomyOfferDraft(offer.id,'cost',e.target.value)} className="w-full rounded-lg bg-slate-50 px-2.5 py-2 text-xs font-bold"/>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={(economyEditor?.offers || []).length <= 1}
+                        onClick={()=>removeEconomyOfferDraft(offer.id)}
+                        className="p-2.5 rounded-lg bg-rose-50 text-rose-500 disabled:opacity-30"
+                        title="Retirar oferta de la nueva vigencia"
+                      >
+                        <Trash2 size={13}/>
+                      </button>
+                    </div>
+                    <label className="mt-2 inline-flex items-center gap-2 text-[8px] font-black text-indigo-700">
+                      <input
+                        type="radio"
+                        name={`economy-base-${product.id}`}
+                        checked={economyEditor?.baseOfferId === offer.id}
+                        onChange={()=>setEconomyEditor(current=>current ? ({...current,baseOfferId:offer.id}) : current)}
+                      />
+                      Oferta base para calcular margen objetivo
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <button type="button" onClick={addEconomyOfferDraft} className="px-3 py-2 rounded-xl bg-white border border-indigo-200 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center justify-center gap-1.5">
+                  <Plus size={12}/> Agregar oferta
+                </button>
+                <button type="button" onClick={()=>saveEconomyEditor(product)} className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase inline-flex items-center justify-center gap-1.5">
+                  <Save size={13}/> Guardar nueva vigencia económica
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 mt-4">
         <div>
@@ -16027,7 +16781,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       budget: recordedBudget > 0 ? recordedBudget : (inheritedBudget > 0 ? inheritedBudget : ''), spend: cRec?.spend ?? '', purchases: cRec?.purchases ?? '',
       impressions: cRec?.impressions ?? '', clicks: cRec?.clicks ?? '',
       ctr: cRec?.ctr ?? '', cpc: cRec?.cpc ?? '', cpm: cRec?.cpm ?? '', frequency: cRec?.frequency ?? '',
-      landingViews: cRec?.landingViews ?? '', atc: cRec?.atc ?? '', roas: cRec?.roas ?? ''
+      landingViews: cRec?.landingViews ?? '', atc: cRec?.atc ?? '', roas: cRec?.roas ?? '', aov: cRec?.aov ?? ''
     });
     const nextAds = {};
     ads.forEach(ad => {
@@ -16035,7 +16789,7 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       nextAds[ad.id] = {
         spend: rec?.spend ?? '', purchases: rec?.purchases ?? '', ctr: rec?.ctr ?? '', cpc: rec?.cpc ?? '',
         cpm: rec?.cpm ?? '', frequency: rec?.frequency ?? '', landingViews: rec?.landingViews ?? '',
-        atc: rec?.atc ?? '', roas: rec?.roas ?? '', impressions: rec?.impressions ?? '', clicks: rec?.clicks ?? ''
+        atc: rec?.atc ?? '', roas: rec?.roas ?? '', aov: rec?.aov ?? '', impressions: rec?.impressions ?? '', clicks: rec?.clicks ?? ''
       };
     });
     setAdForms(nextAds);
@@ -16078,6 +16832,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       ctr: toNumber(campaignForm.ctr), cpc: toNumber(campaignForm.cpc), cpm: toNumber(campaignForm.cpm),
       frequency: toNumber(campaignForm.frequency), landingViews: toNumber(campaignForm.landingViews),
       atc: toNumber(campaignForm.atc), roas: toNumber(campaignForm.roas),
+      aov: campaignForm.aov !== '' && campaignForm.aov !== null && campaignForm.aov !== undefined ? toNumber(campaignForm.aov) : null,
+      aovDataAvailable: campaignForm.aov !== '' && campaignForm.aov !== null && campaignForm.aov !== undefined && toNumber(campaignForm.aov) > 0 && toNumber(campaignForm.purchases) > 0,
       source: 'manual',
       registrationTimezone: 'America/Bogota',
       updatedAtColombia: colombiaDateTimeStorageCC(),
@@ -16094,6 +16850,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         spend: toNumber(f.spend), purchases: toNumber(f.purchases), impressions: toNumber(f.impressions), clicks: toNumber(f.clicks),
         ctr: toNumber(f.ctr), cpc: toNumber(f.cpc), cpm: toNumber(f.cpm), frequency: toNumber(f.frequency),
         landingViews: toNumber(f.landingViews), atc: toNumber(f.atc), roas: toNumber(f.roas),
+        aov: f.aov !== '' && f.aov !== null && f.aov !== undefined ? toNumber(f.aov) : null,
+        aovDataAvailable: f.aov !== '' && f.aov !== null && f.aov !== undefined && toNumber(f.aov) > 0 && toNumber(f.purchases) > 0,
         source: 'manual',
         registrationTimezone: 'America/Bogota',
         updatedAtColombia: colombiaDateTimeStorageCC(),
@@ -16195,6 +16953,9 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
         spend: agg.spend, purchases: agg.purchases, impressions: agg.impressions, clicks: agg.clicks,
         ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
         frequency: agg.frequency, landingViews: agg.landingViews, atc: agg.atc, roas: agg.roas,
+        aov: agg.aov,
+        aovDataAvailable: agg.aovComplete === true,
+        aovPurchaseCoveragePct: agg.aovPurchaseCoveragePct,
         source: 'meta_csv_aggregate',
         registrationTimezone: 'America/Bogota',
         updatedAtColombia: colombiaDateTimeStorageCC(),
@@ -16288,7 +17049,8 @@ function CampaignDailyEditor({ ownerUid, date, product, campaign, ads, dailyCamp
       </div>
 
       <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget disabled={!editing}/>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+        <MiniCard label="AOV Meta" value={toNumber(campaignForm.aov) > 0 ? fmtMoney(campaignForm.aov) : '—'}/>
         <MiniCard label="CPA calculado" value={fmtCpa(calcCpa(campaignForm.spend, campaignForm.purchases))}/>
         <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 2)}%`}/>
         <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 2)}%`}/>
@@ -16337,7 +17099,7 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
   const [date, setDate] = useState(todayColombiaCC());
   const [productId, setProductId] = useState('');
   const [campaignId, setCampaignId] = useState('');
-  const [campaignForm, setCampaignForm] = useState({ budget: '', spend: '', purchases: '', impressions: '', clicks: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '' });
+  const [campaignForm, setCampaignForm] = useState({ budget: '', spend: '', purchases: '', impressions: '', clicks: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '', aov: '' });
   const [adForms, setAdForms] = useState({});
   const [savedMessage, setSavedMessage] = useState('');
   const [csvPreview, setCsvPreview] = useState(null);
@@ -16354,19 +17116,19 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
 
   useEffect(() => {
     if (!campaignId) {
-      setCampaignForm({ budget: '', spend: '', purchases: '', impressions: '', clicks: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '' });
+      setCampaignForm({ budget: '', spend: '', purchases: '', impressions: '', clicks: '', ctr: '', cpc: '', cpm: '', frequency: '', landingViews: '', atc: '', roas: '', aov: '' });
       setAdForms({});
       return;
     }
     const cRec = dailyCampaigns.find(r => r.campaignId === campaignId && r.date === date);
     setCampaignForm({
       budget: cRec?.budget ?? '', spend: cRec?.spend ?? '', purchases: cRec?.purchases ?? '', ctr: cRec?.ctr ?? '', cpc: cRec?.cpc ?? '', cpm: cRec?.cpm ?? '',
-      frequency: cRec?.frequency ?? '', landingViews: cRec?.landingViews ?? '', atc: cRec?.atc ?? '', roas: cRec?.roas ?? ''
+      frequency: cRec?.frequency ?? '', landingViews: cRec?.landingViews ?? '', atc: cRec?.atc ?? '', roas: cRec?.roas ?? '', aov: cRec?.aov ?? ''
     });
     const forms = {};
     campaignAds.forEach(ad => {
       const rec = dailyAds.find(r => r.adId === ad.id && r.date === date);
-      forms[ad.id] = { spend: rec?.spend ?? '', purchases: rec?.purchases ?? '', ctr: rec?.ctr ?? '', cpc: rec?.cpc ?? '', cpm: rec?.cpm ?? '', frequency: rec?.frequency ?? '', landingViews: rec?.landingViews ?? '', atc: rec?.atc ?? '', roas: rec?.roas ?? '', impressions: rec?.impressions ?? '', clicks: rec?.clicks ?? '' };
+      forms[ad.id] = { spend: rec?.spend ?? '', purchases: rec?.purchases ?? '', ctr: rec?.ctr ?? '', cpc: rec?.cpc ?? '', cpm: rec?.cpm ?? '', frequency: rec?.frequency ?? '', landingViews: rec?.landingViews ?? '', atc: rec?.atc ?? '', roas: rec?.roas ?? '', aov: rec?.aov ?? '', impressions: rec?.impressions ?? '', clicks: rec?.clicks ?? '' };
     });
     setAdForms(forms);
     setCsvPreview(null);
@@ -16379,7 +17141,10 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
       ownerUid, date, productId, campaignId,
       budget: toNumber(campaignForm.budget), spend: toNumber(campaignForm.spend), purchases: toNumber(campaignForm.purchases),
       ctr: toNumber(campaignForm.ctr), cpc: toNumber(campaignForm.cpc), cpm: toNumber(campaignForm.cpm), frequency: toNumber(campaignForm.frequency),
-      landingViews: toNumber(campaignForm.landingViews), atc: toNumber(campaignForm.atc), roas: toNumber(campaignForm.roas), updatedAt: serverTimestamp()
+      landingViews: toNumber(campaignForm.landingViews), atc: toNumber(campaignForm.atc), roas: toNumber(campaignForm.roas),
+      aov: campaignForm.aov !== '' && campaignForm.aov !== null && campaignForm.aov !== undefined ? toNumber(campaignForm.aov) : null,
+      aovDataAvailable: campaignForm.aov !== '' && campaignForm.aov !== null && campaignForm.aov !== undefined && toNumber(campaignForm.aov) > 0 && toNumber(campaignForm.purchases) > 0,
+      updatedAt: serverTimestamp()
     };
     await setDoc(doc(db, COLLECTIONS.dailyCampaigns, campaignRecordId), campaignData, { merge: true });
 
@@ -16390,7 +17155,10 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
       await setDoc(doc(db, COLLECTIONS.dailyAds, `${date}_${ad.id}`), {
         ownerUid, date, productId, campaignId, adId: ad.id, adName: ad.name, normalizedName: ad.normalizedName,
         spend: toNumber(f.spend), purchases: toNumber(f.purchases), impressions: toNumber(f.impressions), clicks: toNumber(f.clicks),
-        ctr: toNumber(f.ctr), cpc: toNumber(f.cpc), cpm: toNumber(f.cpm), frequency: toNumber(f.frequency), landingViews: toNumber(f.landingViews), atc: toNumber(f.atc), roas: toNumber(f.roas), updatedAt: serverTimestamp()
+        ctr: toNumber(f.ctr), cpc: toNumber(f.cpc), cpm: toNumber(f.cpm), frequency: toNumber(f.frequency), landingViews: toNumber(f.landingViews), atc: toNumber(f.atc), roas: toNumber(f.roas),
+        aov: f.aov !== '' && f.aov !== null && f.aov !== undefined ? toNumber(f.aov) : null,
+        aovDataAvailable: f.aov !== '' && f.aov !== null && f.aov !== undefined && toNumber(f.aov) > 0 && toNumber(f.purchases) > 0,
+        updatedAt: serverTimestamp()
       }, { merge: true });
     }
 
@@ -16462,6 +17230,9 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
         spend: agg.spend, purchases: agg.purchases, impressions: agg.impressions, clicks: agg.clicks,
         ctr: agg.ctr, cpc: agg.cpc, cpm: agg.cpm,
         frequency: agg.frequency, landingViews: agg.landingViews, atc: agg.atc, roas: agg.roas,
+        aov: agg.aov,
+        aovDataAvailable: agg.aovComplete === true,
+        aovPurchaseCoveragePct: agg.aovPurchaseCoveragePct,
         source: 'meta_csv_aggregate', updatedAt: serverTimestamp()
       }, { merge: true });
     }
@@ -16497,7 +17268,8 @@ function DailyRegister({ ownerUid, products, campaigns, ads, dailyCampaigns, dai
         <SectionCard>
           <h3 className="font-black uppercase text-sm mb-3">Métricas generales de campaña</h3>
           <MetricForm form={campaignForm} setForm={setCampaignForm} includeBudget />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3">
+            <MiniCard label="AOV Meta" value={toNumber(campaignForm.aov) > 0 ? fmtMoney(campaignForm.aov) : '—'} />
             <MiniCard label="CPA calculado" value={fmtCpa(calcCpa(campaignForm.spend, campaignForm.purchases))} />
             <MiniCard label="Visita → ATC" value={`${fmtNum(safeRate(campaignForm.atc, campaignForm.landingViews), 2)}%`} />
             <MiniCard label="Visita → Compra" value={`${fmtNum(safeRate(campaignForm.purchases, campaignForm.landingViews), 2)}%`} />
@@ -16527,7 +17299,7 @@ function MetricForm({ form, setForm, includeBudget = false, disabled = false }) 
     ...(includeBudget ? [['budget', 'Presupuesto']] : []),
     ['spend', 'Gasto'], ['purchases', 'Compras'], ['impressions', 'Impresiones'], ['clicks', 'Clics enlace'],
     ['ctr', 'CTR %'], ['cpc', 'CPC'], ['cpm', 'CPM'], ['frequency', 'Frecuencia'],
-    ['landingViews', 'Visitas landing'], ['atc', 'ATC'], ['roas', 'ROAS']
+    ['landingViews', 'Visitas landing'], ['atc', 'ATC'], ['roas', 'ROAS'], ['aov', 'AOV · ticket promedio']
   ];
   const update = (key, value) => {
     if (disabled) return;
@@ -16589,6 +17361,15 @@ function CsvPreview({ rows, onApply }) {
       </div>
     )}
 
+    {rows.some(r => r.status !== 'ignored_inactive' && r.metrics.purchases > 0 && !r.metrics.aovDataAvailable) && (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <p className="text-[9px] font-black uppercase text-amber-800">Advertencia · faltan datos AOV en compras</p>
+        <p className="text-[8px] text-amber-700 mt-1">
+          El CSV contiene compras sin AOV. Las métricas operativas se importarán normalmente, pero el diagnóstico económico AOV quedará NO EVALUABLE para ese período.
+        </p>
+      </div>
+    )}
+
     {rows.some(r => r.status !== 'ignored_inactive' && r.metrics.purchases > 0 && (!r.metrics.landingViewsDataAvailable || r.metrics.landingViews <= 0)) && (
       <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
         <p className="text-[9px] font-black uppercase text-rose-700">Advertencia · faltan datos post-clic en el CSV</p>
@@ -16602,7 +17383,7 @@ function CsvPreview({ rows, onApply }) {
       <table className="w-full min-w-[900px] text-[10px]">
         <thead>
           <tr className="text-left text-[8px] uppercase text-slate-400">
-            <th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>Clics</th><th>Hook</th><th>Hold</th><th>Landing</th><th>C→Landing</th><th>ATC</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>ROAS</th>
+            <th>Anuncio</th><th>Estado</th><th>Fecha</th><th>Gasto</th><th>Compras</th><th>AOV</th><th>Clics</th><th>Hook</th><th>Hold</th><th>Landing</th><th>C→Landing</th><th>ATC</th><th>CTR</th><th>CPC</th><th>CPM</th><th>Frec.</th><th>ROAS</th>
           </tr>
         </thead>
         <tbody>
@@ -16637,6 +17418,7 @@ function CsvPreview({ rows, onApply }) {
             <td>{r.reportDate}</td>
             <td>{fmtMoney(r.metrics.spend)}</td>
             <td>{fmtNum(r.metrics.purchases, 2)}</td>
+            <td className={r.metrics.purchases > 0 && !r.metrics.aovDataAvailable ? 'font-black text-amber-700' : ''}>{r.metrics.aovDataAvailable ? fmtMoney(r.metrics.aov) : '—'}</td>
             <td>{r.metrics.clicksDataAvailable ? fmtNum(r.metrics.clicks, 2) : '—'}</td>
             <td>{r.metrics.videoMetricAvailable && r.metrics.hookRateDataAvailable ? fmtRate(r.metrics.hookRate) : '—'}</td>
             <td>{r.metrics.videoMetricAvailable && r.metrics.holdRateDataAvailable ? fmtRate(r.metrics.holdRate) : '—'}</td>
