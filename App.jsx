@@ -6604,14 +6604,14 @@ function CampaignDashboard({
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
   const [auditHighlightBusyId, setAuditHighlightBusyId] = useState('');
 
-  // RESUMEN = estado operativo actual. Si un producto fue desactivado,
-  // ninguna de sus campañas debe aparecer ni contaminar los indicadores del Resumen.
+  // RESUMEN = estado operativo actual. Solo muestra productos Y campañas activos.
+  // Si un producto o una campaña fue desactivado/a, no debe aparecer ni contaminar los indicadores.
   const activeProductIdsForSummary = useMemo(
     () => new Set(products.filter(p => p.active !== false).map(p => p.id)),
     [products]
   );
   const activeCampaignList = activeCampaigns.filter(
-    c => !c.archived && activeProductIdsForSummary.has(c.productId)
+    c => c.active !== false && !c.archived && activeProductIdsForSummary.has(c.productId)
   );
 
   const toggleCampaignAuditHighlight = async (event, campaign) => {
@@ -6779,7 +6779,10 @@ function CampaignDashboard({
   const criticalCount = campaignRows.filter(r=>r.state==='Crítico').length;
 
   const drawerCampaign = campaigns.find(c =>
-    c.id === drawerCampaignId && activeProductIdsForSummary.has(c.productId)
+    c.id === drawerCampaignId &&
+    c.active !== false &&
+    !c.archived &&
+    activeProductIdsForSummary.has(c.productId)
   ) || null;
   const drawerProduct = drawerCampaign ? products.find(p=>p.id===drawerCampaign.productId) : null;
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
