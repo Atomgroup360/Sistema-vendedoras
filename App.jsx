@@ -6900,6 +6900,285 @@ function CampaignControlModule() {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
+
+
+        /* ================================================================
+         * UX RESPONSIVE PRO · 2026-09-28
+         * Solo presentación. No altera lógica, Firestore ni diagnósticos.
+         * ================================================================ */
+        .cc-ui-shell {
+          max-width: 100%;
+        }
+
+        .cc-ui-shell .cc-top-tabs {
+          box-shadow: 0 10px 28px rgba(15,23,42,.12);
+        }
+
+        .cc-ui-shell .cc-top-tabs button {
+          min-height: 44px !important;
+          border-radius: 12px !important;
+        }
+
+        .cc-ui-shell .cc-manager-product {
+          overflow: hidden;
+        }
+
+        .cc-ui-shell .cc-product-toggle {
+          min-height: 46px;
+          padding: 2px 0;
+        }
+
+        .cc-ui-shell .cc-product-toggle h3 {
+          font-size: clamp(15px, 1.1vw, 19px) !important;
+          letter-spacing: .015em;
+        }
+
+        .cc-ui-shell .cc-product-body {
+          min-width: 0;
+        }
+
+        .cc-ui-shell .cc-product-head {
+          align-items: center;
+        }
+
+        .cc-ui-shell .cc-product-actions,
+        .cc-ui-shell .cc-campaign-actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          align-items: center;
+          gap: 7px !important;
+        }
+
+        .cc-ui-shell .cc-product-actions button,
+        .cc-ui-shell .cc-campaign-actions button {
+          min-height: 36px !important;
+        }
+
+        .cc-ui-shell .cc-economy-panel {
+          border-width: 1px !important;
+          background: linear-gradient(180deg, rgba(238,242,255,.82), rgba(255,255,255,.95)) !important;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+        }
+
+        .cc-ui-shell .cc-economy-offer,
+        .cc-ui-shell .cc-economy-edit-row {
+          border-color: #dbeafe !important;
+          box-shadow: 0 3px 12px rgba(30,64,175,.055);
+        }
+
+        .cc-ui-shell .cc-new-campaign-grid {
+          padding: 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          background: rgba(248,250,252,.82);
+        }
+
+        .cc-ui-shell .cc-campaign-card {
+          box-shadow: 0 5px 16px rgba(15,23,42,.045) !important;
+        }
+
+        .cc-ui-shell .cc-dashboard-mobile-card {
+          box-shadow: 0 4px 14px rgba(15,23,42,.045);
+        }
+
+        .cc-ui-shell .cc-campaign-drawer {
+          scrollbar-gutter: stable;
+        }
+
+        @media (min-width: 1280px) {
+          .cc-ui-shell > .grid:first-of-type {
+            gap: 22px !important;
+          }
+
+          .cc-ui-shell .cc-manager {
+            max-width: 1540px;
+            margin-left: auto;
+            margin-right: auto;
+          }
+
+          .cc-ui-shell .cc-manager-product.cc-section-card {
+            padding: 18px !important;
+          }
+
+          .cc-ui-shell .cc-economy-panel {
+            padding: 16px !important;
+          }
+
+          .cc-ui-shell .cc-dashboard-table th,
+          .cc-ui-shell .cc-dashboard-table td {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+        }
+
+        @media (min-width: 768px) and (max-width: 1279px) {
+          .cc-ui-shell .cc-product-head {
+            align-items: flex-start;
+          }
+
+          .cc-ui-shell .cc-product-actions {
+            max-width: 52%;
+          }
+        }
+
+        @media (max-width: 767px) {
+          .cc-ui-shell {
+            margin-left: -2px;
+            margin-right: -2px;
+          }
+
+          .cc-ui-shell .cc-top-tabs {
+            position: sticky;
+            top: 6px;
+            z-index: 35;
+            padding: 5px !important;
+            border-radius: 16px !important;
+            box-shadow: 0 10px 30px rgba(15,23,42,.18);
+          }
+
+          .cc-ui-shell .cc-top-tabs button {
+            min-height: 46px !important;
+            padding: 8px 7px !important;
+            gap: 5px !important;
+          }
+
+          .cc-ui-shell .cc-section-card {
+            padding: 13px !important;
+          }
+
+          .cc-ui-shell .cc-manager {
+            gap: 14px !important;
+          }
+
+          .cc-ui-shell .cc-manager-product.cc-section-card {
+            padding: 13px !important;
+          }
+
+          .cc-ui-shell .cc-product-toggle {
+            min-height: 44px;
+          }
+
+          .cc-ui-shell .cc-product-head {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 12px !important;
+          }
+
+          .cc-ui-shell .cc-product-actions {
+            width: 100%;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px !important;
+          }
+
+          .cc-ui-shell .cc-product-actions button {
+            width: 100%;
+            min-height: 42px !important;
+            justify-content: center;
+          }
+
+          .cc-ui-shell .cc-product-actions button:nth-last-child(-n+2) {
+            min-width: 0;
+          }
+
+          .cc-ui-shell .cc-economy-panel {
+            margin-left: -2px;
+            margin-right: -2px;
+            padding: 12px !important;
+            border-radius: 16px !important;
+          }
+
+          .cc-ui-shell .cc-economy-panel > div:first-child > button {
+            width: 100%;
+            justify-content: center;
+            min-height: 44px !important;
+          }
+
+          .cc-ui-shell .cc-economy-offer {
+            padding: 12px !important;
+          }
+
+          .cc-ui-shell .cc-economy-edit-row {
+            padding: 11px !important;
+          }
+
+          .cc-ui-shell .cc-new-campaign-grid {
+            padding: 11px;
+            gap: 10px !important;
+          }
+
+          .cc-ui-shell .cc-new-campaign-grid > button {
+            width: 100%;
+            min-height: 44px !important;
+          }
+
+          .cc-ui-shell .cc-campaign-card {
+            border-radius: 16px !important;
+          }
+
+          .cc-ui-shell .cc-campaign-card > button:first-child {
+            padding: 12px !important;
+            min-height: 48px;
+          }
+
+          .cc-ui-shell .cc-campaign-actions {
+            width: 100%;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px !important;
+          }
+
+          .cc-ui-shell .cc-campaign-actions button {
+            width: 100%;
+            min-height: 40px !important;
+            justify-content: center;
+          }
+
+          .cc-ui-shell .cc-manager-ad {
+            padding: 12px !important;
+          }
+
+          .cc-ui-shell .cc-dashboard-mobile {
+            padding: 8px !important;
+          }
+
+          .cc-ui-shell .cc-dashboard-mobile-card {
+            padding: 13px !important;
+            border-radius: 16px !important;
+          }
+
+          .cc-ui-shell .cc-campaign-drawer {
+            padding: 13px !important;
+            overscroll-behavior: contain;
+          }
+
+          .cc-ui-shell .cc-campaign-drawer .cc-grid-kpi,
+          .cc-ui-shell .cc-campaign-drawer .cc-grid-mini {
+            grid-template-columns: repeat(2, minmax(0,1fr)) !important;
+            gap: 8px !important;
+          }
+
+          .cc-ui-shell .cc-campaign-drawer .cc-mini-card {
+            min-height: 88px;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .cc-ui-shell .cc-top-tabs {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+
+          .cc-ui-shell .cc-product-actions,
+          .cc-ui-shell .cc-campaign-actions {
+            grid-template-columns: 1fr !important;
+          }
+
+          .cc-ui-shell .cc-campaign-drawer .cc-grid-kpi,
+          .cc-ui-shell .cc-campaign-drawer .cc-grid-mini {
+            grid-template-columns: 1fr !important;
+          }
+        }
       `}</style>
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center gap-4">
         <div className="min-w-0">
@@ -6914,7 +7193,7 @@ function CampaignControlModule() {
           </div>
         </div>
         <div className="w-full">
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 w-full bg-zinc-950 p-1 rounded-2xl gap-1">
+          <div className="cc-top-tabs grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 w-full bg-zinc-950 p-1 rounded-2xl gap-1">
             {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`min-w-0 flex items-center justify-center gap-1.5 px-2.5 lg:px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-normal leading-tight text-center ${subTab === t.id ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-400 hover:text-white'}`}><t.icon size={12} />{t.label}{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
@@ -7497,7 +7776,7 @@ function CampaignDashboard({
           </table>
         </div>
 
-        <div className="lg:hidden p-2 space-y-2">
+        <div className="cc-dashboard-mobile lg:hidden p-2 space-y-2">
           {filteredRows.length === 0 ? (
             <div className="p-6 text-center text-slate-400">No hay campañas que coincidan con el filtro.</div>
           ) : filteredRows.map(r => (
@@ -7505,7 +7784,7 @@ function CampaignDashboard({
               key={r.campaign.id}
               type="button"
               onClick={()=>openDrawer(r.campaign.id)}
-              className={`w-full text-left rounded-2xl border p-3 ${
+              className={`cc-dashboard-mobile-card w-full text-left rounded-2xl border p-3 ${
                 r.campaign.dashboardAuditedHighlight === true
                   ? 'bg-amber-50 border-amber-200'
                   : 'bg-white border-slate-200'
@@ -7559,7 +7838,7 @@ function CampaignDashboard({
         <>
           <div className="fixed inset-0 bg-zinc-950/45 backdrop-blur-[1px] z-[80]" onClick={()=>setDrawerCampaignId('')}></div>
           <section className="fixed inset-0 z-[90] flex items-center justify-center p-0 sm:p-3 lg:p-5 pointer-events-none">
-            <div className="relative pointer-events-auto w-full sm:max-w-[96vw] 2xl:max-w-[1600px] h-[100dvh] sm:h-[96vh] bg-white sm:rounded-3xl shadow-2xl overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-5 xl:p-6">
+            <div className="cc-campaign-drawer relative pointer-events-auto w-full sm:max-w-[96vw] 2xl:max-w-[1600px] h-[100dvh] sm:h-[96vh] bg-white sm:rounded-3xl shadow-2xl overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-5 xl:p-6">
             <button onClick={()=>setDrawerCampaignId('')} className="sticky z-20 top-2 ml-auto flex w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 items-center justify-center font-black shadow-sm">✕</button>
 
             <div className="pr-12">
@@ -15947,19 +16226,19 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   return <div className="cc-module-view cc-manager space-y-5">
     {managerMessage && <div className={`rounded-2xl border p-3 text-[10px] font-black ${managerMessage.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{managerMessage.type === 'success' ? '✓ ' : '⚠ '}{managerMessage.text}</div>}
     <SectionCard accent="#059669" soft="#ecfdf5"><div className="flex flex-col md:flex-row md:items-end gap-3"><div className="flex-1"><p className="text-[9px] font-black uppercase text-emerald-700 mb-1">Nuevo producto · Lectura de campañas</p><input value={productForm.name} onChange={e=>setProductForm(x=>({...x,name:e.target.value}))} placeholder="Ej: ACTIVE CHIC" className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">CPA máximo</p><input type="number" value={productForm.maxCpa} onChange={e=>setProductForm(x=>({...x,maxCpa:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/></div><div className="md:w-48"><p className="text-[9px] font-black uppercase text-slate-400 mb-1">Fecha de inicio</p><input type="date" max={today} value={productForm.createdDate} onChange={e=>setProductForm(x=>({...x,createdDate:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-bold outline-none"/><p className="text-[7px] text-slate-400 mt-1">Puede ser anterior a hoy</p></div><button onClick={addProduct} className="bg-emerald-500 text-zinc-950 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2"><Plus size={14}/> Crear producto</button></div></SectionCard>
-    {products.length===0?<EmptyState>No existen productos en Lectura de Campañas.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;const economyVersions=normalizeEconomyVersionsCC(product);const currentEconomy=getProductEconomyVersionCC(product,today);const currentMarginTarget=productEconomyMarginTargetCC(currentEconomy);const economyEditing=economyEditor?.productId===product.id;return <SectionCard key={product.id} className={product.active===false?'opacity-70':''} accent={productAccent.border} soft={productAccent.soft}>
+    {products.length===0?<EmptyState>No existen productos en Lectura de Campañas.</EmptyState>:products.map(product=>{const productCampaigns=campaigns.filter(c=>c.productId===product.id&&(showArchived||!c.archived));const productAccent=ccVisualAccent(product.id||product.name);const productOpen=expandedProductsManager[product.id]===true;const economyVersions=normalizeEconomyVersionsCC(product);const currentEconomy=getProductEconomyVersionCC(product,today);const currentMarginTarget=productEconomyMarginTargetCC(currentEconomy);const economyEditing=economyEditor?.productId===product.id;return <SectionCard key={product.id} className={`cc-manager-product ${product.active===false?'opacity-70':''}`} accent={productAccent.border} soft={productAccent.soft}>
       <button
         type="button"
         aria-expanded={productOpen}
         onClick={()=>setExpandedProductsManager(x=>({...x,[product.id]:!productOpen}))}
-        className="w-full flex items-center justify-between gap-3 text-left"
+        className="cc-product-toggle w-full flex items-center justify-between gap-3 text-left"
       >
         <h3 className="font-black uppercase text-base" style={{color:productAccent.text}}>{product.name}</h3>
         {productOpen?<ChevronUp size={16} style={{color:productAccent.text}}/>:<ChevronDown size={16} style={{color:productAccent.text}}/>}
       </button>
 
-      {productOpen&&<div className="mt-4 pt-4 border-t" style={{borderColor:productAccent.border}}>
-        <div className="flex items-start justify-between gap-3">
+      {productOpen&&<div className="cc-product-body mt-4 pt-4 border-t" style={{borderColor:productAccent.border}}>
+        <div className="cc-product-head flex items-start justify-between gap-3">
           <div>
             <div className="flex gap-2 items-center flex-wrap">
               <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:productAccent.border}}></span>
@@ -15969,7 +16248,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
               CPA máximo: <span className="text-purple-600">{fmtMoney(product.maxCpa)}</span> · {productCampaigns.length} campaña(s) · Inicio: {(product.effectiveStartDate || product.createdDate) ? parseDateSafe(product.effectiveStartDate || product.createdDate)?.toLocaleDateString('es-CO') : '—'}
             </p>
           </div>
-          <div className="flex gap-1">
+          <div className="cc-product-actions flex gap-1">
             <button title="Editar nombre y CPA" onClick={()=>editProduct(product)} className="px-2.5 py-2 rounded-xl bg-slate-100 text-slate-600 text-[8px] font-black uppercase inline-flex items-center gap-1.5"><Pencil size={13}/> Editar</button>
             <button title="Editar fecha de creación / inicio" onClick={()=>editProductStartDate(product)} className="p-2 rounded-xl bg-blue-50 text-blue-600"><CalendarDays size={14}/></button>
             <button
@@ -16025,7 +16304,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           </div>
         )}
 
-        <div className="mt-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/45 p-3 sm:p-4">
+        <div className="cc-economy-panel mt-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/45 p-3 sm:p-4">
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -16056,7 +16335,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
             currentEconomy ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 mt-3">
                 {currentEconomy.offers.map(offer => (
-                  <div key={offer.id} className="rounded-xl border border-indigo-100 bg-white p-3">
+                  <div key={offer.id} className="cc-economy-offer rounded-xl border border-indigo-100 bg-white p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[9px] font-black text-zinc-900">{offer.name}</p>
                       {offer.id === currentEconomy.baseOfferId && <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[7px] font-black uppercase">Base</span>}
@@ -16104,7 +16383,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
 
               <div className="space-y-2">
                 {(economyEditor?.offers || []).map((offer, index) => (
-                  <div key={offer.id} className="rounded-xl border border-indigo-100 bg-white p-3">
+                  <div key={offer.id} className="cc-economy-edit-row rounded-xl border border-indigo-100 bg-white p-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.3fr_110px_1fr_1fr_auto] gap-2 items-end">
                       <div>
                         <p className="text-[7px] font-black uppercase text-slate-400 mb-1">Nombre oferta</p>
@@ -16157,7 +16436,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           )}
         </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 mt-4">
+      <div className="cc-new-campaign-grid grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 mt-4">
         <div>
           <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Nombre campaña</p>
           <input
@@ -16195,7 +16474,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           <button type="button" onClick={()=>collapseAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronUp size={11}/> Contraer campañas</button>
         </div>
       </div>}
-      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id&&a.deleted!==true);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`1px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}0d`}}>
+      <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id&&a.deleted!==true);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`cc-campaign-card rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`1px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}0d`}}>
         <button
           type="button"
           aria-expanded={isOpen}
@@ -16228,7 +16507,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                 </p>
               </div>
 
-              <div className="flex gap-1 flex-wrap">
+              <div className="cc-campaign-actions flex gap-1 flex-wrap">
                 <button title="Editar nombre de campaña" onClick={()=>editCampaignName(campaign)} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={11}/> Editar</button>
                 <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
                 {!campaign.archived&&<button
