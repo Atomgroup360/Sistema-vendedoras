@@ -1974,13 +1974,16 @@ function aovEconomicToneClassCC(tone = 'neutral') {
   return 'bg-slate-50 border-slate-200 text-slate-600';
 }
 
-function AovEconomicDiagnosticCardCC({ diagnostic, compact = false }) {
+function AovEconomicDiagnosticCardCC({ diagnostic, compact = false, scopeLabel = 'CAMPAÑA · 3D' }) {
   if (!diagnostic) return null;
 
   if (compact) {
     return (
       <div className={`mt-1.5 rounded-lg border px-2 py-1.5 ${aovEconomicToneClassCC(diagnostic.tone)}`}>
-        <p className="text-[8px] font-black uppercase leading-tight">{diagnostic.label}</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[8px] font-black uppercase leading-tight">{diagnostic.label}</p>
+          <span className="shrink-0 text-[6.5px] font-black uppercase opacity-70">{scopeLabel}</span>
+        </div>
         {diagnostic.evaluable ? (
           <p className="text-[8px] mt-0.5 leading-tight">
             AOV {fmtMoney(diagnostic.aov)} · margen {fmtMoney(diagnostic.estimatedMargin)}/compra · {diagnostic.deltaPerPurchase >= 0 ? 'colchón' : 'déficit'} {diagnostic.deltaPerPurchase >= 0 ? '+' : '−'}{fmtMoney(Math.abs(diagnostic.deltaPerPurchase))}
@@ -1996,7 +1999,7 @@ function AovEconomicDiagnosticCardCC({ diagnostic, compact = false }) {
     <div className={`rounded-2xl border-2 p-3 sm:p-4 ${aovEconomicToneClassCC(diagnostic.tone)}`}>
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase">Diagnóstico económico AOV · complemento</p>
+          <p className="text-[9px] font-black uppercase">Diagnóstico económico AOV · {scopeLabel} · complemento</p>
           <p className="text-[11px] sm:text-xs font-black mt-1">{diagnostic.label}</p>
           <p className="text-[8px] sm:text-[9px] mt-1 leading-relaxed">{diagnostic.message}</p>
           <p className="text-[7px] sm:text-[8px] mt-1 opacity-80">
@@ -2989,10 +2992,17 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
   // GUARDRAILS DE ESCALADO: SIEMPRE 3D.
   // El selector Último día / 7D / 14D / 30D sirve para explorar diagnóstico,
   // pero NO cambia la decisión operativa de escala.
+  const scaleWindow3d = splitPeriodRecords(eligible, '3d');
   const {
     currentStats: scale3d,
     previousStats: scalePrev3d
-  } = splitPeriodRecords(eligible, '3d');
+  } = scaleWindow3d;
+
+  // ECONOMÍA AOV POR ANUNCIO · VENTANA 3D DE DÍAS COMPLETOS.
+  // Usa exclusivamente los registros dailyAds elegibles de ESTE anuncio.
+  // Es una capa informativa: NO participa en N1–N4, pausa, La Poda, fatiga,
+  // rescates ni protocolo de apagado.
+  const economic3d = buildAovEconomicDiagnosticCC(product, scaleWindow3d.current);
 
   // ÚLTIMO DÍA COMPLETO = alerta temprana. Nunca reemplaza al 3D,
   // pero sirve para detectar si un anuncio que viene mal está empezando a recuperarse.
@@ -3199,7 +3209,7 @@ function diagnoseAd(records, product, ad, periodId = '3d', campaign = null) {
     guardrails, canScale, volumeReference,
     cpaObservation3d, metaDelivery3d,
     operational3dDiagnosis, operational3dAction, operational3dPriority, operational3dReason,
-    scale3d, scalePrev3d, scaleDelta3d,
+    scale3d, scalePrev3d, scaleDelta3d, economic3d,
     lastCompleteStats, lastCompletePreviousStats, lastCompleteDelta,
     scaleMomentum:
       scaleDelta3d.cpa === null ? 'Sin comparación' :
@@ -4761,6 +4771,7 @@ function buildDetailedCampaignReportCC({
   lines.push('• TENDENCIA y SALUD ACTUAL son distintas: una métrica puede deteriorarse frente al bloque anterior y seguir saludable/aceptable por estándar operativo.');
   lines.push('• AOV = ticket promedio reportado por Meta. El diagnóstico económico AOV es COMPLEMENTARIO: contextualiza margen estimado, pero NO cambia por sí solo N1–N4, fatiga, CVR, CTR/CPC, La Poda, rescates ni apagado.');
   lines.push('• AOV agregado se pondera por compras. Nunca se promedian AOV diarios de forma simple.');
+  lines.push('• AOV también se diagnostica por anuncio usando únicamente los dailyAds elegibles de ese creativo en la ventana 3D de días completos. Esta lectura es informativa y no altera su decisión operativa.');
   lines.push('• Economía de ofertas usa precios/costos versionados por fecha y selecciona la mezcla de ofertas económicamente más conservadora compatible con el AOV; si el AOV queda fuera del rango configurado, no extrapola.');
   lines.push('• CAPA PLAYBOOK: frecuencia 2,5–3,0 es una alerta diagnóstica, no una ley universal. Fatiga exige repetición + deterioro de respuesta + impacto económico.');
   lines.push('• Los protocolos Playbook estrictos solo se confirman cuando el CPA 3D ya está fuera del límite rentable (o existe gasto ≥ CPA máximo sin compras). Si el CPA sigue rentable, la salida es señal temprana/alerta, no protocolo confirmado.');
@@ -5111,6 +5122,20 @@ function buildDetailedCampaignReportCC({
         lines.push(`Confianza por volumen 3D: ${diag.volumeReference?.confidence || '—'} · ${fmtNum(diag.volumeReference?.purchases || 0, 2)} compras`);
         lines.push(`Autorización Post ID / ABO: ${scaleAuthorization.label}${scaleAuthorization.allowed ? ` · ${scaleAuthorization.budgetLabel}` : ''}`);
         lines.push(`Regla de capital: ${scaleAuthorization.reason}`);
+        lines.push('');
+        lines.push('ECONOMÍA AOV DEL ANUNCIO · 3D · INFORMATIVA');
+        lines.push(`Estado: ${diag.economic3d?.label || '—'}`);
+        lines.push(`Detalle: ${diag.economic3d?.message || '—'}`);
+        if (diag.economic3d?.evaluable) {
+          lines.push(`AOV Meta del anuncio: ${fmtMoney(diag.economic3d.aov)}`);
+          lines.push(`CPA del anuncio: ${fmtCpa(diag.economic3d.cpa)} · CPA máximo base: ${fmtMoney(diag.economic3d.baseMaxCpa)}`);
+          lines.push(`CPA máximo contextual por AOV: ${fmtMoney(diag.economic3d.contextualMaxCpa)}`);
+          lines.push(`Margen objetivo: ${fmtMoney(diag.economic3d.marginTarget)}/compra`);
+          lines.push(`Margen estimado: ${fmtMoney(diag.economic3d.estimatedMargin)}/compra`);
+          lines.push(`${diag.economic3d.deltaPerPurchase >= 0 ? 'Colchón' : 'Déficit'}: ${diag.economic3d.deltaPerPurchase >= 0 ? '+' : '−'}${fmtMoney(Math.abs(diag.economic3d.deltaPerPurchase))}/compra`);
+          lines.push(`Impacto estimado (${fmtNum(diag.economic3d.purchases, 0)} compras): ${diag.economic3d.impact >= 0 ? '+' : '−'}${fmtMoney(Math.abs(diag.economic3d.impact))}`);
+        }
+        lines.push('Regla: esta lectura económica NO modifica N1–N4, pausa, La Poda, fatiga, rescates ni apagado.');
         lines.push('');
         lines.push('ENTREGA META · 3D');
         lines.push(`Estado: ${diag.metaDelivery3d?.status || '—'}`);
@@ -13701,6 +13726,14 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   </div>
                 </div>
 
+                <div className="mt-3">
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <p className="text-[7px] font-black uppercase text-slate-400">Economía del anuncio · ventana 3D</p>
+                    <span className="text-[6.5px] font-black uppercase text-slate-400">Informativo · no cambia acción 3D</span>
+                  </div>
+                  <AovEconomicDiagnosticCardCC diagnostic={diag.economic3d} compact scopeLabel="ANUNCIO · 3D" />
+                </div>
+
                 <div className="mt-3 rounded-2xl bg-slate-50 border border-slate-200 p-3.5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -13780,6 +13813,10 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     <QuickMetricCC label="CPM" value={fmtMoneyOrDashCC(readingDiag.scale3d.cpm)} previousValue={fmtMoneyOrDashCC(readingDiag.scalePrev3d.cpm)} delta={readingDiag.scaleDelta3d.cpm} metric="cpm" sub={relational.metricStatus?.cpm?.standardText || periodLabel} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cpm}/>
                     <QuickMetricCC label="CVR" value={fmtRate(readingDiag.scale3d.visitToPurchase)} previousValue={fmtRate(readingDiag.scalePrev3d.visitToPurchase)} delta={readingDiag.scaleDelta3d.visitToPurchase} metric="visitToPurchase" sub={relational.metricStatus?.cvr?.standardText || `Visita → compra · ${periodLabel}`} periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.cvr}/>
                     <QuickMetricCC label="Frecuencia" value={fmtFrequencyCC(readingDiag.scale3d.frequency)} previousValue={fmtFrequencyCC(readingDiag.scalePrev3d.frequency)} delta={readingDiag.scaleDelta3d.frequency} metric="frequency" sub="Playbook: interpretar junto con CTR/CPC/CPA" periodLabel={periodCardLabel} previousPeriodLabel={previousPeriodCardLabel} healthStatus={relational.metricStatus?.frequency}/>
+                  </div>
+
+                  <div className="mt-4">
+                    <AovEconomicDiagnosticCardCC diagnostic={diag.economic3d} scopeLabel="ANUNCIO · 3D" />
                   </div>
 
                   <div className="mt-5">
