@@ -15200,6 +15200,34 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
     }) : current);
   };
 
+  const changeEconomyEffectiveDate = (product, rawDate) => {
+    const effectiveFrom = dateToIso(rawDate);
+    if (!effectiveFrom) return;
+
+    // Al mover el editor a una fecha histórica, cargar la economía que realmente
+    // estaba vigente en esa fecha. Así no copiamos accidentalmente las ofertas
+    // actuales sobre una vigencia anterior. El usuario todavía puede editar esos
+    // valores después de seleccionar la fecha si desea crear una nueva versión.
+    const historical = getProductEconomyVersionCC(product, effectiveFrom);
+
+    setEconomyEditor(current => {
+      if (!current || current.productId !== product.id) return current;
+      if (!historical) return { ...current, effectiveFrom };
+
+      return {
+        ...current,
+        effectiveFrom,
+        baseOfferId: historical.baseOfferId,
+        offers: historical.offers.map(offer => ({
+          ...offer,
+          price: String(offer.price ?? ''),
+          cost: String(offer.cost ?? ''),
+          quantity: String(offer.quantity ?? 1)
+        }))
+      };
+    });
+  };
+
   const addEconomyOfferDraft = () => {
     setEconomyEditor(current => {
       if (!current) return current;
@@ -15270,9 +15298,18 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       if (!ok) return;
     }
 
+    // Si la nueva vigencia es retroactiva y ya existía una economía válida en
+    // esa fecha, conservar el CPA máximo histórico de esa vigencia. Solo usamos
+    // product.maxCpa como fallback cuando todavía no existe historia económica
+    // capaz de decirnos qué CPA regía en la fecha seleccionada.
+    const economyAtEffectiveDate = getProductEconomyVersionCC(product, effectiveFrom);
+    const maxCpaForEffectiveDate = economyAtEffectiveDate?.maxCpa > 0
+      ? economyAtEffectiveDate.maxCpa
+      : product.maxCpa;
+
     const nextVersions = upsertProductEconomyVersionCC(product, {
       effectiveFrom,
-      maxCpa: product.maxCpa,
+      maxCpa: maxCpaForEffectiveDate,
       baseOfferId: economyEditor.baseOfferId,
       offers,
       recordedAtMs: Date.now()
@@ -16056,7 +16093,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                     min={dateToIso(product.effectiveStartDate || product.createdDate) || today}
                     max={today}
                     value={economyEditor?.effectiveFrom || today}
-                    onChange={e=>setEconomyEditor(current=>current ? ({...current,effectiveFrom:e.target.value}) : current)}
+                    onChange={e=>changeEconomyEffectiveDate(product,e.target.value)}
                     className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-black"
                   />
                 </div>
