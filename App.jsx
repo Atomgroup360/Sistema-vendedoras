@@ -7423,7 +7423,6 @@ function CampaignDashboard({
     const split7 = splitPeriodRecords(history, '7d');
     const stats3 = split3.currentStats;
     const stats7 = split7.currentStats;
-    const economic3d = buildAovEconomicDiagnosticCC(product, split3.current);
     const delta3 = pctChange(split3.currentStats.cpa, split3.previousStats.cpa);
     const delta7 = pctChange(split7.currentStats.cpa, split7.previousStats.cpa);
 
@@ -7511,7 +7510,7 @@ function CampaignDashboard({
       : 'Creativo sano 3D';
 
     return {
-      campaign:c, product, todayRecord, lastComplete, lastStats, stats3, stats7, economic3d, delta3, delta7,
+      campaign:c, product, todayRecord, lastComplete, lastStats, stats3, stats7, delta3, delta7,
       maxCpa, state, tone, diagnosis, action, creativeHealth, cpaObservation3d,
       purchases:lastStats.purchases, frequency:lastStats.frequency
     };
@@ -7792,7 +7791,6 @@ function CampaignDashboard({
                   <td><span className="font-black">{r.creativeHealth}</span></td>
                   <td>
                     <span className="font-black">{r.diagnosis}</span>
-                    <AovEconomicDiagnosticCardCC diagnostic={r.economic3d} compact />
                   </td>
                   <td><span className="font-black text-blue-600">{r.action}</span></td>
                 </tr>
@@ -7850,7 +7848,6 @@ function CampaignDashboard({
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <p className="text-[10px] font-black text-zinc-800">{r.diagnosis}</p>
                 <p className="text-[10px] font-black text-blue-600 mt-1">{r.action}</p>
-                <AovEconomicDiagnosticCardCC diagnostic={r.economic3d} compact />
               </div>
             </button>
           ))}
