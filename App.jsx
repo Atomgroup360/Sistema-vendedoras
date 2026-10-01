@@ -7373,9 +7373,11 @@ function CampaignDashboard({
   const [drawerCampaignId, setDrawerCampaignId] = useState('');
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
   const [auditHighlightBusyId, setAuditHighlightBusyId] = useState('');
+  const [showInactiveCampaigns, setShowInactiveCampaigns] = useState(false);
 
-  // RESUMEN = estado operativo actual. Solo muestra productos Y campañas activos.
-  // Si un producto o una campaña fue desactivado/a, no debe aparecer ni contaminar los indicadores.
+  // RESUMEN tiene dos modos completamente separados:
+  // 1) operativo actual = solo productos/campañas activos;
+  // 2) histórico = campañas desactivadas no archivadas, solo para consulta.
   const activeProductIdsForSummary = useMemo(
     () => new Set(products.filter(p => p.active !== false).map(p => p.id)),
     [products]
@@ -7383,6 +7385,11 @@ function CampaignDashboard({
   const activeCampaignList = activeCampaigns.filter(
     c => c.active !== false && !c.archived && activeProductIdsForSummary.has(c.productId)
   );
+  const inactiveCampaignList = useMemo(
+    () => campaigns.filter(c => c.active === false && !c.archived),
+    [campaigns]
+  );
+  const summaryCampaignList = showInactiveCampaigns ? inactiveCampaignList : activeCampaignList;
 
   const toggleCampaignAuditHighlight = async (event, campaign) => {
     event?.stopPropagation?.();
@@ -7406,7 +7413,7 @@ function CampaignDashboard({
     }
   };
 
-  const campaignRows = useMemo(() => activeCampaignList.map(c => {
+  const campaignRows = useMemo(() => summaryCampaignList.map(c => {
     const product = products.find(p => p.id === c.productId);
     const history = eligibleCampaignRecords(
       dailyCampaigns.filter(r => r.campaignId === c.id),
@@ -7427,7 +7434,11 @@ function CampaignDashboard({
     const delta7 = pctChange(split7.currentStats.cpa, split7.previousStats.cpa);
 
     const maxCpa = Math.max(1,toNumber(product?.maxCpa));
-    const campaignAds = ads.filter(a => a.campaignId === c.id && a.deleted !== true && a.active !== false);
+    const campaignAds = ads.filter(a =>
+      a.campaignId === c.id &&
+      a.deleted !== true &&
+      (showInactiveCampaigns || a.active !== false)
+    );
     const adDiags = campaignAds.map(ad => diagnoseAd(
       dailyAds.filter(r=>r.adId===ad.id), product, ad, 'last', c
     )).filter(d => d.scale3d?.days > 0);
@@ -7514,7 +7525,7 @@ function CampaignDashboard({
       maxCpa, state, tone, diagnosis, action, creativeHealth, cpaObservation3d,
       purchases:lastStats.purchases, frequency:lastStats.frequency
     };
-  }), [activeCampaignList, products, dailyCampaigns, ads, dailyAds]);
+  }), [summaryCampaignList, showInactiveCampaigns, products, dailyCampaigns, ads, dailyAds]);
 
   const filteredRows = campaignRows.filter(r => {
     const q = search.trim().toLowerCase();
@@ -7547,12 +7558,16 @@ function CampaignDashboard({
   const maintainCount = campaignRows.filter(r=>r.state==='Mantener').length;
   const alertCount = campaignRows.filter(r=>r.state==='Alerta').length;
   const criticalCount = campaignRows.filter(r=>r.state==='Crítico').length;
+  const inactiveWithHistoryCount = showInactiveCampaigns
+    ? campaignRows.filter(r => r.lastComplete || r.stats3?.days > 0).length
+    : 0;
 
   const drawerCampaign = campaigns.find(c =>
     c.id === drawerCampaignId &&
-    c.active !== false &&
     !c.archived &&
-    activeProductIdsForSummary.has(c.productId)
+    (showInactiveCampaigns
+      ? c.active === false
+      : c.active !== false && activeProductIdsForSummary.has(c.productId))
   ) || null;
   const drawerProduct = drawerCampaign ? products.find(p=>p.id===drawerCampaign.productId) : null;
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
@@ -7572,6 +7587,14 @@ function CampaignDashboard({
     setDrawerPeriod(period || '3d');
   };
 
+  const toggleInactiveCampaignHistory = () => {
+    setShowInactiveCampaigns(current => !current);
+    setDrawerCampaignId('');
+    setSelectedCampaignId('');
+    setStatusFilter('all');
+    setSearch('');
+  };
+
   return (
     <div className="cc-module-view cc-dashboard space-y-5">
       {/* TOPBAR VALIDADO */}
@@ -7581,100 +7604,113 @@ function CampaignDashboard({
           <p className="text-[9px] md:text-[10px] text-slate-400 font-semibold mt-1">Control diario, variaciones, acciones recomendadas y techo rentable por producto</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={()=>setSubTab('register')} className="bg-white border px-4 py-2 rounded-xl text-[9px] font-black uppercase">+ Registrar día</button>
-          <button onClick={()=>setSubTab('campaigns')} className="bg-zinc-950 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase">+ Nuevo producto</button>
+          <button
+            type="button"
+            onClick={toggleInactiveCampaignHistory}
+            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border transition-all ${
+              showInactiveCampaigns
+                ? 'bg-amber-100 border-amber-300 text-amber-800'
+                : 'bg-white border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-700'
+            }`}
+          >
+            {showInactiveCampaigns ? '← Volver a activas' : `Ver desactivadas (${inactiveCampaignList.length})`}
+          </button>
+          {!showInactiveCampaigns ? (
+            <>
+              <button onClick={()=>setSubTab('register')} className="bg-white border px-4 py-2 rounded-xl text-[9px] font-black uppercase">+ Registrar día</button>
+              <button onClick={()=>setSubTab('campaigns')} className="bg-zinc-950 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase">+ Nuevo producto</button>
+            </>
+          ) : null}
         </div>
       </div>
 
-      {/* KPIs · RESUMEN OPERATIVO */}
-
-      <div className="cc-grid-kpi">
-        <MiniCard label="Productos activos" value={activeProducts.length} />
-        <MiniCard label="Escalables" value={scalableCount} tone={scalableCount?'good':'default'} />
-        <MiniCard label="Mantener" value={maintainCount} />
-        <MiniCard label="En alerta" value={alertCount} />
-        <MiniCard label="Críticos" value={criticalCount} tone={criticalCount?'bad':'default'} />
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-3.5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-5">
-          <div className="lg:w-[230px] lg:shrink-0">
-            <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wide text-slate-500">
-              Último cierre consolidado
-            </p>
-            <p className="text-[7px] sm:text-[8px] text-slate-400 mt-1 leading-relaxed">
-              Resultado conjunto de todas las campañas activas usando el último cierre completo disponible de cada campaña.
-            </p>
-          </div>
-
-          <div className="cc-grid-close flex-1 min-w-0">
-            <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
-                Gasto total
-              </p>
-              <p
-                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
-              >
-                {fmtMoney(totalSpend)}
-              </p>
-              <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">
-                Todas las campañas
-              </p>
-            </div>
-
-            <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">
-                Ventas totales
-              </p>
-              <p
-                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
-              >
-                {fmtNum(totalPurchases, 0)}
-              </p>
-              <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">
-                Compras del último cierre
-              </p>
-            </div>
-
-            <div className="min-w-0 rounded-xl border border-blue-100 bg-blue-50/55 px-3 py-2.5">
-              <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-blue-600">
-                CPA ponderado global
-              </p>
-              <p
-                className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap"
-                style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}
-              >
-                {globalCpa !== null ? fmtMoney(globalCpa) : '—'}
-              </p>
-              <p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1">
-                Gasto total ÷ ventas totales
-              </p>
+      {/* KPIs · RESUMEN OPERATIVO / HISTÓRICO */}
+      {showInactiveCampaigns ? (
+        <>
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/70 p-3 sm:p-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-wide text-amber-800">Histórico · campañas desactivadas</p>
+                <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1 leading-relaxed">
+                  Vista de consulta. Las métricas se reconstruyen con el histórico anterior a la fecha de desactivación. Estas campañas no participan en los KPIs operativos actuales ni en el monitor de hoy.
+                </p>
+              </div>
+              <span className="w-fit px-2.5 py-1.5 rounded-full bg-zinc-950 text-white text-[8px] font-black uppercase">Solo lectura</span>
             </div>
           </div>
-        </div>
-      </div>
 
-      <SectionCard className="border-dashed" accent="#2563eb" soft="#eff6ff">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p>
-            <p className="text-[8px] text-slate-500 mt-1">Solo informativo. Estos datos NO participan en diagnósticos, alertas, fatiga, guardrails ni decisiones de escala.</p>
+          <div className="cc-grid-kpi">
+            <MiniCard label="Campañas desactivadas" value={inactiveCampaignList.length} />
+            <MiniCard label="Con histórico" value={inactiveWithHistoryCount} />
+            <MiniCard label="Compras último cierre" value={fmtNum(totalPurchases, 0)} />
+            <MiniCard label="CPA último cierre global" value={globalCpa !== null ? fmtMoney(globalCpa) : '—'} />
           </div>
-          <div className="cc-grid-kpi min-w-full ">
-            <MiniCard label="Gasto hoy" value={fmtMoney(provisionalToday.spend)} />
-            <MiniCard label="Compras hoy" value={fmtNum(provisionalToday.purchases, 2)} />
-            <MiniCard label="CPA provisional" value={provisionalToday.purchases > 0 ? fmtMoney(provisionalToday.cpa) : '—'} />
-            <MiniCard label="ROAS provisional" value={fmtNum(provisionalToday.roas, 2)} />
+
+          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-3.5 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-5">
+              <div className="lg:w-[230px] lg:shrink-0">
+                <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wide text-slate-500">Último cierre histórico consolidado</p>
+                <p className="text-[7px] sm:text-[8px] text-slate-400 mt-1 leading-relaxed">Suma el último cierre completo disponible de cada campaña desactivada mostrada.</p>
+              </div>
+              <div className="cc-grid-close flex-1 min-w-0">
+                <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                  <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">Gasto total</p>
+                  <p className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap" style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}>{fmtMoney(totalSpend)}</p>
+                  <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">Últimos cierres históricos</p>
+                </div>
+                <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                  <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">Compras totales</p>
+                  <p className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap" style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}>{fmtNum(totalPurchases, 0)}</p>
+                  <p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">Últimos cierres históricos</p>
+                </div>
+                <div className="min-w-0 rounded-xl border border-amber-100 bg-amber-50/55 px-3 py-2.5">
+                  <p className="text-[6.5px] sm:text-[7px] font-black uppercase text-amber-700">CPA ponderado histórico</p>
+                  <p className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap" style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}>{globalCpa !== null ? fmtMoney(globalCpa) : '—'}</p>
+                  <p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1">Gasto total ÷ compras totales</p>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </SectionCard>
+        </>
+      ) : (
+        <>
+          <div className="cc-grid-kpi">
+            <MiniCard label="Productos activos" value={activeProducts.length} />
+            <MiniCard label="Escalables" value={scalableCount} tone={scalableCount?'good':'default'} />
+            <MiniCard label="Mantener" value={maintainCount} />
+            <MiniCard label="En alerta" value={alertCount} />
+            <MiniCard label="Críticos" value={criticalCount} tone={criticalCount?'bad':'default'} />
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-3.5 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-5">
+              <div className="lg:w-[230px] lg:shrink-0">
+                <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wide text-slate-500">Último cierre consolidado</p>
+                <p className="text-[7px] sm:text-[8px] text-slate-400 mt-1 leading-relaxed">Resultado conjunto de todas las campañas activas usando el último cierre completo disponible de cada campaña.</p>
+              </div>
+              <div className="cc-grid-close flex-1 min-w-0">
+                <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5"><p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">Gasto total</p><p className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap" style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}>{fmtMoney(totalSpend)}</p><p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">Todas las campañas</p></div>
+                <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5"><p className="text-[6.5px] sm:text-[7px] font-black uppercase text-slate-400">Ventas totales</p><p className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap" style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}>{fmtNum(totalPurchases, 0)}</p><p className="text-[6.5px] sm:text-[7px] text-slate-400 mt-1">Compras del último cierre</p></div>
+                <div className="min-w-0 rounded-xl border border-blue-100 bg-blue-50/55 px-3 py-2.5"><p className="text-[6.5px] sm:text-[7px] font-black uppercase text-blue-600">CPA ponderado global</p><p className="mt-1.5 font-black tabular-nums text-zinc-900 whitespace-nowrap" style={{ fontSize: 'clamp(18px, 1.1vw, 22px)', lineHeight: 1.15 }}>{globalCpa !== null ? fmtMoney(globalCpa) : '—'}</p><p className="text-[6.5px] sm:text-[7px] text-slate-500 mt-1">Gasto total ÷ ventas totales</p></div>
+              </div>
+            </div>
+          </div>
+
+          <SectionCard className="border-dashed" accent="#2563eb" soft="#eff6ff">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div><p className="text-[9px] font-black uppercase text-blue-700">Hoy · monitor provisional intradía</p><p className="text-[8px] text-slate-500 mt-1">Solo informativo. Estos datos NO participan en diagnósticos, alertas, fatiga, guardrails ni decisiones de escala.</p></div>
+              <div className="cc-grid-kpi min-w-full "><MiniCard label="Gasto hoy" value={fmtMoney(provisionalToday.spend)} /><MiniCard label="Compras hoy" value={fmtNum(provisionalToday.purchases, 2)} /><MiniCard label="CPA provisional" value={provisionalToday.purchases > 0 ? fmtMoney(provisionalToday.cpa) : '—'} /><MiniCard label="ROAS provisional" value={fmtNum(provisionalToday.roas, 2)} /></div>
+            </div>
+          </SectionCard>
+        </>
+      )}
 
       {/* FILTROS + BUSQUEDA */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex gap-2 flex-wrap">
-          {[
+          {showInactiveCampaigns ? (
+            <span className="px-3 py-2 rounded-full text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-200">● Desactivadas</span>
+          ) : [
             ['all','Todos'],['critical','🔴 Críticos'],['alert','🟠 Alertas'],
             ['scalable','🟢 Escalables'],['testing','Testing'],['scaled','Escaladas']
           ].map(([id,label])=>(
@@ -7746,12 +7782,13 @@ function CampaignDashboard({
                         <Paintbrush size={13}/>
                       </button>
                       <span className={`px-2 py-1.5 rounded-full font-black text-center leading-tight ${
+                        showInactiveCampaigns ? 'bg-slate-200 text-slate-700' :
                         r.state==='Crítico'?'bg-rose-100 text-rose-700':
                         r.state==='Alerta'?'bg-orange-100 text-orange-700':
                         r.state==='Escalable'?'bg-emerald-100 text-emerald-700':
                         'bg-amber-100 text-amber-700'
                       }`}>
-                        ● {r.state}
+                        ● {showInactiveCampaigns ? 'Desactivada' : r.state}
                       </span>
                     </div>
                   </td>
@@ -7764,6 +7801,7 @@ function CampaignDashboard({
                       ) : null}
                     </div>
                     <p className="text-[9px] text-slate-400 leading-snug mt-0.5">{r.campaign.name}</p>
+                    {showInactiveCampaigns ? <p className="text-[8px] font-black text-amber-700 mt-1">Desactivada: {r.campaign.deactivatedDate || r.campaign.stateChangedDate || '—'}</p> : null}
                   </td>
 
                   <td className="font-black whitespace-nowrap">{r.lastComplete?fmtMoney(r.lastComplete.budget):'—'}</td>
@@ -7792,7 +7830,7 @@ function CampaignDashboard({
                   <td>
                     <span className="font-black">{r.diagnosis}</span>
                   </td>
-                  <td><span className="font-black text-blue-600">{r.action}</span></td>
+                  <td><span className={`font-black ${showInactiveCampaigns ? 'text-slate-500' : 'text-blue-600'}`}>{showInactiveCampaigns ? `Histórico · cierre ${r.campaign.deactivatedDate || r.campaign.stateChangedDate || '—'}` : r.action}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -7817,13 +7855,15 @@ function CampaignDashboard({
                 <div className="min-w-0">
                   <p className="text-[12px] font-black text-zinc-900 break-words">{r.product?.name||'Producto'}</p>
                   <p className="text-[10px] text-slate-500 mt-0.5 break-words">{r.campaign.name}</p>
+                  {showInactiveCampaigns ? <p className="text-[8px] font-black text-amber-700 mt-1">Desactivada: {r.campaign.deactivatedDate || r.campaign.stateChangedDate || '—'}</p> : null}
                 </div>
                 <span className={`shrink-0 px-2 py-1.5 rounded-full text-[9px] font-black ${
+                  showInactiveCampaigns ? 'bg-slate-200 text-slate-700' :
                   r.state==='Crítico'?'bg-rose-100 text-rose-700':
                   r.state==='Alerta'?'bg-orange-100 text-orange-700':
                   r.state==='Escalable'?'bg-emerald-100 text-emerald-700':
                   'bg-amber-100 text-amber-700'
-                }`}>● {r.state}</span>
+                }`}>● {showInactiveCampaigns ? 'Desactivada' : r.state}</span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 mt-3">
@@ -7847,7 +7887,7 @@ function CampaignDashboard({
 
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <p className="text-[10px] font-black text-zinc-800">{r.diagnosis}</p>
-                <p className="text-[10px] font-black text-blue-600 mt-1">{r.action}</p>
+                <p className={`text-[10px] font-black mt-1 ${showInactiveCampaigns ? 'text-slate-500' : 'text-blue-600'}`}>{showInactiveCampaigns ? `Consulta histórica · cierre ${r.campaign.deactivatedDate || r.campaign.stateChangedDate || '—'}` : r.action}</p>
               </div>
             </button>
           ))}
@@ -7864,8 +7904,12 @@ function CampaignDashboard({
             <button onClick={()=>setDrawerCampaignId('')} className="sticky z-20 top-2 ml-auto flex w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 items-center justify-center font-black shadow-sm">✕</button>
 
             <div className="pr-12">
-              <h3 className="text-xl md:text-2xl font-black uppercase">{drawerProduct?.name}</h3>
-              <p className="text-[10px] text-slate-400 mt-1">{drawerCampaign.name} · Historial, variaciones y capacidad de escala</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xl md:text-2xl font-black uppercase">{drawerProduct?.name}</h3>
+                {drawerCampaign.active === false ? <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[8px] font-black uppercase">Histórico · desactivada</span> : null}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">{drawerCampaign.name} · {drawerCampaign.active === false ? 'Consulta histórica de métricas anteriores al cierre' : 'Historial, variaciones y capacidad de escala'}</p>
+              {drawerCampaign.active === false ? <p className="text-[8px] font-black text-amber-700 mt-1">Fecha de desactivación: {drawerCampaign.deactivatedDate || drawerCampaign.stateChangedDate || '—'} · Solo lectura</p> : null}
             </div>
 
             <div className="flex gap-2 mt-5 mb-4 flex-wrap">
@@ -7874,22 +7918,14 @@ function CampaignDashboard({
 
             <CampaignCpaMiniChart campaign={drawerCampaign} product={drawerProduct} dailyCampaigns={dailyCampaigns}/>
 
-            <div className="mt-4 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-3">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <p className="text-[9px] font-black uppercase text-blue-700">Hoy · provisional</p>
-                <span className="text-[7px] font-black uppercase text-blue-500">No influye en decisiones</span>
+            {drawerCampaign.active !== false ? (
+              <div className="mt-4 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/50 p-3">
+                <div className="flex items-center justify-between gap-2 mb-2"><p className="text-[9px] font-black uppercase text-blue-700">Hoy · provisional</p><span className="text-[7px] font-black uppercase text-blue-500">No influye en decisiones</span></div>
+                {drawerToday ? <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2"><MiniCard label="Gasto" value={fmtMoney(drawerTodayStats.spend)} /><MiniCard label="Compras" value={fmtNum(drawerTodayStats.purchases, 2)} /><MiniCard label="CPA" value={drawerTodayStats.purchases > 0 ? fmtCpa(drawerTodayStats.cpa) : '—'} /><MiniCard label="Frecuencia" value={fmtNum(drawerTodayStats.frequency, 2)} /></div> : <p className="text-[9px] text-slate-500">Sin registro intradía para hoy. El diagnóstico continúa usando el último día completo disponible.</p>}
               </div>
-              {drawerToday ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-                  <MiniCard label="Gasto" value={fmtMoney(drawerTodayStats.spend)} />
-                  <MiniCard label="Compras" value={fmtNum(drawerTodayStats.purchases, 2)} />
-                  <MiniCard label="CPA" value={drawerTodayStats.purchases > 0 ? fmtCpa(drawerTodayStats.cpa) : '—'} />
-                  <MiniCard label="Frecuencia" value={fmtNum(drawerTodayStats.frequency, 2)} />
-                </div>
-              ) : (
-                <p className="text-[9px] text-slate-500">Sin registro intradía para hoy. El diagnóstico continúa usando el último día completo disponible.</p>
-              )}
-            </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-3"><p className="text-[9px] font-black uppercase text-amber-800">Consulta histórica · sin monitor intradía</p><p className="text-[8px] text-slate-600 mt-1">La campaña está desactivada. Se muestran únicamente datos históricos válidos anteriores a su fecha de cierre.</p></div>
+            )}
 
             <div className="cc-grid-kpi mt-4">
               <MiniCard label="CPA último día" value={drawerLastComplete?fmtCpa(drawerCurrent.cpa):'—'} />
@@ -14005,7 +14041,11 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
     setPlanActionMessage('');
   }, [campaign.id]);
 
-  const visibleAds = ads.filter(a => a.deleted !== true && a.active !== false && campaign.active !== false && !campaign.archived);
+  const historicalReadOnly = campaign.active === false || campaign.archived === true;
+  const visibleAds = ads.filter(a =>
+    a.deleted !== true &&
+    (historicalReadOnly ? true : a.active !== false && campaign.active !== false && !campaign.archived)
+  );
 
   const contribution3d = useMemo(
     () => buildCampaignContribution3D(
@@ -14330,7 +14370,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
   const economic3d = buildAovEconomicDiagnosticCC(product, splitPeriodRecords(campaignHistory, '3d').current);
 
   useEffect(() => {
-    if (!ownerUid || !campaignDecision.recommendedBudget || !campaign?.id) return;
+    if (historicalReadOnly || !ownerUid || !campaignDecision.recommendedBudget || !campaign?.id) return;
     const existing = recommendations.find(r => r.campaignId === campaign.id && r.type === 'budget' && r.status === 'active' && toNumber(r.recommendedBudget) === toNumber(campaignDecision.recommendedBudget));
     if (existing) return;
     const ref = doc(db, COLLECTIONS.recommendations, `${campaign.id}_budget_active`);
@@ -14340,7 +14380,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
       recommendedBudget: toNumber(campaignDecision.recommendedBudget), status: 'active',
       reason: campaignDecision.reason, createdDate: todayColombiaCC(), updatedAt: serverTimestamp()
     }, { merge: true }).catch(console.error);
-  }, [ownerUid, campaign.id, campaign.productId, campaignDecision.recommendedBudget, campaignDecision.reason, campaignHistory, recommendations]);
+  }, [historicalReadOnly, ownerUid, campaign.id, campaign.productId, campaignDecision.recommendedBudget, campaignDecision.reason, campaignHistory, recommendations]);
 
   const dynamicCounts = adRows.reduce((acc, x) => { acc[x.diag.dynamicDiagnosis] = (acc[x.diag.dynamicDiagnosis] || 0) + 1; return acc; }, {});
   const maxCpa = toNumber(product?.maxCpa);
@@ -14351,32 +14391,19 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
 
   return (
     <div className="cc-module-view cc-diagnostic-detail space-y-5">
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 sm:p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[8px] font-black uppercase tracking-wide text-indigo-700">Agenda de esta campaña</p>
-            <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">
-              Registra una acción mientras analizas la campaña y revísala después desde el Cuadro de acciones.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {campaignPendingActions.length > 0 ? (
-              <span className="px-2.5 py-2 rounded-xl bg-amber-100 text-amber-800 text-[8px] font-black uppercase">
-                {campaignPendingActions.length} pendiente{campaignPendingActions.length === 1 ? '' : 's'}
-              </span>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => openPlanActionDraft(null)}
-              className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm"
-            >
-              <Plus size={14}/> Registrar acción
-            </button>
+      {historicalReadOnly ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 sm:p-4">
+          <p className="text-[8px] font-black uppercase tracking-wide text-amber-800">Modo histórico · solo lectura</p>
+          <p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">Puedes revisar métricas, anuncios, variaciones y diagnósticos históricos. Winner no generará recomendaciones nuevas ni permitirá acciones operativas desde una campaña desactivada.</p>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 sm:p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-wide text-indigo-700">Agenda de esta campaña</p><p className="text-[9px] sm:text-[10px] text-slate-600 mt-1 leading-relaxed">Registra una acción mientras analizas la campaña y revísala después desde el Cuadro de acciones.</p></div>
+            <div className="flex items-center gap-2 flex-wrap">{campaignPendingActions.length > 0 ? <span className="px-2.5 py-2 rounded-xl bg-amber-100 text-amber-800 text-[8px] font-black uppercase">{campaignPendingActions.length} pendiente{campaignPendingActions.length === 1 ? '' : 's'}</span> : null}<button type="button" onClick={() => openPlanActionDraft(null)} className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm"><Plus size={14}/> Registrar acción</button></div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="px-1 md:px-2">
@@ -14459,12 +14486,12 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
           analysisPeriod={monitorPeriod}
           changeSafety={changeSafety}
           currentScaleStatus={currentScaleStatus}
-          onAdAction={requestAdAction}
+          onAdAction={historicalReadOnly ? null : requestAdAction}
           adActionBusyId={adActionBusyId}
-          onRegisterPlaybookAction={requestPlaybookAction}
-          onOpenActionDraft={openPlanActionDraft}
+          onRegisterPlaybookAction={historicalReadOnly ? null : requestPlaybookAction}
+          onOpenActionDraft={historicalReadOnly ? null : openPlanActionDraft}
           campaignPoda={campaignPoda}
-          onExecutePoda={requestPodaExecution}
+          onExecutePoda={historicalReadOnly ? null : requestPodaExecution}
         />
       )}
 
