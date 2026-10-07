@@ -288,6 +288,108 @@ function calcularStats(records, configs) {
   return s;
 }
 
+// ─── ECONOMÍA DEL TICKET · DASHBOARD GENERAL ─────────────────────────────────
+// Capa paralela e informativa. NO modifica calcularStats(), filtros, semáforos,
+// decisiones de escala, Firestore ni ninguna regla de negocio existente.
+function buildDashboardTicketEconomy(records, configs) {
+  const stats = calcularStats(records, configs);
+  const activeRecords = (records || []).filter(r => !r.restDay);
+
+  let weightedBaseRevenue = 0;
+  let baseOrders = 0;
+
+  activeRecords.forEach(r => {
+    const orders = parseFloat(r.orders) || 0;
+    if (orders <= 0) return;
+    const c = getConfigAtDate(configs, r.configId, r.date);
+    if (!c) return;
+    const basePrice = parseFloat(c.priceSingle) || 0;
+    if (basePrice <= 0) return;
+    weightedBaseRevenue += basePrice * orders;
+    baseOrders += orders;
+  });
+
+  const baseCoveragePct = stats.grossOrd > 0 ? (baseOrders / stats.grossOrd) * 100 : 0;
+  const baseComplete = stats.grossOrd > 0 && baseCoveragePct >= 99.999;
+  const baseAov = baseComplete && baseOrders > 0 ? weightedBaseRevenue / baseOrders : 0;
+  const ticketLift = baseAov > 0 ? stats.aov - baseAov : 0;
+  const ticketLiftPct = baseAov > 0 ? (ticketLift / baseAov) * 100 : null;
+
+  const contributionBeforeAdsTotal = stats.realRev
+    - stats.productCostTotal
+    - stats.totalFreightCost
+    - stats.totalFulfillment
+    - stats.totalCommissions
+    - stats.totalFixedCosts;
+
+  const cpaEconomic = stats.finalDeliveries > 0
+    ? contributionBeforeAdsTotal / stats.finalDeliveries
+    : 0;
+  const cushion = stats.finalDeliveries > 0 ? cpaEconomic - stats.cpaReal : 0;
+  const netMarginPerDelivery = stats.finalDeliveries > 0 ? stats.net / stats.finalDeliveries : 0;
+  const contributionBeforeAdsPerDelivery = stats.finalDeliveries > 0
+    ? contributionBeforeAdsTotal / stats.finalDeliveries
+    : 0;
+
+  let tone = 'neutral';
+  let code = 'NO_DATA';
+  let label = 'ECONOMÍA DEL TICKET · NO EVALUABLE';
+  let message = 'No hay suficientes pedidos y entregas estimadas para evaluar la economía del ticket.';
+
+  if (stats.grossOrd > 0 && stats.finalDeliveries > 0) {
+    if (stats.net < 0 || cushion < 0) {
+      tone = 'critical';
+      code = 'ECONOMIC_LOSS';
+      label = 'ECONOMÍA DEL TICKET · PÉRDIDA';
+      message = `El CPA actual consume más capacidad económica de la que deja el mix vendido. Déficit estimado: ${fmt(Math.abs(cushion))} por entrega.`;
+    } else if (cpaEconomic > 0 && cushion <= cpaEconomic * 0.2) {
+      tone = 'alert';
+      code = 'LOW_CUSHION';
+      label = 'ECONOMÍA DEL TICKET · MARGEN BAJO PRESIÓN';
+      message = `La operación sigue positiva, pero solo quedan ${fmt(cushion)} de colchón estimado por entrega sobre el CPA actual.`;
+    } else if (baseAov > 0 && ticketLiftPct !== null && ticketLiftPct >= 10) {
+      tone = 'strong';
+      code = 'STRONG_TICKET';
+      label = 'ECONOMÍA DEL TICKET · TICKET FUERTE';
+      message = `El ticket está ${fmtDec(ticketLiftPct, 1)}% por encima de la base ponderada y deja ${fmt(cushion)} de colchón económico por entrega.`;
+    } else {
+      tone = 'good';
+      code = 'HEALTHY_TICKET';
+      label = 'ECONOMÍA DEL TICKET · SALUDABLE';
+      message = `El mix vendido mantiene contribución positiva y deja ${fmt(cushion)} de colchón económico por entrega.`;
+    }
+  }
+
+  return {
+    evaluable: stats.grossOrd > 0 && stats.finalDeliveries > 0,
+    tone, code, label, message,
+    aov: stats.aov,
+    upo: stats.avgUnitsPerOrder,
+    baseAov,
+    baseCoveragePct,
+    baseComplete,
+    ticketLift,
+    ticketLiftPct,
+    contributionBeforeAdsTotal,
+    contributionBeforeAdsPerDelivery,
+    cpaEconomic,
+    cpaReal: stats.cpaReal,
+    cushion,
+    netMarginPerDelivery,
+    orders: stats.grossOrd,
+    units: stats.grossUnits,
+    deliveries: stats.finalDeliveries
+  };
+}
+
+function dashboardTicketEconomyToneCC(tone = 'neutral') {
+  if (tone === 'critical') return 'border-rose-200 bg-rose-50 text-rose-800';
+  if (tone === 'alert') return 'border-amber-200 bg-amber-50 text-amber-800';
+  if (tone === 'strong') return 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-[#fff9df] text-emerald-800';
+  if (tone === 'good') return 'border-blue-200 bg-blue-50 text-[#032A78]';
+  return 'border-slate-200 bg-slate-50 text-slate-600';
+}
+
 // ─── COMPONENTES UI ──────────────────────────────────────────────────────────
 const Card = ({ children, className = '', dark = false }) => (
   <div className={`rounded-2xl border p-4 md:p-6 ${dark ? 'bg-[#032A78] border-[#032A78] text-white shadow-[0_12px_32px_rgba(3,42,120,0.14)]' : 'bg-white border-slate-200 shadow-[0_6px_24px_rgba(15,23,42,0.055)]'} ${className}`}>
@@ -1050,6 +1152,7 @@ function VistaDashboard({ configs, months }) {
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
+  const ticketEconomy = useMemo(() => buildDashboardTicketEconomy(filteredRecords, configs), [filteredRecords, configs]);
 
   // Días activos corregidos
   const activeDays = useMemo(() => {
@@ -1136,7 +1239,8 @@ function VistaDashboard({ configs, months }) {
           cpaReal: statsProd.cpaReal,
           cpaEquilibrio: parseFloat(configs.find(c => c.id === configId)?.cpaEquilibrio) || 0,
           pedidos: statsProd.grossOrd, entregas: statsProd.finalDeliveries,
-          diasActivos: activeDaysProd, estado, isActive
+          diasActivos: activeDaysProd, estado, isActive,
+          ticketEconomy: buildDashboardTicketEconomy(records, configs)
         });
       }
     }
@@ -1196,7 +1300,8 @@ function VistaDashboard({ configs, months }) {
         utilidadPeriodo: statsProd.net, ier: statsProd.ierGlobal, roas: statsProd.roas,
         cpaReal: statsProd.cpaReal, cpaEquilibrio,
         pedidos: statsProd.grossOrd, entregas: statsProd.finalDeliveries,
-        diasActivos: activeDaysProd, estado, isActive, scaleCandidate
+        diasActivos: activeDaysProd, estado, isActive, scaleCandidate,
+        ticketEconomy: buildDashboardTicketEconomy(records, configs)
       });
     }
     return resultados.sort((a, b) => b.proyeccion30 - a.proyeccion30);
@@ -1274,6 +1379,33 @@ function VistaDashboard({ configs, months }) {
           <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight />
         </div>
 
+        {/* ECONOMÍA DEL TICKET · CAPA PARALELA */}
+        <div className={`rounded-3xl border-2 p-4 md:p-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)] ${dashboardTicketEconomyToneCC(ticketEconomy.tone)}`}>
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3 mb-4">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Gauge size={16} className="shrink-0" />
+                <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.12em]">Economía del Ticket</p>
+                <span className="text-[7px] md:text-[8px] font-black uppercase px-2 py-1 rounded-full bg-white/70 border border-current/10">Informativo</span>
+              </div>
+              <p className="text-[8px] md:text-[9px] opacity-70 mt-1">Usa facturación, unidades, IER y el costeo operativo ya existente. No modifica semáforos ni decisiones.</p>
+            </div>
+            <span className="inline-flex w-fit px-3 py-1.5 rounded-full bg-white/80 border border-current/10 text-[8px] md:text-[9px] font-black uppercase">{ticketEconomy.label}</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">AOV registrado</p><p className="text-sm md:text-base font-black font-mono mt-1">{fmt(ticketEconomy.aov)}</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Unid. / pedido</p><p className="text-sm md:text-base font-black font-mono mt-1">{fmtDec(ticketEconomy.upo, 2)}</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Ticket base pond.</p><p className="text-sm md:text-base font-black font-mono mt-1">{ticketEconomy.baseAov > 0 ? fmt(ticketEconomy.baseAov) : '—'}</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Elevación ticket</p><p className={`text-sm md:text-base font-black font-mono mt-1 ${ticketEconomy.ticketLift >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.baseAov > 0 ? `${ticketEconomy.ticketLift >= 0 ? '+' : ''}${fmt(ticketEconomy.ticketLift)}` : '—'}</p><p className="text-[7px] font-bold opacity-55">{ticketEconomy.ticketLiftPct !== null ? `${ticketEconomy.ticketLiftPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.ticketLiftPct, 1)}%` : 'Sin base'}</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">CPA económico</p><p className="text-sm md:text-base font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.cpaEconomic) : '—'}</p><p className="text-[7px] font-bold opacity-55">Punto cero del mix</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">CPA actual</p><p className="text-sm md:text-base font-black font-mono mt-1">{fmt(ticketEconomy.cpaReal)}</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Colchón</p><p className={`text-sm md:text-base font-black font-mono mt-1 ${ticketEconomy.cushion >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.cushion >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.cushion))}` : '—'}</p><p className="text-[7px] font-bold opacity-55">por entrega</p></div>
+            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Margen neto</p><p className={`text-sm md:text-base font-black font-mono mt-1 ${ticketEconomy.netMarginPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? fmt(ticketEconomy.netMarginPerDelivery) : '—'}</p><p className="text-[7px] font-bold opacity-55">por entrega</p></div>
+          </div>
+          <div className="mt-3 rounded-2xl bg-white/65 border border-white px-3 py-2.5 flex items-start gap-2"><Info size={12} className="shrink-0 mt-0.5" /><p className="text-[8px] md:text-[9px] font-bold leading-relaxed">{ticketEconomy.message}</p></div>
+        </div>
+
         {/* EMBUDO */}
         <div className="space-y-2"><SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />{openSections.embudo && (<Card><div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4"><div><Label>Pedidos Registrados</Label><p className="text-xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[8px]">{fmtN(stats.grossUnits)} unidades</p></div><div><Label>Guías Despachadas</Label><p className="text-xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div><div><Label>Devoluciones Est.</Label><p className="text-xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div><div><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px]">IER {fmtDec(stats.ierGlobal, 2)}%</p></div></div><div className="p-3 bg-slate-50 rounded-xl"><p className="text-[8px] font-black uppercase mb-2">📦 Unidades físicas</p><div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 text-xs"><div><span className="text-[8px] text-slate-500">Registradas:</span> <span className="font-black ml-1">{fmtN(stats.unitsRegistradas)}</span></div><div><span className="text-[8px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div><div><span className="text-[8px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div><div><span className="text-[8px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div><div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados, 1)}%</span></div></div></div></Card>)}</div>
 
@@ -1331,7 +1463,7 @@ function VistaDashboard({ configs, months }) {
                         <th className="p-2 md:p-3">Estado</th><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th>
                         <th className="p-2 md:p-3 text-right">Utilidad</th><th className="p-2 md:p-3 text-right">Proy. 30d</th><th className="p-2 md:p-3 text-right">Meta</th>
                         <th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th>
-                        <th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3 text-right">CPA Eq.</th><th className="p-2 md:p-3">Lectura</th>
+                        <th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3 text-right">CPA Eq.</th><th className="p-2 md:p-3 text-right">AOV</th><th className="p-2 md:p-3 text-right">U/P</th><th className="p-2 md:p-3 text-right">CPA Econ.</th><th className="p-2 md:p-3 text-right">Colchón</th><th className="p-2 md:p-3">Lectura</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1352,7 +1484,11 @@ function VistaDashboard({ configs, months }) {
                             <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(p.cpaReal)}</td>
                             <td className="p-2 md:p-3 text-right font-mono text-slate-500">{p.cpaEquilibrio > 0 ? fmt(p.cpaEquilibrio) : '—'}</td>
-                            <td className="p-2 md:p-3"><span className={`inline-flex text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full whitespace-nowrap ${isScale ? 'bg-[#F7C928] text-[#032A78]' : !p.isActive ? 'bg-slate-200 text-slate-600' : isReview ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{isScale ? '🚀 ' : ''}{lectura}</span></td>
+                            <td className="p-2 md:p-3 text-right font-mono font-black">{p.ticketEconomy?.aov > 0 ? fmt(p.ticketEconomy.aov) : '—'}</td>
+                            <td className="p-2 md:p-3 text-right font-mono">{p.ticketEconomy?.upo > 0 ? fmtDec(p.ticketEconomy.upo, 2) : '—'}</td>
+                            <td className="p-2 md:p-3 text-right font-mono font-black text-[#032A78]">{p.ticketEconomy?.evaluable ? fmt(p.ticketEconomy.cpaEconomic) : '—'}</td>
+                            <td className={`p-2 md:p-3 text-right font-mono font-black ${p.ticketEconomy?.cushion >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{p.ticketEconomy?.evaluable ? `${p.ticketEconomy.cushion >= 0 ? '+' : '−'}${fmt(Math.abs(p.ticketEconomy.cushion))}` : '—'}</td>
+                            <td className="p-2 md:p-3"><div className="flex flex-col gap-1 items-start"><span className={`inline-flex text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full whitespace-nowrap ${isScale ? 'bg-[#F7C928] text-[#032A78]' : !p.isActive ? 'bg-slate-200 text-slate-600' : isReview ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{isScale ? '🚀 ' : ''}{lectura}</span>{p.ticketEconomy?.evaluable && <span className={`text-[6.5px] md:text-[7px] font-black uppercase ${p.ticketEconomy.tone === 'critical' ? 'text-rose-600' : p.ticketEconomy.tone === 'alert' ? 'text-amber-600' : 'text-emerald-600'}`}>{p.ticketEconomy.label.replace('ECONOMÍA DEL TICKET · ', '')}</span>}</div></td>
                           </tr>
                         );
                       })}
