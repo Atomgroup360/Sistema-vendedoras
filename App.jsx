@@ -332,10 +332,10 @@ function buildDashboardTicketEconomy(records, configs) {
     : 0;
 
   // Métricas económicas derivadas para presentación. No alteran calcularStats().
-  // AOV registrado = facturación / pedidos.
-  // AOV real = recaudo esperado ajustado por el IER histórico de cada registro / pedidos.
+  // AOV = ticket promedio registrado (facturación / pedidos). No se ajusta por IER.
+  // El IER operativo se usa solo como insumo de métricas económicas derivadas como el AOV de equilibrio.
   const operationalIerRatio = stats.grossOrd > 0 ? stats.finalDeliveries / stats.grossOrd : 0;
-  const aovReal = stats.grossOrd > 0 ? stats.realRev / stats.grossOrd : 0;
+  const expectedRevenuePerOrder = stats.grossOrd > 0 ? stats.realRev / stats.grossOrd : 0;
   const realRevenuePerDelivery = stats.finalDeliveries > 0 ? stats.realRev / stats.finalDeliveries : 0;
 
   // La fuente principal de utilidad / entrega es la utilidad neta ya calculada por Winner.
@@ -361,13 +361,12 @@ function buildDashboardTicketEconomy(records, configs) {
 
   const totalEconomicCosts = stats.productCostTotal + logisticsTotal + stats.totalAds;
 
-  // Equilibrio en la misma base del AOV REAL: recaudo efectivo mínimo por pedido registrado.
-  const aovRealBreakEven = stats.grossOrd > 0 ? totalEconomicCosts / stats.grossOrd : 0;
-  const aovRealHeadroom = aovRealBreakEven > 0 ? aovReal - aovRealBreakEven : 0;
+  // Costo esperado por pedido; se usa como paso interno para obtener el AOV de equilibrio registrado.
+  const economicCostPerOrder = stats.grossOrd > 0 ? totalEconomicCosts / stats.grossOrd : 0;
 
-  // Referencia secundaria: ticket registrado mínimo antes del efecto IER.
+  // AOV de equilibrio = ticket promedio registrado mínimo que, tras el IER, cubre los costos modelados.
   const aovRegisteredBreakEven = operationalIerRatio > 0
-    ? aovRealBreakEven / operationalIerRatio
+    ? economicCostPerOrder / operationalIerRatio
     : 0;
   const aovRegisteredHeadroom = aovRegisteredBreakEven > 0 ? stats.aov - aovRegisteredBreakEven : 0;
 
@@ -408,7 +407,6 @@ function buildDashboardTicketEconomy(records, configs) {
     evaluable: stats.grossOrd > 0 && stats.finalDeliveries > 0,
     tone, code, label, message,
     aov: stats.aov,
-    aovReal,
     operationalIerRatio,
     upo: stats.avgUnitsPerOrder,
     baseAov,
@@ -436,8 +434,7 @@ function buildDashboardTicketEconomy(records, configs) {
     profitAdsPct,
     profitPer1000Ads,
     totalEconomicCosts,
-    aovRealBreakEven,
-    aovRealHeadroom,
+    economicCostPerOrder,
     aovRegisteredBreakEven,
     aovRegisteredHeadroom,
     aovBreakEven,
@@ -1410,8 +1407,8 @@ function VistaDashboard({ configs, months }) {
         formula: 'Σ(Facturación del registro × IER del registro)',
         calculation: `${money(stats.realRev)} esperados para el rango.`,
         interpretation: 'Es una aproximación al dinero que realmente termina convirtiéndose en recaudo.',
-        use: 'Es la base de utilidad, margen y AOV real.',
-        relation: 'AOV real = Recaudo neto esperado ÷ Pedidos registrados.',
+        use: 'Es la base económica esperada para utilidad y margen después del IER.',
+        relation: 'Se mantiene separado del AOV, que continúa siendo el ticket promedio registrado.',
         note: 'No sustituye conciliación contable definitiva, pero se acerca a la operación si tu IER está bien calibrado.'
       },
       aov: {
@@ -1423,20 +1420,8 @@ function VistaDashboard({ configs, months }) {
         calculation: `${money(stats.grossRev)} ÷ ${fmtN(stats.grossOrd)} pedidos = ${money(stats.aov)}`,
         interpretation: 'Mide la calidad comercial del ticket antes de efectividad y devoluciones.',
         use: 'Sirve para evaluar upsells, combos, cantidad vendida y valor promedio de pedido.',
-        relation: `AOV real del período: ${money(ticketEconomy.aovReal)}.`,
-        note: 'AOV siempre se calcula sobre pedidos, no sobre entregas.'
-      },
-      aovReal: {
-        title: 'AOV real · ajustado por IER',
-        type: 'ESTIMADO POR IER',
-        value: money(ticketEconomy.aovReal),
-        what: 'Recaudo esperado promedio por cada pedido registrado después de aplicar el IER real/histórico de cada registro.',
-        formula: 'Recaudo neto esperado ÷ Pedidos registrados',
-        calculation: `${money(stats.realRev)} ÷ ${fmtN(stats.grossOrd)} pedidos = ${money(ticketEconomy.aovReal)}`,
-        interpretation: 'Es más cercano al valor económico real de cada pedido que el AOV comercial.',
-        use: 'Sirve para comparar directamente el valor efectivo del pedido contra su punto de equilibrio real.',
-        relation: `AOV registrado: ${money(stats.aov)} · IER operativo: ${pct(stats.ierGlobal, 2)}.`,
-        note: 'Con un solo IER uniforme equivale a AOV × IER. Con varios productos, Winner usa el recaudo ajustado de cada registro para ponderarlo correctamente.'
+        relation: `IER operativo del período: ${pct(stats.ierGlobal, 2)}%. Se muestra por separado y no cambia el AOV.`,
+        note: 'AOV siempre significa ticket promedio registrado: facturación ÷ pedidos. No se descuenta por IER.'
       },
       upo: {
         title: 'UPO · Unidades por pedido',
@@ -1594,29 +1579,17 @@ function VistaDashboard({ configs, months }) {
         relation: `${money(ticketEconomy.cpaEconomic)} − ${money(stats.cpaReal)} = ${money(ticketEconomy.profitPerDeliveryAudit)}.`,
         note: 'Es informativo; no reemplaza el CPA equilibrio configurado ni las reglas de escala.'
       },
-      aovRealBreakEven: {
-        title: 'Equilibrio real por pedido',
-        type: 'DERIVADO',
-        value: money(ticketEconomy.aovRealBreakEven),
-        what: 'Recaudo efectivo mínimo que cada pedido registrado necesita producir, en promedio, para cubrir todos los costos modelados.',
-        formula: 'Costos económicos totales ÷ Pedidos registrados',
-        calculation: `${money(ticketEconomy.totalEconomicCosts)} ÷ ${fmtN(stats.grossOrd)} = ${money(ticketEconomy.aovRealBreakEven)}`,
-        interpretation: ticketEconomy.aovRealHeadroom >= 0 ? `Tu AOV real está ${money(ticketEconomy.aovRealHeadroom)} por encima del equilibrio real.` : `Tu AOV real está ${money(Math.abs(ticketEconomy.aovRealHeadroom))} por debajo del equilibrio real.`,
-        use: 'Sirve para comparar en la misma base recaudo efectivo contra costo efectivo.',
-        relation: `AOV real actual: ${money(ticketEconomy.aovReal)}.`,
-        note: 'Esta es la referencia principal de equilibrio económico en la capa ajustada por IER.'
-      },
       aovRegisteredBreakEven: {
-        title: 'AOV de equilibrio registrado',
+        title: 'AOV de equilibrio',
         type: 'DERIVADO',
         value: money(ticketEconomy.aovRegisteredBreakEven),
         what: 'Ticket promedio comercial mínimo que tendrías que registrar para que, después del IER operativo, el recaudo cubra los costos.',
-        formula: 'Equilibrio real por pedido ÷ IER operativo',
-        calculation: `${money(ticketEconomy.aovRealBreakEven)} ÷ ${fmtDec(ratio * 100, 2)}% = ${money(ticketEconomy.aovRegisteredBreakEven)}`,
+        formula: 'Costo esperado por pedido ÷ IER operativo',
+        calculation: `${money(ticketEconomy.economicCostPerOrder)} ÷ ${fmtDec(ratio * 100, 2)}% = ${money(ticketEconomy.aovRegisteredBreakEven)}`,
         interpretation: ticketEconomy.aovRegisteredHeadroom >= 0 ? `El AOV registrado está ${money(ticketEconomy.aovRegisteredHeadroom)} por encima de ese mínimo.` : `El AOV registrado está ${money(Math.abs(ticketEconomy.aovRegisteredHeadroom))} por debajo de ese mínimo.`,
         use: 'Sirve para saber qué ticket deberías vender antes del efecto de devoluciones y no efectividad.',
-        relation: `AOV registrado actual: ${money(stats.aov)} · AOV real: ${money(ticketEconomy.aovReal)}.`,
-        note: 'Se muestra como referencia secundaria; para realidad económica compara principalmente AOV real vs equilibrio real.'
+        relation: `AOV actual: ${money(stats.aov)} · IER operativo: ${pct(stats.ierGlobal, 2)}%.`,
+        note: 'AOV sigue significando ticket promedio registrado. El IER se usa únicamente para calcular cuánto ticket necesitas para cubrir los costos.'
       },
       baseAov: {
         title: 'Ticket base ponderado',
@@ -1663,7 +1636,7 @@ function VistaDashboard({ configs, months }) {
         calculation: `${fmtN(stats.finalDeliveries)} ÷ ${fmtN(stats.grossOrd)} × 100 = ${pct(stats.ierGlobal, 2)}`,
         interpretation: 'Un IER más alto hace que una mayor parte de la venta registrada termine en recaudo efectivo.',
         use: 'Es la pieza central para aterrizar AOV, recaudo, CPA y utilidad a la realidad COD.',
-        relation: `AOV registrado: ${money(stats.aov)} · AOV real: ${money(ticketEconomy.aovReal)}.`,
+        relation: `AOV registrado: ${money(stats.aov)} · IER operativo: ${pct(stats.ierGlobal, 2)}%.`,
         note: 'Winner lo construye con la efectividad y devolución histórica/configurada de cada registro.'
       },
       grossOrders: {
@@ -1697,7 +1670,7 @@ function VistaDashboard({ configs, months }) {
         what: 'Guías despachadas que se espera sean devueltas según la tasa histórica/configurada.',
         formula: 'Guías despachadas × Tasa de devolución',
         calculation: `${fmtN(stats.estimatedReturns)} devoluciones estimadas.`,
-        interpretation: 'Una tasa alta deteriora recaudo, AOV real y CPA por entrega.',
+        interpretation: 'Una tasa alta deteriora el recaudo esperado y eleva el CPA por entrega.',
         use: 'Sirve para vigilar calidad operativa y rentabilidad.',
         relation: `IER final: ${pct(stats.ierGlobal, 2)}.`,
         note: 'No es conciliación final de transportadora.'
@@ -2020,18 +1993,12 @@ function VistaDashboard({ configs, months }) {
           </div>
 
           {/* Lectura principal: compacta, con detalle educativo por métrica */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5">
             <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
               <MetricInfoButton onClick={() => openMetricHelp('aov')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase opacity-55">AOV registrado</p>
               <p className="text-lg md:text-xl font-black font-mono mt-1">{fmt(ticketEconomy.aov)}</p>
               <p className="text-[7px] font-bold opacity-55">{fmtN(ticketEconomy.orders)} pedidos</p>
-            </div>
-            <div className="relative rounded-2xl bg-white/95 border-2 border-blue-200 p-3.5">
-              <MetricInfoButton onClick={() => openMetricHelp('aovReal')} className="absolute top-2 right-2" />
-              <p className="text-[7px] font-black uppercase text-[#032A78]">AOV REAL · IER</p>
-              <p className="text-lg md:text-xl font-black font-mono mt-1 text-[#032A78]">{fmt(ticketEconomy.aovReal)}</p>
-              <p className="text-[7px] font-bold text-slate-500">recaudo esperado / pedido</p>
             </div>
             <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
               <MetricInfoButton onClick={() => openMetricHelp('upo')} className="absolute top-2 right-2" />
@@ -2086,13 +2053,13 @@ function VistaDashboard({ configs, months }) {
                 </div>
 
                 <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5">
-                  <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-amber-700">Equilibrio del ticket</p><span className="text-[7px] font-black text-amber-600">misma base real</span></div>
+                  <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-amber-700">Punto de equilibrio AOV</p><span className="text-[7px] font-black text-amber-600">ticket registrado</span></div>
                   <div className="grid grid-cols-3 gap-2 mt-2">
-                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('aovReal')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">AOV real</p><p className="text-sm font-black font-mono text-[#032A78]">{ticketEconomy.evaluable ? fmt(ticketEconomy.aovReal) : '—'}</p></div>
-                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('aovRealBreakEven')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">Equilibrio real</p><p className="text-sm font-black font-mono text-amber-700">{ticketEconomy.aovRealBreakEven > 0 ? fmt(ticketEconomy.aovRealBreakEven) : '—'}</p></div>
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Margen real / pedido</p><p className={`text-sm font-black font-mono ${ticketEconomy.aovRealHeadroom >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.aovRealBreakEven > 0 ? `${ticketEconomy.aovRealHeadroom >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.aovRealHeadroom))}` : '—'}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('aov')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">AOV actual</p><p className="text-sm font-black font-mono text-[#032A78]">{fmt(ticketEconomy.aov)}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('aovRegisteredBreakEven')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">AOV equilibrio</p><p className="text-sm font-black font-mono text-amber-700">{ticketEconomy.aovRegisteredBreakEven > 0 ? fmt(ticketEconomy.aovRegisteredBreakEven) : '—'}</p></div>
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Diferencia</p><p className={`text-sm font-black font-mono ${ticketEconomy.aovRegisteredHeadroom >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.aovRegisteredBreakEven > 0 ? `${ticketEconomy.aovRegisteredHeadroom >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.aovRegisteredHeadroom))}` : '—'}</p></div>
                   </div>
-                  <button type="button" onClick={() => openMetricHelp('aovRegisteredBreakEven')} className="mt-2 w-full text-left text-[6.5px] text-slate-500 hover:text-amber-700 transition"><span className="font-black">AOV equilibrio registrado:</span> {ticketEconomy.aovRegisteredBreakEven > 0 ? fmt(ticketEconomy.aovRegisteredBreakEven) : '—'} · toca para ver fórmula</button>
+                  <p className="mt-2 text-[6.5px] text-slate-500">AOV mantiene su significado habitual: ticket promedio registrado. El equilibrio indica el ticket mínimo requerido considerando IER y costos.</p>
                 </div>
               </div>
 
