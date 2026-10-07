@@ -1056,9 +1056,65 @@ function VistaDashboard({ configs, months }) {
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
 
-  // MESA DE DECISIÓN DE PRODUCTOS · reutiliza exactamente los cálculos y semáforos existentes.
-  // La ampliación solo hace visibles también BIEN / EXCELENTE para comparar contra REVISIÓN.
-  const productosDecision = useMemo(() => {
+  // PRODUCTOS EN REVISIÓN (con días activos corregidos)
+  const productosEnRevision = useMemo(() => {
+    if (filteredRecords.length === 0) return [];
+    const productosMap = new Map();
+    filteredRecords.forEach(record => {
+      const config = configs.find(c => c.id === record.configId);
+      if (!config) return;
+      if (!productosMap.has(record.configId)) {
+        productosMap.set(record.configId, {
+          configId: record.configId,
+          vendedora: config.vendedora,
+          productName: config.productName,
+          targetProfit: parseFloat(config.targetProfit) || 0,
+          isActive: config.activo !== false,
+          fixedAdSpend: config.fixedAdSpend === true,
+          records: []
+        });
+      }
+      productosMap.get(record.configId).records.push(record);
+    });
+    const resultados = [];
+    for (const [configId, producto] of productosMap) {
+      const { records, vendedora, productName, targetProfit, isActive, fixedAdSpend } = producto;
+      const statsProd = calcularStats(records, configs);
+      // Días activos del producto con la misma regla
+      const activeRecords = records.filter(r => {
+        if (r.restDay) return false;
+        const orders = parseFloat(r.orders) || 0;
+        if (orders > 0) return true;
+        if (fixedAdSpend) return true;
+        const ads = parseFloat(r.adSpend) || 0;
+        return ads > 0;
+      });
+      const activeDaysProd = new Set(activeRecords.map(r => r.date)).size;
+      const avgDiarioProd = activeDaysProd > 0 ? statsProd.net / activeDaysProd : 0;
+      const proyeccion30Prod = avgDiarioProd * 30;
+      let estado = { texto: 'REVISIÓN', emoji: '🔴', color: 'bg-rose-500', textColor: 'text-rose-500' };
+      if (proyeccion30Prod >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
+      else if (proyeccion30Prod >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+      if (estado.texto === 'REVISIÓN') {
+        resultados.push({
+          configId, vendedora, productName, targetProfit,
+          proyeccion30: proyeccion30Prod, avgDiario: avgDiarioProd,
+          utilidadPeriodo: statsProd.net, ier: statsProd.ierGlobal, roas: statsProd.roas,
+          cpaReal: statsProd.cpaReal,
+          cpaEquilibrio: parseFloat(configs.find(c => c.id === configId)?.cpaEquilibrio) || 0,
+          pedidos: statsProd.grossOrd, entregas: statsProd.finalDeliveries,
+          diasActivos: activeDaysProd, estado, isActive
+        });
+      }
+    }
+    const activos = resultados.filter(p => p.isActive).sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    const inactivos = resultados.filter(p => !p.isActive).sort((a, b) => a.proyeccion30 - b.proyeccion30);
+    return [...activos, ...inactivos];
+  }, [filteredRecords, configs, targetProfit]);
+
+  // BUEN RENDIMIENTO · CAPA VISUAL PARA COMPARACIÓN.
+  // IMPORTANTE: no altera filtros, registros, calcularStats ni el semáforo original de PRODUCTOS EN REVISIÓN.
+  const productosBuenRendimiento = useMemo(() => {
     if (filteredRecords.length === 0) return [];
     const productosMap = new Map();
     filteredRecords.forEach(record => {
@@ -1095,11 +1151,12 @@ function VistaDashboard({ configs, months }) {
       const avgDiarioProd = activeDaysProd > 0 ? statsProd.net / activeDaysProd : 0;
       const proyeccion30Prod = avgDiarioProd * 30;
 
-      let estado = { texto: 'REVISIÓN', emoji: '🔴', color: 'bg-rose-500', textColor: 'text-rose-500' };
-      if (proyeccion30Prod >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢', color: 'bg-emerald-500', textColor: 'text-emerald-500' };
-      else if (proyeccion30Prod >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵', color: 'bg-blue-500', textColor: 'text-blue-500' };
+      let estado = { texto: 'REVISIÓN', emoji: '🔴' };
+      if (proyeccion30Prod >= 1_000_000) estado = { texto: 'EXCELENTE', emoji: '🟢' };
+      else if (proyeccion30Prod >= targetProfit && targetProfit > 0) estado = { texto: 'BIEN', emoji: '🔵' };
+      if (estado.texto === 'REVISIÓN') continue;
 
-      const scaleCandidate = isActive && cpaEquilibrio > 0 && statsProd.cpaReal > 0 && statsProd.cpaReal <= cpaEquilibrio * 0.75 && estado.texto !== 'REVISIÓN';
+      const scaleCandidate = isActive && cpaEquilibrio > 0 && statsProd.cpaReal > 0 && statsProd.cpaReal <= cpaEquilibrio * 0.75;
       resultados.push({
         configId, vendedora, productName, targetProfit,
         proyeccion30: proyeccion30Prod, avgDiario: avgDiarioProd,
@@ -1109,24 +1166,26 @@ function VistaDashboard({ configs, months }) {
         diasActivos: activeDaysProd, estado, isActive, scaleCandidate
       });
     }
-
-    const rank = { 'REVISIÓN': 0, 'BIEN': 1, 'EXCELENTE': 2 };
-    return resultados.sort((a, b) => {
-      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-      if (rank[a.estado.texto] !== rank[b.estado.texto]) return rank[a.estado.texto] - rank[b.estado.texto];
-      return a.estado.texto === 'REVISIÓN' ? a.proyeccion30 - b.proyeccion30 : b.proyeccion30 - a.proyeccion30;
-    });
+    return resultados.sort((a, b) => b.proyeccion30 - a.proyeccion30);
   }, [filteredRecords, configs]);
 
-  const productosEnRevision = useMemo(() => productosDecision.filter(p => p.estado.texto === 'REVISIÓN'), [productosDecision]);
-  const productosFavorables = useMemo(() => productosDecision.filter(p => p.estado.texto !== 'REVISIÓN'), [productosDecision]);
-  const productosCandidatosEscala = useMemo(() => productosDecision.filter(p => p.scaleCandidate), [productosDecision]);
+  const productosDecision = useMemo(() => [
+    ...productosEnRevision.map(p => ({ ...p, scaleCandidate: false })),
+    ...productosBuenRendimiento
+  ], [productosEnRevision, productosBuenRendimiento]);
+
+  const productosCandidatosEscala = useMemo(
+    () => productosBuenRendimiento.filter(p => p.scaleCandidate),
+    [productosBuenRendimiento]
+  );
+
   const productosDecisionVisible = useMemo(() => {
     if (productDecisionFilter === 'review') return productosEnRevision;
-    if (productDecisionFilter === 'good') return productosFavorables;
+    if (productDecisionFilter === 'good') return productosBuenRendimiento;
     if (productDecisionFilter === 'scale') return productosCandidatosEscala;
     return productosDecision;
-  }, [productDecisionFilter, productosDecision, productosEnRevision, productosFavorables, productosCandidatosEscala]);
+  }, [productDecisionFilter, productosEnRevision, productosBuenRendimiento, productosCandidatosEscala, productosDecision]);
+
 
   const SectionHeader = ({ title, icon: Icon, section, totalItems = null }) => (
     <button onClick={() => toggleSection(section)} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
@@ -1194,19 +1253,19 @@ function VistaDashboard({ configs, months }) {
         {/* PROYECCIÓN */}
         <div className="space-y-2"><SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />{openSections.proyeccion && (<div className="flex flex-col md:grid md:grid-cols-2 gap-4"><Card dark className="space-y-3"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs"><div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div><div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div><div><p className="text-[8px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[8px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div></div></Card><div className={`rounded-2xl p-4 text-white shadow-xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><div><p className="text-[8px] font-black opacity-60">Proyección 30 Días</p><p className="text-[8px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-2xl md:text-4xl font-black">{fmt(proyeccion30)}</p><div className="bg-white/20 px-3 py-2 rounded-xl mt-2"><p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div><div className="flex justify-between text-[8px] font-black opacity-60 mt-3"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal, 2)}%</span></div></div>{targetProfit > 0 && (<Card className="col-span-2"><div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div></Card>)}</div>)}</div>
 
-        {/* PRODUCTOS EN REVISIÓN + BUEN RENDIMIENTO · MESA DE DECISIÓN */}
+        {/* PRODUCTOS EN REVISIÓN + BUEN RENDIMIENTO · MESA DE DECISIÓN VISUAL */}
         <div className="space-y-2">
           <button onClick={() => toggleSection('productosRevision')} className="w-full flex items-center justify-between py-3 px-3 md:px-4 bg-gradient-to-r from-[#eef4ff] via-white to-[#fff9df] hover:from-[#e5eeff] hover:to-[#fff4bd] rounded-xl transition-colors border-l-4 border-[#F7C928] shadow-sm">
             <div className="flex items-center gap-2 min-w-0">
               <Gauge size={15} className="text-[#032A78] shrink-0" />
               <div className="text-left min-w-0">
                 <span className="block text-[10px] md:text-xs font-black uppercase tracking-widest text-[#032A78]">Productos en revisión · Mesa de decisión</span>
-                <span className="block text-[7px] md:text-[8px] font-bold text-slate-500 mt-0.5">Compara críticos frente a productos con buen rendimiento antes de escalar</span>
+                <span className="block text-[7px] md:text-[8px] font-bold text-slate-500 mt-0.5">Mismo rango y mismas vendedoras seleccionadas · comparación sin modificar la lógica original</span>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className="hidden sm:inline-flex text-[8px] font-black bg-rose-100 text-rose-700 px-2 py-1 rounded-full">🔴 {productosEnRevision.length}</span>
-              <span className="hidden sm:inline-flex text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">🟢🔵 {productosFavorables.length}</span>
+              <span className="hidden sm:inline-flex text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">🟢🔵 {productosBuenRendimiento.length}</span>
               {openSections.productosRevision ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </div>
           </button>
@@ -1217,12 +1276,12 @@ function VistaDashboard({ configs, months }) {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                   <button onClick={() => setProductDecisionFilter('all')} className={`rounded-xl px-3 py-2 text-[8px] md:text-[9px] font-black uppercase transition ${productDecisionFilter === 'all' ? 'bg-[#032A78] text-white shadow-sm' : 'bg-slate-100 text-slate-600'}`}>Todos · {productosDecision.length}</button>
                   <button onClick={() => setProductDecisionFilter('review')} className={`rounded-xl px-3 py-2 text-[8px] md:text-[9px] font-black uppercase transition ${productDecisionFilter === 'review' ? 'bg-rose-600 text-white shadow-sm' : 'bg-rose-50 text-rose-700'}`}>🔴 Revisión · {productosEnRevision.length}</button>
-                  <button onClick={() => setProductDecisionFilter('good')} className={`rounded-xl px-3 py-2 text-[8px] md:text-[9px] font-black uppercase transition ${productDecisionFilter === 'good' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700'}`}>🟢 Buen rendimiento · {productosFavorables.length}</button>
+                  <button onClick={() => setProductDecisionFilter('good')} className={`rounded-xl px-3 py-2 text-[8px] md:text-[9px] font-black uppercase transition ${productDecisionFilter === 'good' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700'}`}>🟢 Buen rendimiento · {productosBuenRendimiento.length}</button>
                   <button onClick={() => setProductDecisionFilter('scale')} className={`rounded-xl px-3 py-2 text-[8px] md:text-[9px] font-black uppercase transition ${productDecisionFilter === 'scale' ? 'bg-[#F7C928] text-[#032A78] shadow-sm' : 'bg-[#fff8dc] text-[#795f00]'}`}>🚀 Candidatos escala · {productosCandidatosEscala.length}</button>
                 </div>
                 <div className="flex items-start gap-2 rounded-xl bg-[#f7f9fd] border border-[#e1e8f3] px-3 py-2">
                   <Info size={12} className="text-[#032A78] shrink-0 mt-0.5" />
-                  <p className="text-[7px] md:text-[8px] font-bold text-slate-500 leading-relaxed">Los estados <strong>REVISIÓN / BIEN / EXCELENTE</strong> conservan exactamente la lógica existente. “Candidato a escala” solo destaca productos favorables cuyo CPA ya está 25% o más por debajo de su CPA de equilibrio; no ejecuta cambios ni modifica presupuestos.</p>
+                  <p className="text-[7px] md:text-[8px] font-bold text-slate-500 leading-relaxed">Esta mesa usa exclusivamente los registros ya filtrados por fecha, vendedora y producto. Los productos rojos conservan el cálculo original. Los favorables se muestran como referencia comparativa; “Candidato a escala” es solo una señal visual.</p>
                 </div>
               </div>
 
@@ -1236,48 +1295,36 @@ function VistaDashboard({ configs, months }) {
                   <table className="w-full text-left border-collapse text-[10px] md:text-sm">
                     <thead className="bg-[#f4f7fc] text-[7px] md:text-[8px] font-black uppercase text-[#032A78]">
                       <tr>
-                        <th className="p-2 md:p-3">Estado</th>
-                        <th className="p-2 md:p-3">Vendedora</th>
-                        <th className="p-2 md:p-3">Producto</th>
-                        <th className="p-2 md:p-3 text-right">Utilidad</th>
-                        <th className="p-2 md:p-3 text-right">Proy. 30d</th>
-                        <th className="p-2 md:p-3 text-right">Meta</th>
-                        <th className="p-2 md:p-3 text-right">% Meta</th>
-                        <th className="p-2 md:p-3 text-right">IER</th>
-                        <th className="p-2 md:p-3 text-right">ROAS</th>
-                        <th className="p-2 md:p-3 text-right">CPA</th>
-                        <th className="p-2 md:p-3 text-right">CPA Eq.</th>
-                        <th className="p-2 md:p-3">Lectura</th>
+                        <th className="p-2 md:p-3">Estado</th><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th>
+                        <th className="p-2 md:p-3 text-right">Utilidad</th><th className="p-2 md:p-3 text-right">Proy. 30d</th><th className="p-2 md:p-3 text-right">Meta</th>
+                        <th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th>
+                        <th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3 text-right">CPA Eq.</th><th className="p-2 md:p-3">Lectura</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {productosDecisionVisible.map(p => {
                         const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
-                        const isReview = p.estado.texto === 'REVISIÓN';
-                        const rowBg = !p.isActive ? 'opacity-70 bg-slate-50' : p.scaleCandidate ? 'bg-emerald-50/45 hover:bg-emerald-50' : isReview ? 'bg-rose-50/25 hover:bg-rose-50/55' : 'hover:bg-blue-50/40';
-                        let lectura = isReview ? 'Revisar rendimiento' : p.estado.texto === 'EXCELENTE' ? 'Rendimiento excelente' : 'Rendimiento favorable';
-                        if (p.scaleCandidate) lectura = 'Candidato a escala';
-                        if (!p.isActive) lectura = 'Histórico · inactivo';
+                        const isReview = p.estado?.texto === 'REVISIÓN';
+                        const isScale = p.scaleCandidate === true;
+                        const lectura = !p.isActive ? 'Histórico · inactivo' : isScale ? 'Candidato a escala' : isReview ? 'Revisar rendimiento' : p.estado?.texto === 'EXCELENTE' ? 'Rendimiento excelente' : 'Rendimiento favorable';
                         return (
-                          <tr key={p.configId} className={`transition ${rowBg}`}>
-                            <td className="p-2 md:p-3"><span className={`inline-flex items-center gap-1 text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full ${isReview ? 'bg-rose-100 text-rose-700' : p.estado.texto === 'EXCELENTE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{p.estado.emoji} {p.estado.texto}</span></td>
+                          <tr key={p.configId} className={`transition ${!p.isActive ? 'opacity-70 bg-slate-50' : isScale ? 'bg-emerald-50/45 hover:bg-emerald-50' : isReview ? 'bg-rose-50/25 hover:bg-rose-50/55' : 'hover:bg-blue-50/40'}`}>
+                            <td className="p-2 md:p-3"><span className={`inline-flex items-center gap-1 text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full ${isReview ? 'bg-rose-100 text-rose-700' : p.estado?.texto === 'EXCELENTE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{p.estado?.emoji || (isReview ? '🔴' : '🔵')} {p.estado?.texto || (isReview ? 'REVISIÓN' : 'BIEN')}</span></td>
                             <td className={`p-2 md:p-3 font-black uppercase text-[9px] md:text-xs ${isReview ? 'text-rose-700' : 'text-[#032A78]'}`}>{p.vendedora}</td>
                             <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-slate-400' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[7px] font-black bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">INACTIVO</span>}</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(p.utilidadPeriodo)}</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${isReview ? 'text-rose-600' : 'text-[#032A78]'}`}>{fmt(p.proyeccion30)}</td>
                             <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
                             <td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta >= 100 ? 'text-emerald-600' : porcentajeMeta >= 50 ? 'text-amber-600' : 'text-rose-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td>
-                            <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td>
-                            <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
+                            <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(p.cpaReal)}</td>
                             <td className="p-2 md:p-3 text-right font-mono text-slate-500">{p.cpaEquilibrio > 0 ? fmt(p.cpaEquilibrio) : '—'}</td>
-                            <td className="p-2 md:p-3"><span className={`inline-flex text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full whitespace-nowrap ${p.scaleCandidate ? 'bg-[#F7C928] text-[#032A78]' : !p.isActive ? 'bg-slate-200 text-slate-600' : isReview ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{p.scaleCandidate ? '🚀 ' : ''}{lectura}</span></td>
+                            <td className="p-2 md:p-3"><span className={`inline-flex text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full whitespace-nowrap ${isScale ? 'bg-[#F7C928] text-[#032A78]' : !p.isActive ? 'bg-slate-200 text-slate-600' : isReview ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{isScale ? '🚀 ' : ''}{lectura}</span></td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
-                  {productosDecision.some(p => !p.isActive) && <div className="p-3 bg-slate-100 text-[8px] font-black text-slate-600 flex items-center gap-2 border-t"><Info size={12} /><span>Los productos inactivos se conservan únicamente como referencia histórica y no se consideran candidatos a escala.</span></div>}
                 </div>
               )}
             </Card>
