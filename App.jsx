@@ -332,11 +332,21 @@ function buildDashboardTicketEconomy(records, configs) {
     : 0;
 
   // Métricas económicas derivadas para presentación. No alteran calcularStats().
+  // AOV registrado = facturación / pedidos.
+  // AOV real = recaudo esperado ajustado por el IER histórico de cada registro / pedidos.
+  const operationalIerRatio = stats.grossOrd > 0 ? stats.finalDeliveries / stats.grossOrd : 0;
+  const aovReal = stats.grossOrd > 0 ? stats.realRev / stats.grossOrd : 0;
   const realRevenuePerDelivery = stats.finalDeliveries > 0 ? stats.realRev / stats.finalDeliveries : 0;
-  const estimatedProfitPerDelivery = cushion;
+
+  // La fuente principal de utilidad / entrega es la utilidad neta ya calculada por Winner.
+  // La resta CPA económico - CPA actual queda como auditoría y debe converger al mismo valor.
+  const estimatedProfitPerDelivery = netMarginPerDelivery;
+  const profitPerDeliveryAudit = cushion;
+  const profitPerDeliveryAuditDelta = estimatedProfitPerDelivery - profitPerDeliveryAudit;
   const marginPctPerDelivery = realRevenuePerDelivery > 0
     ? (estimatedProfitPerDelivery / realRevenuePerDelivery) * 100
     : null;
+
   const logisticsTotal = stats.totalFreightCost + stats.totalFulfillment + stats.totalCommissions + stats.totalFixedCosts;
   const logisticsPerDelivery = stats.finalDeliveries > 0 ? logisticsTotal / stats.finalDeliveries : 0;
   const merchandisePerDelivery = stats.finalDeliveries > 0 ? stats.productCostTotal / stats.finalDeliveries : 0;
@@ -344,15 +354,26 @@ function buildDashboardTicketEconomy(records, configs) {
   const totalCostPerDelivery = stats.finalDeliveries > 0
     ? (stats.productCostTotal + logisticsTotal + stats.totalAds) / stats.finalDeliveries
     : 0;
+
   const profitAdsRatio = stats.totalAds > 0 ? stats.net / stats.totalAds : null;
   const profitAdsPct = profitAdsRatio !== null ? profitAdsRatio * 100 : null;
   const profitPer1000Ads = profitAdsRatio !== null ? profitAdsRatio * 1000 : null;
-  const collectionEfficiencyRatio = stats.grossRev > 0 ? stats.realRev / stats.grossRev : 0;
+
   const totalEconomicCosts = stats.productCostTotal + logisticsTotal + stats.totalAds;
-  const aovBreakEven = stats.grossOrd > 0 && collectionEfficiencyRatio > 0
-    ? totalEconomicCosts / (stats.grossOrd * collectionEfficiencyRatio)
+
+  // Equilibrio en la misma base del AOV REAL: recaudo efectivo mínimo por pedido registrado.
+  const aovRealBreakEven = stats.grossOrd > 0 ? totalEconomicCosts / stats.grossOrd : 0;
+  const aovRealHeadroom = aovRealBreakEven > 0 ? aovReal - aovRealBreakEven : 0;
+
+  // Referencia secundaria: ticket registrado mínimo antes del efecto IER.
+  const aovRegisteredBreakEven = operationalIerRatio > 0
+    ? aovRealBreakEven / operationalIerRatio
     : 0;
-  const aovHeadroom = aovBreakEven > 0 ? stats.aov - aovBreakEven : 0;
+  const aovRegisteredHeadroom = aovRegisteredBreakEven > 0 ? stats.aov - aovRegisteredBreakEven : 0;
+
+  // Alias heredados para no romper ninguna lectura existente de la capa V7.
+  const aovBreakEven = aovRegisteredBreakEven;
+  const aovHeadroom = aovRegisteredHeadroom;
 
   let tone = 'neutral';
   let code = 'NO_DATA';
@@ -360,26 +381,26 @@ function buildDashboardTicketEconomy(records, configs) {
   let message = 'No hay suficientes pedidos y entregas estimadas para evaluar la economía del ticket.';
 
   if (stats.grossOrd > 0 && stats.finalDeliveries > 0) {
-    if (stats.net < 0 || cushion < 0) {
+    if (stats.net < 0 || estimatedProfitPerDelivery < 0) {
       tone = 'critical';
       code = 'ECONOMIC_LOSS';
       label = 'ECONOMÍA DEL TICKET · PÉRDIDA';
-      message = `El CPA actual consume más capacidad económica de la que deja el mix vendido. Déficit estimado: ${fmt(Math.abs(cushion))} por entrega.`;
-    } else if (cpaEconomic > 0 && cushion <= cpaEconomic * 0.2) {
+      message = `La operación deja una pérdida estimada de ${fmt(Math.abs(estimatedProfitPerDelivery))} por entrega después del IER y los costos modelados.`;
+    } else if (cpaEconomic > 0 && estimatedProfitPerDelivery <= cpaEconomic * 0.2) {
       tone = 'alert';
       code = 'LOW_CUSHION';
       label = 'ECONOMÍA DEL TICKET · MARGEN BAJO PRESIÓN';
-      message = `La operación sigue positiva, pero solo quedan ${fmt(cushion)} de utilidad estimada por entrega sobre el CPA actual.`;
+      message = `La operación sigue positiva, pero solo quedan ${fmt(estimatedProfitPerDelivery)} de utilidad estimada por entrega.`;
     } else if (baseAov > 0 && ticketLiftPct !== null && ticketLiftPct >= 10) {
       tone = 'strong';
       code = 'STRONG_TICKET';
       label = 'ECONOMÍA DEL TICKET · TICKET FUERTE';
-      message = `El ticket está ${fmtDec(ticketLiftPct, 1)}% por encima de la base ponderada y deja ${fmt(cushion)} de utilidad estimada por entrega.`;
+      message = `El ticket está ${fmtDec(ticketLiftPct, 1)}% por encima de la base ponderada y deja ${fmt(estimatedProfitPerDelivery)} de utilidad estimada por entrega.`;
     } else {
       tone = 'good';
       code = 'HEALTHY_TICKET';
       label = 'ECONOMÍA DEL TICKET · SALUDABLE';
-      message = `El mix vendido mantiene contribución positiva y deja ${fmt(cushion)} de utilidad estimada por entrega.`;
+      message = `El mix vendido mantiene contribución positiva y deja ${fmt(estimatedProfitPerDelivery)} de utilidad estimada por entrega.`;
     }
   }
 
@@ -387,6 +408,8 @@ function buildDashboardTicketEconomy(records, configs) {
     evaluable: stats.grossOrd > 0 && stats.finalDeliveries > 0,
     tone, code, label, message,
     aov: stats.aov,
+    aovReal,
+    operationalIerRatio,
     upo: stats.avgUnitsPerOrder,
     baseAov,
     baseCoveragePct,
@@ -400,6 +423,8 @@ function buildDashboardTicketEconomy(records, configs) {
     cushion,
     estimatedProfitPerDelivery,
     netMarginPerDelivery,
+    profitPerDeliveryAudit,
+    profitPerDeliveryAuditDelta,
     realRevenuePerDelivery,
     marginPctPerDelivery,
     logisticsTotal,
@@ -410,6 +435,11 @@ function buildDashboardTicketEconomy(records, configs) {
     profitAdsRatio,
     profitAdsPct,
     profitPer1000Ads,
+    totalEconomicCosts,
+    aovRealBreakEven,
+    aovRealHeadroom,
+    aovRegisteredBreakEven,
+    aovRegisteredHeadroom,
     aovBreakEven,
     aovHeadroom,
     orders: stats.grossOrd,
@@ -462,6 +492,91 @@ const Stat = ({ label, value, sub, accent = false, big = false, dark = false, hi
     {sub && <p className={`text-[9px] mt-1 font-semibold ${accent ? 'text-emerald-100' : highlight ? 'text-blue-400' : dark ? 'text-zinc-500' : 'text-slate-400'}`}>{sub}</p>}
   </div>
 );
+
+const MetricInfoButton = ({ onClick, light = false, className = '' }) => (
+  <button
+    type="button"
+    onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+    className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition hover:scale-105 active:scale-95 ${light ? 'bg-white/15 border-white/20 text-white hover:bg-white/25' : 'bg-white border-slate-200 text-[#032A78] hover:bg-blue-50'} ${className}`}
+    title="Ver cómo funciona esta métrica"
+    aria-label="Ver explicación de la métrica"
+  >
+    <Info size={11} />
+  </button>
+);
+
+function MetricHelpModal({ metric, onClose }) {
+  useEffect(() => {
+    if (!metric) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [metric, onClose]);
+
+  if (!metric) return null;
+
+  const typeClasses = {
+    REGISTRADO: 'bg-blue-100 text-[#032A78]',
+    'ESTIMADO POR IER': 'bg-amber-100 text-amber-800',
+    DERIVADO: 'bg-violet-100 text-violet-700',
+    CONFIGURADO: 'bg-slate-200 text-slate-700'
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onMouseDown={onClose}>
+      <div className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-white" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-100 px-4 sm:px-6 py-4 flex items-start justify-between gap-3 rounded-t-3xl">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg sm:text-xl font-black text-[#032A78]">{metric.title}</h3>
+              <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-full ${typeClasses[metric.type] || typeClasses.DERIVADO}`}>{metric.type || 'DERIVADO'}</span>
+            </div>
+            {metric.value && <p className="mt-2 text-2xl sm:text-3xl font-black font-mono text-slate-900">{metric.value}</p>}
+          </div>
+          <button type="button" onClick={onClose} className="w-9 h-9 shrink-0 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center"><X size={17} /></button>
+        </div>
+
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="rounded-2xl bg-[#f5f8ff] border border-blue-100 p-4">
+            <p className="text-[9px] font-black uppercase tracking-widest text-[#032A78] mb-1.5">¿Qué es?</p>
+            <p className="text-sm font-semibold text-slate-700 leading-relaxed">{metric.what}</p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">¿Cómo se calcula?</p>
+            <p className="text-sm font-black text-slate-900 font-mono leading-relaxed">{metric.formula}</p>
+            {metric.calculation && <p className="text-xs font-semibold text-slate-500 mt-2 leading-relaxed">{metric.calculation}</p>}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700 mb-1.5">¿Cómo interpretarlo?</p>
+              <p className="text-xs sm:text-sm font-semibold text-slate-700 leading-relaxed">{metric.interpretation}</p>
+            </div>
+            <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 mb-1.5">¿Para qué sirve?</p>
+              <p className="text-xs sm:text-sm font-semibold text-slate-700 leading-relaxed">{metric.use}</p>
+            </div>
+          </div>
+
+          {metric.relation && (
+            <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-violet-700 mb-1.5">Relación con otras métricas</p>
+              <p className="text-xs sm:text-sm font-semibold text-slate-700 leading-relaxed">{metric.relation}</p>
+            </div>
+          )}
+
+          {metric.note && (
+            <div className="flex items-start gap-2 rounded-2xl bg-slate-900 text-white p-4">
+              <Info size={14} className="shrink-0 mt-0.5 text-[#F7C928]" />
+              <p className="text-[10px] sm:text-xs font-semibold leading-relaxed text-slate-200">{metric.note}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── VISTA 1: CONFIGURACIÓN (ESTRATEGIAS) ────────────────────────────────────
 const EMPTY_CONFIG = {
@@ -1104,6 +1219,7 @@ function VistaDashboard({ configs, months }) {
   const [filter, setFilter] = useState({ startDate: todayColombia(), endDate: todayColombia() });
   const [selectedVendors, setSelectedVendors] = useState([]);
   const [selectedProductsByVendor, setSelectedProductsByVendor] = useState({});
+  const [metricHelp, setMetricHelp] = useState(null);
 
   useEffect(() => {
     const savedStartDate = localStorage.getItem('dashboard_filters_startDate');
@@ -1220,14 +1336,487 @@ function VistaDashboard({ configs, months }) {
   else { cpaColor = 'bg-yellow-100 border-yellow-500 text-yellow-700'; cpaMensaje = '✅ CPA por debajo del equilibrio → Rentable'; }
 
   const costItems = [
-    { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas`, icon: Package },
-    { label: 'Fletes Totales', value: stats.totalFreightCost, note: 'Incluye cargos extra', icon: Truck },
-    { label: 'Fulfillment', value: stats.totalFulfillment, note: 'Por guía despachada', icon: Boxes },
-    { label: 'Comisiones', value: stats.totalCommissions, note: 'Solo entregas exitosas', icon: DollarSign },
-    { label: 'Costos Fijos', value: stats.totalFixedCosts, note: 'Prorrateo por entrega', icon: Activity },
-    { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads', icon: Target }
+    { label: 'Costo de Mercancía', value: stats.productCostTotal, note: `${fmtN(stats.unitsDeliveredReal)} unid. entregadas`, icon: Package, metricKey: 'productCostTotal' },
+    { label: 'Fletes Totales', value: stats.totalFreightCost, note: 'Incluye cargos extra', icon: Truck, metricKey: 'freightTotal' },
+    { label: 'Fulfillment', value: stats.totalFulfillment, note: 'Por guía despachada', icon: Boxes, metricKey: 'fulfillmentTotal' },
+    { label: 'Comisiones', value: stats.totalCommissions, note: 'Solo entregas exitosas', icon: DollarSign, metricKey: 'commissionsTotal' },
+    { label: 'Costos Fijos', value: stats.totalFixedCosts, note: 'Prorrateo por entrega', icon: Activity, metricKey: 'fixedCostsTotal' },
+    { label: 'Publicidad', value: stats.totalAds, note: 'Meta Ads', icon: Target, metricKey: 'adsTotal' }
   ];
   const totalCostos = costItems.reduce((s, i) => s + i.value, 0);
+
+
+  const metricHelpMap = useMemo(() => {
+    const money = (v) => fmt(v || 0);
+    const pct = (v, d = 1) => `${fmtDec(v || 0, d)}%`;
+    const ratio = ticketEconomy.operationalIerRatio || 0;
+    const totalCostPerOrder = stats.grossOrd > 0 ? ticketEconomy.totalEconomicCosts / stats.grossOrd : 0;
+    const netMarginPct = stats.realRev > 0 ? (stats.net / stats.realRev) * 100 : 0;
+
+    return {
+      cpaReal: {
+        title: 'CPA actual · por entrega final',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.cpaReal),
+        what: 'Cuánto estás pagando en publicidad por cada entrega final estimada después de aplicar efectividad y devoluciones.',
+        formula: 'Gasto Ads ÷ Entregas finales estimadas',
+        calculation: `${money(stats.totalAds)} ÷ ${fmtN(stats.finalDeliveries)} entregas = ${money(stats.cpaReal)}`,
+        interpretation: 'Mientras más bajo sea frente al CPA de equilibrio y al CPA económico, más margen conserva la operación.',
+        use: 'Sirve para controlar adquisición, rentabilidad y capacidad de escala.',
+        relation: 'Se compara con CPA de equilibrio configurado y CPA económico derivado del ticket real.',
+        note: 'No es el CPA de compra de Meta. Usa entregas finales estimadas mediante tu IER.'
+      },
+      cpaEquilibrium: {
+        title: 'CPA equilibrio ponderado',
+        type: 'CONFIGURADO',
+        value: money(stats.cpaEquilibrioPonderado),
+        what: 'Referencia ponderada de los CPA de equilibrio configurados para los productos vendidos en el período.',
+        formula: 'Σ(CPA equilibrio producto × pedidos) ÷ Σ pedidos',
+        calculation: stats.grossOrd > 0 ? `Ponderado sobre ${fmtN(stats.grossOrd)} pedidos del rango.` : 'Sin pedidos para ponderar.',
+        interpretation: 'Si el CPA actual supera esta referencia, la operación base pierde protección de margen.',
+        use: 'Sirve como guardarraíl operativo de adquisición.',
+        relation: 'Es distinto del CPA económico: este valor viene de configuración; el CPA económico se deriva del mix real.',
+        note: 'Winner conserva esta métrica exactamente como estaba antes de la capa Economía del Ticket.'
+      },
+      grossRevenue: {
+        title: 'Recaudo bruto registrado',
+        type: 'REGISTRADO',
+        value: money(stats.grossRev),
+        what: 'Facturación total registrada antes de aplicar efectividad y devoluciones.',
+        formula: 'Σ facturación registrada',
+        calculation: `${money(stats.grossRev)} en el rango seleccionado.`,
+        interpretation: 'Representa venta comercial registrada, no recaudo final esperado.',
+        use: 'Sirve para medir volumen de venta y calcular AOV.',
+        relation: 'AOV = Recaudo bruto registrado ÷ Pedidos registrados.',
+        note: 'No descuenta IER.'
+      },
+      ierAdjustment: {
+        title: 'Ajuste por IER',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.grossRev - stats.realRev),
+        what: 'Parte de la facturación registrada que Winner descuenta para aproximar no efectividad y devoluciones.',
+        formula: 'Recaudo bruto − Recaudo neto esperado',
+        calculation: `${money(stats.grossRev)} − ${money(stats.realRev)} = ${money(stats.grossRev - stats.realRev)}`,
+        interpretation: 'Cuanto mayor sea, mayor es la pérdida esperada entre pedido registrado y recaudo final.',
+        use: 'Sirve para aterrizar la facturación comercial a una expectativa operativa más realista.',
+        relation: `IER operativo del período: ${pct(stats.ierGlobal, 2)}.`,
+        note: 'Es una estimación basada en tus tasas históricas/configuradas.'
+      },
+      realRevenue: {
+        title: 'Recaudo neto esperado',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.realRev),
+        what: 'Ingreso que Winner espera recaudar después de aplicar el IER de cada registro.',
+        formula: 'Σ(Facturación del registro × IER del registro)',
+        calculation: `${money(stats.realRev)} esperados para el rango.`,
+        interpretation: 'Es una aproximación al dinero que realmente termina convirtiéndose en recaudo.',
+        use: 'Es la base de utilidad, margen y AOV real.',
+        relation: 'AOV real = Recaudo neto esperado ÷ Pedidos registrados.',
+        note: 'No sustituye conciliación contable definitiva, pero se acerca a la operación si tu IER está bien calibrado.'
+      },
+      aov: {
+        title: 'AOV · Ticket promedio registrado',
+        type: 'REGISTRADO',
+        value: money(stats.aov),
+        what: 'Valor promedio vendido por cada pedido registrado.',
+        formula: 'Facturación registrada ÷ Pedidos registrados',
+        calculation: `${money(stats.grossRev)} ÷ ${fmtN(stats.grossOrd)} pedidos = ${money(stats.aov)}`,
+        interpretation: 'Mide la calidad comercial del ticket antes de efectividad y devoluciones.',
+        use: 'Sirve para evaluar upsells, combos, cantidad vendida y valor promedio de pedido.',
+        relation: `AOV real del período: ${money(ticketEconomy.aovReal)}.`,
+        note: 'AOV siempre se calcula sobre pedidos, no sobre entregas.'
+      },
+      aovReal: {
+        title: 'AOV real · ajustado por IER',
+        type: 'ESTIMADO POR IER',
+        value: money(ticketEconomy.aovReal),
+        what: 'Recaudo esperado promedio por cada pedido registrado después de aplicar el IER real/histórico de cada registro.',
+        formula: 'Recaudo neto esperado ÷ Pedidos registrados',
+        calculation: `${money(stats.realRev)} ÷ ${fmtN(stats.grossOrd)} pedidos = ${money(ticketEconomy.aovReal)}`,
+        interpretation: 'Es más cercano al valor económico real de cada pedido que el AOV comercial.',
+        use: 'Sirve para comparar directamente el valor efectivo del pedido contra su punto de equilibrio real.',
+        relation: `AOV registrado: ${money(stats.aov)} · IER operativo: ${pct(stats.ierGlobal, 2)}.`,
+        note: 'Con un solo IER uniforme equivale a AOV × IER. Con varios productos, Winner usa el recaudo ajustado de cada registro para ponderarlo correctamente.'
+      },
+      upo: {
+        title: 'UPO · Unidades por pedido',
+        type: 'REGISTRADO',
+        value: fmtDec(ticketEconomy.upo, 2),
+        what: 'Cantidad promedio de unidades vendidas dentro de cada pedido registrado.',
+        formula: 'Unidades registradas ÷ Pedidos registrados',
+        calculation: `${fmtN(stats.grossUnits)} unidades ÷ ${fmtN(stats.grossOrd)} pedidos = ${fmtDec(ticketEconomy.upo, 2)}`,
+        interpretation: 'Un UPO mayor suele elevar el ticket, pero también puede elevar mercancía y flete.',
+        use: 'Sirve para medir éxito de combos y ventas de múltiples unidades.',
+        relation: 'Explica parte de la diferencia entre ticket base y AOV observado.',
+        note: 'Es un dato registrado, no estimado por IER.'
+      },
+      freightPerDelivery: {
+        title: 'Flete por entrega',
+        type: 'DERIVADO',
+        value: money(stats.freteRealXEntrega),
+        what: 'Costo promedio de flete asignado a cada entrega final estimada.',
+        formula: 'Fletes totales ÷ Entregas finales estimadas',
+        calculation: `${money(stats.totalFreightCost)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(stats.freteRealXEntrega)}`,
+        interpretation: 'Permite detectar productos o mixes con una carga logística alta.',
+        use: 'Sirve para controlar costo logístico unitario.',
+        relation: 'Forma parte del costo logístico por entrega y del costo total por entrega.',
+        note: 'Incluye la lógica existente de cargo por unidad adicional.'
+      },
+      roas: {
+        title: 'ROAS operativo',
+        type: 'DERIVADO',
+        value: `${fmtDec(stats.roas, 4)}x`,
+        what: 'Cuánto recaudo neto esperado genera cada peso invertido en publicidad.',
+        formula: 'Recaudo neto esperado ÷ Gasto Ads',
+        calculation: stats.totalAds > 0 ? `${money(stats.realRev)} ÷ ${money(stats.totalAds)} = ${fmtDec(stats.roas, 4)}x` : 'Sin inversión publicitaria.',
+        interpretation: 'Un ROAS alto no garantiza por sí solo utilidad; depende de mercancía y costos logísticos.',
+        use: 'Sirve para evaluar eficiencia de ingresos frente a Ads.',
+        relation: `Retorno neto de publicidad: ${ticketEconomy.profitAdsPct !== null ? pct(ticketEconomy.profitAdsPct, 1) : '—'}.`,
+        note: 'Winner usa recaudo ajustado por IER, no facturación bruta.'
+      },
+      netProfit: {
+        title: 'Utilidad neta estimada',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.net),
+        what: 'Resultado económico esperado después de mercancía, logística, costos fijos y publicidad.',
+        formula: 'Recaudo neto esperado − Mercancía − Fletes − Fulfillment − Comisiones − Fijos − Ads',
+        calculation: `${money(stats.realRev)} − ${money(totalCostos)} = ${money(stats.net)}`,
+        interpretation: stats.net >= 0 ? 'La operación del período está dejando utilidad modelada positiva.' : 'La operación del período está dejando pérdida modelada.',
+        use: 'Es la métrica central para evaluar rentabilidad total.',
+        relation: `Margen neto estimado: ${pct(netMarginPct, 1)}.`,
+        note: 'Depende de la precisión de IER y de los costos configurados.'
+      },
+      profitDay: {
+        title: 'Utilidad promedio por día activo',
+        type: 'DERIVADO',
+        value: money(avgDiario),
+        what: 'Utilidad neta promedio por cada día considerado activo en el rango.',
+        formula: 'Utilidad neta del período ÷ Días activos',
+        calculation: `${money(stats.net)} ÷ ${activeDays} días = ${money(avgDiario)}`,
+        interpretation: 'Permite comparar velocidad de generación de utilidad entre rangos.',
+        use: 'Es la base de la proyección a 30 días.',
+        relation: `Proyección 30 días: ${money(proyeccion30)}.`,
+        note: 'Los días activos conservan la misma regla existente de Winner.'
+      },
+      profitPerDelivery: {
+        title: 'Utilidad estimada por entrega',
+        type: 'ESTIMADO POR IER',
+        value: money(ticketEconomy.estimatedProfitPerDelivery),
+        what: 'Utilidad neta modelada que deja cada entrega final estimada.',
+        formula: 'Utilidad neta ÷ Entregas finales estimadas',
+        calculation: `${money(stats.net)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(ticketEconomy.estimatedProfitPerDelivery)}`,
+        interpretation: ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'Cada entrega está dejando margen positivo después de todos los costos modelados.' : 'Cada entrega está destruyendo margen.',
+        use: 'Sirve para entender cuánto dinero queda realmente por entrega.',
+        relation: `También debe coincidir con CPA económico − CPA actual: ${money(ticketEconomy.profitPerDeliveryAudit)}.`,
+        note: Math.abs(ticketEconomy.profitPerDeliveryAuditDelta || 0) < 1 ? 'Auditoría interna consistente: las dos rutas de cálculo convergen.' : `Diferencia de auditoría: ${money(ticketEconomy.profitPerDeliveryAuditDelta)}.`
+      },
+      marginPerDelivery: {
+        title: 'Margen % por entrega',
+        type: 'DERIVADO',
+        value: ticketEconomy.marginPctPerDelivery !== null ? pct(ticketEconomy.marginPctPerDelivery, 1) : '—',
+        what: 'Porcentaje del recaudo por entrega que queda como utilidad neta estimada.',
+        formula: 'Utilidad por entrega ÷ Recaudo real por entrega × 100',
+        calculation: `${money(ticketEconomy.estimatedProfitPerDelivery)} ÷ ${money(ticketEconomy.realRevenuePerDelivery)} × 100 = ${ticketEconomy.marginPctPerDelivery !== null ? pct(ticketEconomy.marginPctPerDelivery, 1) : '—'}`,
+        interpretation: 'Permite comparar rentabilidad entre productos con tickets muy diferentes.',
+        use: 'Sirve para saber qué tan protegido está el margen, no solo cuántos pesos deja.',
+        relation: 'Complementa utilidad/entrega y retorno neto de Ads.',
+        note: 'Es un margen modelado con IER y costos actuales.'
+      },
+      profitAds: {
+        title: 'Retorno neto de publicidad',
+        type: 'DERIVADO',
+        value: ticketEconomy.profitPer1000Ads !== null ? `${ticketEconomy.profitPer1000Ads >= 0 ? '+' : '−'}${money(Math.abs(ticketEconomy.profitPer1000Ads))} / $1.000` : '—',
+        what: 'Cuánta utilidad neta genera la operación por cada $1.000 invertidos en publicidad.',
+        formula: 'Utilidad neta ÷ Gasto Ads',
+        calculation: stats.totalAds > 0 ? `${money(stats.net)} ÷ ${money(stats.totalAds)} = ${pct(ticketEconomy.profitAdsPct, 1)} · ${money(ticketEconomy.profitPer1000Ads)} por cada $1.000` : 'Sin inversión publicitaria.',
+        interpretation: 'Positivo significa que Ads deja utilidad después de todos los costos; negativo indica pérdida.',
+        use: 'Sirve para comparar eficiencia real de publicidad más allá del ROAS.',
+        relation: `ROAS actual: ${fmtDec(stats.roas, 2)}x.`,
+        note: 'Se expresa simultáneamente en pesos por cada $1.000 y en porcentaje.'
+      },
+      merchandisePerDelivery: {
+        title: 'Mercancía por entrega',
+        type: 'DERIVADO',
+        value: money(ticketEconomy.merchandisePerDelivery),
+        what: 'Costo promedio de mercancía asociado a cada entrega final estimada.',
+        formula: 'Costo total de mercancía entregada ÷ Entregas finales estimadas',
+        calculation: `${money(stats.productCostTotal)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(ticketEconomy.merchandisePerDelivery)}`,
+        interpretation: 'Muestra cuánto del valor de una entrega se consume solo en producto.',
+        use: 'Sirve para comparar productos y mixes con estructuras de costo distintas.',
+        relation: 'Forma parte del costo total por entrega.',
+        note: 'Considera unidades entregadas estimadas, no únicamente pedidos.'
+      },
+      logisticsPerDelivery: {
+        title: 'Logística por entrega',
+        type: 'DERIVADO',
+        value: money(ticketEconomy.logisticsPerDelivery),
+        what: 'Costo logístico promedio por entrega final estimada.',
+        formula: '(Fletes + Fulfillment + Comisiones + Costos fijos) ÷ Entregas finales',
+        calculation: `${money(ticketEconomy.logisticsTotal)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(ticketEconomy.logisticsPerDelivery)}`,
+        interpretation: 'Permite detectar cuánto pesa la operación física sobre cada entrega.',
+        use: 'Sirve para optimizar logística y comparar productos.',
+        relation: 'No incluye mercancía ni Ads.',
+        note: 'Se mantiene separado para no ocultar si el problema está en logística.'
+      },
+      adsPerDelivery: {
+        title: 'Ads por entrega',
+        type: 'ESTIMADO POR IER',
+        value: money(ticketEconomy.adsPerDelivery),
+        what: 'Publicidad promedio absorbida por cada entrega final estimada.',
+        formula: 'Gasto Ads ÷ Entregas finales estimadas',
+        calculation: `${money(stats.totalAds)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(ticketEconomy.adsPerDelivery)}`,
+        interpretation: 'Es equivalente al CPA actual del Dashboard bajo esta base.',
+        use: 'Sirve para integrar adquisición dentro del costo total por entrega.',
+        relation: `CPA actual: ${money(stats.cpaReal)}.`,
+        note: 'Depende del IER porque el denominador son entregas finales estimadas.'
+      },
+      totalCostPerDelivery: {
+        title: 'Costo total por entrega',
+        type: 'DERIVADO',
+        value: money(ticketEconomy.totalCostPerDelivery),
+        what: 'Costo total modelado que absorbe cada entrega final.',
+        formula: 'Mercancía/entrega + Logística/entrega + Ads/entrega',
+        calculation: `${money(ticketEconomy.merchandisePerDelivery)} + ${money(ticketEconomy.logisticsPerDelivery)} + ${money(ticketEconomy.adsPerDelivery)} = ${money(ticketEconomy.totalCostPerDelivery)}`,
+        interpretation: 'Si supera el recaudo real por entrega, la entrega es deficitaria.',
+        use: 'Sirve para ver de un vistazo cuánto cuesta completar una entrega.',
+        relation: `Recaudo real / entrega: ${money(ticketEconomy.realRevenuePerDelivery)}.`,
+        note: 'Incluye todos los costos modelados por Winner.'
+      },
+      cpaEconomic: {
+        title: 'CPA económico',
+        type: 'DERIVADO',
+        value: money(ticketEconomy.cpaEconomic),
+        what: 'Máximo gasto de adquisición aproximado por entrega antes de que la utilidad modelada llegue a cero.',
+        formula: 'Contribución antes de Ads ÷ Entregas finales estimadas',
+        calculation: `${money(ticketEconomy.contributionBeforeAdsTotal)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(ticketEconomy.cpaEconomic)}`,
+        interpretation: 'La diferencia contra CPA actual representa la utilidad por entrega.',
+        use: 'Sirve para conocer capacidad económica de adquisición del mix real.',
+        relation: `${money(ticketEconomy.cpaEconomic)} − ${money(stats.cpaReal)} = ${money(ticketEconomy.profitPerDeliveryAudit)}.`,
+        note: 'Es informativo; no reemplaza el CPA equilibrio configurado ni las reglas de escala.'
+      },
+      aovRealBreakEven: {
+        title: 'Equilibrio real por pedido',
+        type: 'DERIVADO',
+        value: money(ticketEconomy.aovRealBreakEven),
+        what: 'Recaudo efectivo mínimo que cada pedido registrado necesita producir, en promedio, para cubrir todos los costos modelados.',
+        formula: 'Costos económicos totales ÷ Pedidos registrados',
+        calculation: `${money(ticketEconomy.totalEconomicCosts)} ÷ ${fmtN(stats.grossOrd)} = ${money(ticketEconomy.aovRealBreakEven)}`,
+        interpretation: ticketEconomy.aovRealHeadroom >= 0 ? `Tu AOV real está ${money(ticketEconomy.aovRealHeadroom)} por encima del equilibrio real.` : `Tu AOV real está ${money(Math.abs(ticketEconomy.aovRealHeadroom))} por debajo del equilibrio real.`,
+        use: 'Sirve para comparar en la misma base recaudo efectivo contra costo efectivo.',
+        relation: `AOV real actual: ${money(ticketEconomy.aovReal)}.`,
+        note: 'Esta es la referencia principal de equilibrio económico en la capa ajustada por IER.'
+      },
+      aovRegisteredBreakEven: {
+        title: 'AOV de equilibrio registrado',
+        type: 'DERIVADO',
+        value: money(ticketEconomy.aovRegisteredBreakEven),
+        what: 'Ticket promedio comercial mínimo que tendrías que registrar para que, después del IER operativo, el recaudo cubra los costos.',
+        formula: 'Equilibrio real por pedido ÷ IER operativo',
+        calculation: `${money(ticketEconomy.aovRealBreakEven)} ÷ ${fmtDec(ratio * 100, 2)}% = ${money(ticketEconomy.aovRegisteredBreakEven)}`,
+        interpretation: ticketEconomy.aovRegisteredHeadroom >= 0 ? `El AOV registrado está ${money(ticketEconomy.aovRegisteredHeadroom)} por encima de ese mínimo.` : `El AOV registrado está ${money(Math.abs(ticketEconomy.aovRegisteredHeadroom))} por debajo de ese mínimo.`,
+        use: 'Sirve para saber qué ticket deberías vender antes del efecto de devoluciones y no efectividad.',
+        relation: `AOV registrado actual: ${money(stats.aov)} · AOV real: ${money(ticketEconomy.aovReal)}.`,
+        note: 'Se muestra como referencia secundaria; para realidad económica compara principalmente AOV real vs equilibrio real.'
+      },
+      baseAov: {
+        title: 'Ticket base ponderado',
+        type: 'CONFIGURADO',
+        value: ticketEconomy.baseAov > 0 ? money(ticketEconomy.baseAov) : '—',
+        what: 'Precio base configurado de los productos, ponderado por los pedidos del período.',
+        formula: 'Σ(Precio base × pedidos) ÷ Σ pedidos',
+        calculation: ticketEconomy.baseAov > 0 ? `Base ponderada: ${money(ticketEconomy.baseAov)}.` : 'No hay cobertura completa de precio base.',
+        interpretation: 'Permite saber cuánto del AOV viene de elevar el ticket sobre la oferta base.',
+        use: 'Sirve para evaluar upsells, combos y venta de unidades adicionales.',
+        relation: `AOV registrado: ${money(stats.aov)}.`,
+        note: 'Solo se evalúa cuando Winner tiene cobertura completa de precio base.'
+      },
+      ticketLift: {
+        title: 'Elevación de ticket',
+        type: 'DERIVADO',
+        value: ticketEconomy.baseAov > 0 ? `${ticketEconomy.ticketLift >= 0 ? '+' : '−'}${money(Math.abs(ticketEconomy.ticketLift))}` : '—',
+        what: 'Diferencia entre el AOV registrado y el ticket base ponderado.',
+        formula: 'AOV registrado − Ticket base ponderado',
+        calculation: ticketEconomy.baseAov > 0 ? `${money(stats.aov)} − ${money(ticketEconomy.baseAov)} = ${money(ticketEconomy.ticketLift)}` : 'Sin base completa.',
+        interpretation: 'Positivo indica que el mix vendido eleva el ticket sobre la oferta base.',
+        use: 'Sirve para medir aporte comercial de combos, upsells o múltiples unidades.',
+        relation: ticketEconomy.ticketLiftPct !== null ? `Elevación relativa: ${pct(ticketEconomy.ticketLiftPct, 1)}.` : 'Sin porcentaje disponible.',
+        note: 'No mide utilidad; solo expansión del ticket.'
+      },
+      realRevenuePerDelivery: {
+        title: 'Recaudo real por entrega',
+        type: 'ESTIMADO POR IER',
+        value: money(ticketEconomy.realRevenuePerDelivery),
+        what: 'Ingreso neto esperado promedio por cada entrega final estimada.',
+        formula: 'Recaudo neto esperado ÷ Entregas finales estimadas',
+        calculation: `${money(stats.realRev)} ÷ ${fmtN(stats.finalDeliveries)} = ${money(ticketEconomy.realRevenuePerDelivery)}`,
+        interpretation: 'Permite enfrentar directamente ingreso por entrega contra costo total por entrega.',
+        use: 'Sirve para calcular margen % y utilidad por entrega.',
+        relation: `Costo total / entrega: ${money(ticketEconomy.totalCostPerDelivery)}.`,
+        note: 'No es AOV: esta métrica está expresada por entrega, no por pedido.'
+      },
+      ier: {
+        title: 'IER · Índice de entrega real',
+        type: 'ESTIMADO POR IER',
+        value: pct(stats.ierGlobal, 2),
+        what: 'Porcentaje estimado de pedidos registrados que terminan convirtiéndose en entregas finales después de efectividad y devoluciones.',
+        formula: 'Entregas finales estimadas ÷ Pedidos registrados × 100',
+        calculation: `${fmtN(stats.finalDeliveries)} ÷ ${fmtN(stats.grossOrd)} × 100 = ${pct(stats.ierGlobal, 2)}`,
+        interpretation: 'Un IER más alto hace que una mayor parte de la venta registrada termine en recaudo efectivo.',
+        use: 'Es la pieza central para aterrizar AOV, recaudo, CPA y utilidad a la realidad COD.',
+        relation: `AOV registrado: ${money(stats.aov)} · AOV real: ${money(ticketEconomy.aovReal)}.`,
+        note: 'Winner lo construye con la efectividad y devolución histórica/configurada de cada registro.'
+      },
+      grossOrders: {
+        title: 'Pedidos registrados',
+        type: 'REGISTRADO',
+        value: fmtN(stats.grossOrd),
+        what: 'Cantidad total de pedidos registrados en el rango seleccionado.',
+        formula: 'Σ pedidos registrados',
+        calculation: `${fmtN(stats.grossOrd)} pedidos.`,
+        interpretation: 'Es la base comercial antes de aplicar efectividad o devoluciones.',
+        use: 'Sirve como denominador de AOV, UPO y métricas reales por pedido.',
+        relation: `Entregas finales estimadas: ${fmtN(stats.finalDeliveries)}.`,
+        note: 'No equivale a entregas.'
+      },
+      shipped: {
+        title: 'Guías despachadas estimadas',
+        type: 'ESTIMADO POR IER',
+        value: fmtN(stats.realShipped),
+        what: 'Pedidos esperados como despachados según la efectividad configurada.',
+        formula: 'Pedidos × Efectividad',
+        calculation: `${fmtN(stats.realShipped)} guías estimadas.`,
+        interpretation: 'Mide el primer filtro operativo entre pedido y entrega.',
+        use: 'Sirve para costear flete y fulfillment.',
+        relation: `Devoluciones estimadas: ${fmtN(stats.estimatedReturns)}.`,
+        note: 'Es una estimación operativa.'
+      },
+      returns: {
+        title: 'Devoluciones estimadas',
+        type: 'ESTIMADO POR IER',
+        value: fmtN(stats.estimatedReturns),
+        what: 'Guías despachadas que se espera sean devueltas según la tasa histórica/configurada.',
+        formula: 'Guías despachadas × Tasa de devolución',
+        calculation: `${fmtN(stats.estimatedReturns)} devoluciones estimadas.`,
+        interpretation: 'Una tasa alta deteriora recaudo, AOV real y CPA por entrega.',
+        use: 'Sirve para vigilar calidad operativa y rentabilidad.',
+        relation: `IER final: ${pct(stats.ierGlobal, 2)}.`,
+        note: 'No es conciliación final de transportadora.'
+      },
+      deliveries: {
+        title: 'Entregas finales estimadas',
+        type: 'ESTIMADO POR IER',
+        value: fmtN(stats.finalDeliveries),
+        what: 'Pedidos que Winner estima terminarán efectivamente entregados.',
+        formula: 'Pedidos × Efectividad × (1 − Devolución)',
+        calculation: `${fmtN(stats.finalDeliveries)} entregas finales estimadas.`,
+        interpretation: 'Es el denominador principal de CPA actual, utilidad/entrega y costos/entrega.',
+        use: 'Sirve para acercar el análisis COD a lo que realmente termina entregándose.',
+        relation: `IER operativo: ${pct(stats.ierGlobal, 2)}.`,
+        note: 'Su precisión depende de la calibración de efectividad y devoluciones.'
+      },
+      productCostTotal: {
+        title: 'Costo total de mercancía',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.productCostTotal),
+        what: 'Costo de producto asociado a las unidades que Winner estima terminarán entregadas.',
+        formula: 'Costo unitario × Unidades entregadas estimadas',
+        calculation: `${money(stats.productCostTotal)} en el período.`,
+        interpretation: 'Mide cuánto capital de producto consume la operación entregada.',
+        use: 'Sirve para construir utilidad y costo total.',
+        relation: `Mercancía / entrega: ${money(ticketEconomy.merchandisePerDelivery)}.`,
+        note: 'Usa las unidades entregadas estimadas por el modelo.'
+      },
+      freightTotal: {
+        title: 'Fletes totales',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.totalFreightCost),
+        what: 'Costo total de flete aplicado a las guías despachadas, incluyendo cargos por unidad adicional.',
+        formula: 'Σ(Guías despachadas × Flete por guía ajustado)',
+        calculation: `${money(stats.totalFreightCost)} en el período.`,
+        interpretation: 'Permite identificar presión logística por despachos y cantidad de unidades.',
+        use: 'Sirve para calcular costo logístico y utilidad.',
+        relation: `Flete / entrega: ${money(stats.freteRealXEntrega)}.`,
+        note: 'Conserva exactamente la lógica logística existente de Winner.'
+      },
+      fulfillmentTotal: {
+        title: 'Fulfillment total',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.totalFulfillment),
+        what: 'Costo total de fulfillment asociado a las guías despachadas.',
+        formula: 'Guías despachadas × Costo fulfillment',
+        calculation: `${money(stats.totalFulfillment)} en el período.`,
+        interpretation: 'Es un costo operativo de despacho.',
+        use: 'Forma parte del costo logístico.',
+        relation: `Logística / entrega: ${money(ticketEconomy.logisticsPerDelivery)}.`,
+        note: 'Se carga por guía despachada según la lógica existente.'
+      },
+      commissionsTotal: {
+        title: 'Comisiones totales',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.totalCommissions),
+        what: 'Comisiones asociadas a las entregas finales estimadas.',
+        formula: 'Entregas finales × Comisión',
+        calculation: `${money(stats.totalCommissions)} en el período.`,
+        interpretation: 'Reduce directamente la contribución por entrega.',
+        use: 'Forma parte del costo logístico/operativo.',
+        relation: `Entregas: ${fmtN(stats.finalDeliveries)}.`,
+        note: 'Winner solo las aplica sobre entregas exitosas estimadas.'
+      },
+      fixedCostsTotal: {
+        title: 'Costos fijos prorrateados',
+        type: 'ESTIMADO POR IER',
+        value: money(stats.totalFixedCosts),
+        what: 'Costos fijos configurados y asignados a las entregas finales estimadas.',
+        formula: 'Entregas finales × Costo fijo por entrega',
+        calculation: `${money(stats.totalFixedCosts)} en el período.`,
+        interpretation: 'Evita sobreestimar utilidad al ignorar costos estructurales.',
+        use: 'Forma parte de utilidad y costo total.',
+        relation: 'Se integra dentro de logística/operación.',
+        note: 'Depende de la configuración de cada producto.'
+      },
+      adsTotal: {
+        title: 'Publicidad total',
+        type: 'REGISTRADO',
+        value: money(stats.totalAds),
+        what: 'Gasto publicitario usado por Winner en el período filtrado.',
+        formula: 'Σ gasto Ads aplicable por registro',
+        calculation: `${money(stats.totalAds)} en el período.`,
+        interpretation: 'Es el costo de adquisición total antes de dividirlo por entregas.',
+        use: 'Sirve para CPA, ROAS y retorno neto de publicidad.',
+        relation: `CPA actual: ${money(stats.cpaReal)}.`,
+        note: 'Conserva la misma regla existente entre gasto manual y gasto fijo.'
+      },
+      totalCosts: {
+        title: 'Costos totales',
+        type: 'DERIVADO',
+        value: money(totalCostos),
+        what: 'Suma de mercancía, fletes, fulfillment, comisiones, costos fijos y publicidad.',
+        formula: 'Mercancía + Fletes + Fulfillment + Comisiones + Fijos + Ads',
+        calculation: `${money(totalCostos)} en el período.`,
+        interpretation: 'Se compara contra recaudo neto esperado para obtener utilidad.',
+        use: 'Sirve para auditar la estructura completa de costos.',
+        relation: `Utilidad neta: ${money(stats.net)}.`,
+        note: 'Usa exactamente los componentes ya existentes en Winner.'
+      },
+      projection30: {
+        title: 'Proyección a 30 días',
+        type: 'DERIVADO',
+        value: money(proyeccion30),
+        what: 'Proyección de utilidad mensual manteniendo el promedio diario del rango.',
+        formula: 'Utilidad promedio por día activo × 30',
+        calculation: `${money(avgDiario)} × 30 = ${money(proyeccion30)}`,
+        interpretation: 'No es una promesa; asume que el ritmo observado se mantiene.',
+        use: 'Sirve para comparar contra meta y semáforo de producto/operación.',
+        relation: `Días activos analizados: ${activeDays}.`,
+        note: 'Conserva la fórmula original del Dashboard.'
+      }
+    };
+  }, [stats, ticketEconomy, avgDiario, activeDays, proyeccion30, totalCostos]);
+
+  const openMetricHelp = (key) => {
+    const metric = metricHelpMap[key];
+    if (metric) setMetricHelp(metric);
+  };
 
   // PRODUCTOS EN REVISIÓN (con días activos corregidos)
   const productosEnRevision = useMemo(() => {
@@ -1394,26 +1983,26 @@ function VistaDashboard({ configs, months }) {
       </Card>
 
       {filteredRecords.length === 0 || activeDays === 0 ? <Card className="text-center py-12 text-slate-300"><BarChart3 size={32} className="mx-auto mb-3 opacity-30" /><p className="font-black uppercase text-sm">Sin datos activos en este rango</p></Card> : (<>
-        <div className={`tpc-dashboard-cpa rounded-2xl p-4 md:p-5 border ${cpaColor} shadow-[0_8px_24px_rgba(15,23,42,0.06)]`}>
+        <div className={`tpc-dashboard-cpa relative rounded-2xl p-4 md:p-5 border ${cpaColor} shadow-[0_8px_24px_rgba(15,23,42,0.06)]`}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-            <div><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Costo por adquisición real</p></div>
-            <div className="text-center"><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label>{stats.totalOrders === 0 && stats.totalAdsValue > 0 ? (<div className="flex flex-col items-center"><p className="text-lg md:text-2xl font-black font-mono text-amber-600">N/A</p><p className="text-[8px] md:text-[9px] font-semibold text-amber-600">⚠️ Sin pedidos en el período</p></div>) : (<><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p><p className="text-[8px] md:text-[9px] font-semibold">Basado en cada producto</p></>)}</div>
+            <div className="relative pr-8"><MetricInfoButton onClick={() => openMetricHelp('cpaReal')} className="absolute right-0 top-0" /><Label className="text-inherit opacity-70">CPA REAL PROMEDIO</Label><p className="text-xl md:text-3xl font-black font-mono">{fmt(stats.cpaReal)}</p><p className="text-[8px] md:text-[9px] font-semibold">Costo por adquisición real</p></div>
+            <div className="relative text-center px-8"><MetricInfoButton onClick={() => openMetricHelp('cpaEquilibrium')} className="absolute right-0 top-0" /><Label className="text-inherit opacity-70">CPA EQUILIBRIO PONDERADO</Label>{stats.totalOrders === 0 && stats.totalAdsValue > 0 ? (<div className="flex flex-col items-center"><p className="text-lg md:text-2xl font-black font-mono text-amber-600">N/A</p><p className="text-[8px] md:text-[9px] font-semibold text-amber-600">⚠️ Sin pedidos en el período</p></div>) : (<><p className="text-lg md:text-2xl font-black font-mono">{fmt(stats.cpaEquilibrioPonderado)}</p><p className="text-[8px] md:text-[9px] font-semibold">Basado en cada producto</p></>)}</div>
             <div className="text-right"><div className="inline-block px-2 py-1 rounded-lg bg-white/50 backdrop-blur-sm"><p className="text-[8px] md:text-[10px] font-black">{cpaMensaje}</p></div></div>
           </div>
         </div>
 
         <div className="tpc-dashboard-revenue grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-          <Card className="border-l-4 border-l-slate-400"><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
-          <Card className="bg-amber-50 border-l-4 border-l-amber-400"><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(stats.grossRev - stats.realRev)}</p></Card>
-          <Card className="bg-emerald-50 border-l-4 border-l-emerald-500"><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
+          <Card className="relative border-l-4 border-l-slate-400"><MetricInfoButton onClick={() => openMetricHelp('grossRevenue')} className="absolute top-3 right-3" /><Label>💰 Recaudo Bruto Total</Label><p className="text-xl md:text-3xl font-black">{fmt(stats.grossRev)}</p></Card>
+          <Card className="relative bg-amber-50 border-l-4 border-l-amber-400"><MetricInfoButton onClick={() => openMetricHelp('ierAdjustment')} className="absolute top-3 right-3" /><Label>⚠ Ajuste por IER</Label><p className="text-xl md:text-3xl font-black text-amber-600">- {fmt(stats.grossRev - stats.realRev)}</p></Card>
+          <Card className="relative bg-emerald-50 border-l-4 border-l-emerald-500"><MetricInfoButton onClick={() => openMetricHelp('realRevenue')} className="absolute top-3 right-3" /><Label>✅ Recaudo Neto Real</Label><p className="text-xl md:text-3xl font-black text-emerald-700">{fmt(stats.realRev)}</p></Card>
         </div>
 
         <div className="tpc-dashboard-kpis grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-          <Stat label="AOV" value={fmt(stats.aov)} sub={`${fmtN(stats.grossOrd)} pedidos`} highlight />
-          <Stat label="Flete x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`${fmtN(stats.finalDeliveries)} entregas`} />
-          <Stat label="ROAS" value={`${fmtDec(stats.roas, 4)}x`} />
-          <Stat label="Utilidad Neta" value={fmt(stats.net)} sub={`${stats.net >= 0 ? '💰' : '⚠️'}`} />
-          <Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight />
+          <div className="relative"><Stat label="AOV" value={fmt(stats.aov)} sub={`${fmtN(stats.grossOrd)} pedidos`} highlight /><MetricInfoButton onClick={() => openMetricHelp('aov')} className="absolute top-2 right-2" /></div>
+          <div className="relative"><Stat label="Flete x Entrega" value={fmt(stats.freteRealXEntrega)} sub={`${fmtN(stats.finalDeliveries)} entregas`} /><MetricInfoButton onClick={() => openMetricHelp('freightPerDelivery')} className="absolute top-2 right-2" /></div>
+          <div className="relative"><Stat label="ROAS" value={`${fmtDec(stats.roas, 4)}x`} /><MetricInfoButton onClick={() => openMetricHelp('roas')} className="absolute top-2 right-2" /></div>
+          <div className="relative"><Stat label="Utilidad Neta" value={fmt(stats.net)} sub={`${stats.net >= 0 ? '💰' : '⚠️'}`} /><MetricInfoButton onClick={() => openMetricHelp('netProfit')} className="absolute top-2 right-2" /></div>
+          <div className="relative"><Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight /><MetricInfoButton onClick={() => openMetricHelp('profitDay')} className="absolute top-2 right-2" /></div>
         </div>
 
         {/* ECONOMÍA DEL TICKET · CAPA PARALELA */}
@@ -1430,29 +2019,40 @@ function VistaDashboard({ configs, months }) {
             <span className="inline-flex w-fit px-3 py-1.5 rounded-full bg-white/80 border border-current/10 text-[8px] md:text-[9px] font-black uppercase">{ticketEconomy.label}</span>
           </div>
 
-          {/* Lectura principal: solo las 5 métricas que deben verse siempre */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
-            <div className="rounded-2xl bg-white/85 border border-white p-3.5">
-              <p className="text-[7px] font-black uppercase opacity-55">AOV</p>
+          {/* Lectura principal: compacta, con detalle educativo por métrica */}
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
+            <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
+              <MetricInfoButton onClick={() => openMetricHelp('aov')} className="absolute top-2 right-2" />
+              <p className="text-[7px] font-black uppercase opacity-55">AOV registrado</p>
               <p className="text-lg md:text-xl font-black font-mono mt-1">{fmt(ticketEconomy.aov)}</p>
               <p className="text-[7px] font-bold opacity-55">{fmtN(ticketEconomy.orders)} pedidos</p>
             </div>
-            <div className="rounded-2xl bg-white/85 border border-white p-3.5">
+            <div className="relative rounded-2xl bg-white/95 border-2 border-blue-200 p-3.5">
+              <MetricInfoButton onClick={() => openMetricHelp('aovReal')} className="absolute top-2 right-2" />
+              <p className="text-[7px] font-black uppercase text-[#032A78]">AOV REAL · IER</p>
+              <p className="text-lg md:text-xl font-black font-mono mt-1 text-[#032A78]">{fmt(ticketEconomy.aovReal)}</p>
+              <p className="text-[7px] font-bold text-slate-500">recaudo esperado / pedido</p>
+            </div>
+            <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
+              <MetricInfoButton onClick={() => openMetricHelp('upo')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase opacity-55">UPO · Unidades / pedido</p>
               <p className="text-lg md:text-xl font-black font-mono mt-1">{fmtDec(ticketEconomy.upo, 2)}</p>
               <p className="text-[7px] font-bold opacity-55">{fmtN(ticketEconomy.units)} unidades registradas</p>
             </div>
-            <div className="rounded-2xl bg-white/90 border-2 border-emerald-200 p-3.5">
+            <div className="relative rounded-2xl bg-white/90 border-2 border-emerald-200 p-3.5">
+              <MetricInfoButton onClick={() => openMetricHelp('profitPerDelivery')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase text-emerald-700">Utilidad estimada / entrega</p>
               <p className={`text-lg md:text-xl font-black font-mono mt-1 ${ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.estimatedProfitPerDelivery >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.estimatedProfitPerDelivery))}` : '—'}</p>
-              <p className="text-[7px] font-bold text-slate-500">antes llamado colchón económico</p>
+              <p className="text-[7px] font-bold text-slate-500">utilidad neta ÷ entregas</p>
             </div>
-            <div className="rounded-2xl bg-white/85 border border-white p-3.5">
+            <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
+              <MetricInfoButton onClick={() => openMetricHelp('marginPerDelivery')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase opacity-55">Margen % / entrega</p>
               <p className={`text-lg md:text-xl font-black font-mono mt-1 ${(ticketEconomy.marginPctPerDelivery ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.marginPctPerDelivery !== null ? `${fmtDec(ticketEconomy.marginPctPerDelivery, 1)}%` : '—'}</p>
               <p className="text-[7px] font-bold opacity-55">utilidad ÷ recaudo real</p>
             </div>
-            <div className="col-span-2 lg:col-span-1 rounded-2xl bg-[#032A78] text-white border border-[#032A78] p-3.5 shadow-sm">
+            <div className="relative col-span-2 md:col-span-1 rounded-2xl bg-[#032A78] text-white border border-[#032A78] p-3.5 shadow-sm">
+              <MetricInfoButton onClick={() => openMetricHelp('profitAds')} light className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase text-blue-200">Retorno neto de publicidad</p>
               <p className={`text-lg md:text-xl font-black font-mono mt-1 ${ticketEconomy.profitAdsRatio === null ? 'text-white' : ticketEconomy.profitAdsRatio >= 0 ? 'text-[#F7C928]' : 'text-rose-300'}`}>{ticketEconomy.profitPer1000Ads !== null ? `${ticketEconomy.profitPer1000Ads >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.profitPer1000Ads))}` : '—'}</p>
               <p className="text-[7px] font-black text-blue-100">por cada $1.000 en Ads · {ticketEconomy.profitAdsPct !== null ? `${ticketEconomy.profitAdsPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.profitAdsPct, 1)}%` : 'sin inversión'}</p>
@@ -1469,54 +2069,54 @@ function VistaDashboard({ configs, months }) {
           {openSections.economiaTicketDetalle && (
             <div className="mt-3 rounded-2xl bg-white/75 border border-white p-3 md:p-4 space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Mercancía / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.merchandisePerDelivery) : '—'}</p></div>
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Logística / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.logisticsPerDelivery) : '—'}</p><p className="text-[6.5px] text-slate-400 mt-0.5">flete + fulfillment + comisión + fijos</p></div>
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Ads / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.adsPerDelivery) : '—'}</p></div>
-                <div className="rounded-xl bg-slate-900 text-white p-3"><p className="text-[7px] font-black uppercase text-slate-400">Costo total / entrega</p><p className="text-sm font-black font-mono mt-1 text-rose-300">{ticketEconomy.evaluable ? fmt(ticketEconomy.totalCostPerDelivery) : '—'}</p></div>
+                <div className="relative rounded-xl bg-slate-50 border border-slate-100 p-3"><MetricInfoButton onClick={() => openMetricHelp('merchandisePerDelivery')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Mercancía / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.merchandisePerDelivery) : '—'}</p></div>
+                <div className="relative rounded-xl bg-slate-50 border border-slate-100 p-3"><MetricInfoButton onClick={() => openMetricHelp('logisticsPerDelivery')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Logística / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.logisticsPerDelivery) : '—'}</p><p className="text-[6.5px] text-slate-400 mt-0.5">flete + fulfillment + comisión + fijos</p></div>
+                <div className="relative rounded-xl bg-slate-50 border border-slate-100 p-3"><MetricInfoButton onClick={() => openMetricHelp('adsPerDelivery')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Ads / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.adsPerDelivery) : '—'}</p></div>
+                <div className="relative rounded-xl bg-slate-900 text-white p-3"><MetricInfoButton onClick={() => openMetricHelp('totalCostPerDelivery')} light className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-400 pr-6">Costo total / entrega</p><p className="text-sm font-black font-mono mt-1 text-rose-300">{ticketEconomy.evaluable ? fmt(ticketEconomy.totalCostPerDelivery) : '—'}</p></div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5">
                   <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-[#032A78]">Capacidad de CPA</p><span className="text-[7px] font-black text-blue-500">mix actual</span></div>
                   <div className="grid grid-cols-3 gap-2 mt-2">
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">CPA económico</p><p className="text-sm font-black font-mono text-[#032A78]">{ticketEconomy.evaluable ? fmt(ticketEconomy.cpaEconomic) : '—'}</p></div>
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">CPA actual</p><p className="text-sm font-black font-mono">{fmt(ticketEconomy.cpaReal)}</p></div>
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Utilidad / entrega</p><p className={`text-sm font-black font-mono ${ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.estimatedProfitPerDelivery >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.estimatedProfitPerDelivery))}` : '—'}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('cpaEconomic')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">CPA económico</p><p className="text-sm font-black font-mono text-[#032A78]">{ticketEconomy.evaluable ? fmt(ticketEconomy.cpaEconomic) : '—'}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('cpaReal')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">CPA actual</p><p className="text-sm font-black font-mono">{fmt(ticketEconomy.cpaReal)}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('profitPerDelivery')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">Utilidad / entrega</p><p className={`text-sm font-black font-mono ${ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.estimatedProfitPerDelivery >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.estimatedProfitPerDelivery))}` : '—'}</p></div>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5">
-                  <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-amber-700">Punto de equilibrio AOV</p><span className="text-[7px] font-black text-amber-600">IER + mix actual</span></div>
+                  <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-amber-700">Equilibrio del ticket</p><span className="text-[7px] font-black text-amber-600">misma base real</span></div>
                   <div className="grid grid-cols-3 gap-2 mt-2">
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">AOV equilibrio</p><p className="text-sm font-black font-mono text-amber-700">{ticketEconomy.aovBreakEven > 0 ? fmt(ticketEconomy.aovBreakEven) : '—'}</p></div>
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">AOV actual</p><p className="text-sm font-black font-mono">{fmt(ticketEconomy.aov)}</p></div>
-                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Diferencia</p><p className={`text-sm font-black font-mono ${ticketEconomy.aovHeadroom >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.aovBreakEven > 0 ? `${ticketEconomy.aovHeadroom >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.aovHeadroom))}` : '—'}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('aovReal')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">AOV real</p><p className="text-sm font-black font-mono text-[#032A78]">{ticketEconomy.evaluable ? fmt(ticketEconomy.aovReal) : '—'}</p></div>
+                    <div className="relative pr-6"><MetricInfoButton onClick={() => openMetricHelp('aovRealBreakEven')} className="absolute right-0 top-0 scale-90" /><p className="text-[6.5px] uppercase font-black text-slate-400">Equilibrio real</p><p className="text-sm font-black font-mono text-amber-700">{ticketEconomy.aovRealBreakEven > 0 ? fmt(ticketEconomy.aovRealBreakEven) : '—'}</p></div>
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Margen real / pedido</p><p className={`text-sm font-black font-mono ${ticketEconomy.aovRealHeadroom >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.aovRealBreakEven > 0 ? `${ticketEconomy.aovRealHeadroom >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.aovRealHeadroom))}` : '—'}</p></div>
                   </div>
-                  <p className="text-[6.5px] text-slate-500 mt-2">AOV mínimo estimado para quedar en cero manteniendo el IER, UPO y estructura de costos observados en el período.</p>
+                  <button type="button" onClick={() => openMetricHelp('aovRegisteredBreakEven')} className="mt-2 w-full text-left text-[6.5px] text-slate-500 hover:text-amber-700 transition"><span className="font-black">AOV equilibrio registrado:</span> {ticketEconomy.aovRegisteredBreakEven > 0 ? fmt(ticketEconomy.aovRegisteredBreakEven) : '—'} · toca para ver fórmula</button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Ticket base ponderado</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.baseAov > 0 ? fmt(ticketEconomy.baseAov) : '—'}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Elevación de ticket</p><p className={`text-sm font-black font-mono mt-1 ${ticketEconomy.ticketLift >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.baseAov > 0 ? `${ticketEconomy.ticketLift >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.ticketLift))}` : '—'}</p><p className="text-[6.5px] text-slate-400">{ticketEconomy.ticketLiftPct !== null ? `${ticketEconomy.ticketLiftPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.ticketLiftPct, 1)}% vs base` : 'Sin base completa'}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Recaudo real / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.realRevenuePerDelivery) : '—'}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Utilidad neta período</p><p className={`text-sm font-black font-mono mt-1 ${stats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(stats.net)}</p></div>
+                <div className="relative rounded-xl bg-slate-50 p-3"><MetricInfoButton onClick={() => openMetricHelp('baseAov')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Ticket base ponderado</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.baseAov > 0 ? fmt(ticketEconomy.baseAov) : '—'}</p></div>
+                <div className="relative rounded-xl bg-slate-50 p-3"><MetricInfoButton onClick={() => openMetricHelp('ticketLift')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Elevación de ticket</p><p className={`text-sm font-black font-mono mt-1 ${ticketEconomy.ticketLift >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.baseAov > 0 ? `${ticketEconomy.ticketLift >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.ticketLift))}` : '—'}</p><p className="text-[6.5px] text-slate-400">{ticketEconomy.ticketLiftPct !== null ? `${ticketEconomy.ticketLiftPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.ticketLiftPct, 1)}% vs base` : 'Sin base completa'}</p></div>
+                <div className="relative rounded-xl bg-slate-50 p-3"><MetricInfoButton onClick={() => openMetricHelp('realRevenuePerDelivery')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Recaudo real / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.realRevenuePerDelivery) : '—'}</p></div>
+                <div className="relative rounded-xl bg-slate-50 p-3"><MetricInfoButton onClick={() => openMetricHelp('netProfit')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Utilidad neta período</p><p className={`text-sm font-black font-mono mt-1 ${stats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(stats.net)}</p></div>
               </div>
             </div>
           )}
         </div>
 
         {/* EMBUDO */}
-        <div className="space-y-2"><SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />{openSections.embudo && (<Card><div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4"><div><Label>Pedidos Registrados</Label><p className="text-xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[8px]">{fmtN(stats.grossUnits)} unidades</p></div><div><Label>Guías Despachadas</Label><p className="text-xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div><div><Label>Devoluciones Est.</Label><p className="text-xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div><div><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px]">IER {fmtDec(stats.ierGlobal, 2)}%</p></div></div><div className="p-3 bg-slate-50 rounded-xl"><p className="text-[8px] font-black uppercase mb-2">📦 Unidades físicas</p><div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 text-xs"><div><span className="text-[8px] text-slate-500">Registradas:</span> <span className="font-black ml-1">{fmtN(stats.unitsRegistradas)}</span></div><div><span className="text-[8px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div><div><span className="text-[8px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div><div><span className="text-[8px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div><div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados, 1)}%</span></div></div></div></Card>)}</div>
+        <div className="space-y-2"><SectionHeader title="EMBUDO OPERATIVO Y PRODUCTOS" icon={Activity} section="embudo" />{openSections.embudo && (<Card><div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4"><div className="relative pr-7"><MetricInfoButton onClick={() => openMetricHelp('grossOrders')} className="absolute right-0 top-0 scale-90" /><Label>Pedidos Registrados</Label><p className="text-xl font-black">{fmtN(stats.grossOrd)}</p><p className="text-[8px]">{fmtN(stats.grossUnits)} unidades</p></div><div className="relative pr-7"><MetricInfoButton onClick={() => openMetricHelp('shipped')} className="absolute right-0 top-0 scale-90" /><Label>Guías Despachadas</Label><p className="text-xl font-black text-blue-600">{fmtN(stats.realShipped)}</p></div><div className="relative pr-7"><MetricInfoButton onClick={() => openMetricHelp('returns')} className="absolute right-0 top-0 scale-90" /><Label>Devoluciones Est.</Label><p className="text-xl font-black text-rose-500">{fmtN(stats.estimatedReturns)}</p></div><div className="relative pr-7"><MetricInfoButton onClick={() => openMetricHelp('deliveries')} className="absolute right-0 top-0 scale-90" /><Label>Entregas Finales</Label><p className="text-xl font-black text-emerald-600">{fmtN(stats.finalDeliveries)}</p><p className="text-[8px] flex items-center gap-1">IER {fmtDec(stats.ierGlobal, 2)}% <button type="button" onClick={() => openMetricHelp('ier')} className="inline-flex"><Info size={9} /></button></p></div></div><div className="p-3 bg-slate-50 rounded-xl"><p className="text-[8px] font-black uppercase mb-2">📦 Unidades físicas</p><div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 text-xs"><div><span className="text-[8px] text-slate-500">Registradas:</span> <span className="font-black ml-1">{fmtN(stats.unitsRegistradas)}</span></div><div><span className="text-[8px] text-slate-500">Enviadas:</span> <span className="font-black ml-1 text-blue-600">{fmtN(stats.unitsShippedReal)}</span></div><div><span className="text-[8px] text-slate-500">Devueltas:</span> <span className="font-black ml-1 text-rose-500">{fmtN(stats.unitsReturnedReal)}</span></div><div><span className="text-[8px] text-slate-500">Entregadas:</span> <span className="font-black ml-1 text-emerald-600">{fmtN(stats.unitsDeliveredReal)}</span></div><div><span className="text-[8px] text-slate-500">% Entregado:</span> <span className="font-black ml-1">{fmtDec(stats.pctProductosEntregados, 1)}%</span></div></div></div></Card>)}</div>
 
         {/* COSTOS */}
-        <div className="space-y-2"><SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />{openSections.costos && (<Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-2 md:gap-4 px-4 py-3 border-b border-slate-50 last:border-0"><div className="w-6 h-6 md:w-8 md:h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={12} /></div><div className="flex-1"><p className="text-[11px] md:text-xs font-black">{item.label}</p><p className="text-[7px] md:text-[9px] text-slate-400">{item.note}</p></div><p className="font-black font-mono text-xs md:text-sm">{fmt(item.value)}</p></div>))}<div className="flex items-center gap-2 md:gap-4 px-4 py-3 bg-slate-900 text-white"><div className="flex-1"><p className="text-[11px] md:text-xs font-black uppercase">Total Costos</p></div><p className="font-black font-mono text-sm md:text-lg text-rose-400">{fmt(totalCostos)}</p></div></Card>)}</div>
+        <div className="space-y-2"><SectionHeader title="RADIOGRAFÍA DE COSTOS" icon={Calculator} section="costos" />{openSections.costos && (<Card className="space-y-0 p-0 overflow-hidden">{costItems.map((item,i) => (<div key={i} className="flex items-center gap-2 md:gap-4 px-4 py-3 border-b border-slate-50 last:border-0"><div className="w-6 h-6 md:w-8 md:h-8 rounded-xl bg-slate-100 flex items-center justify-center"><item.icon size={12} /></div><div className="flex-1"><p className="text-[11px] md:text-xs font-black">{item.label}</p><p className="text-[7px] md:text-[9px] text-slate-400">{item.note}</p></div><p className="font-black font-mono text-xs md:text-sm">{fmt(item.value)}</p><MetricInfoButton onClick={() => openMetricHelp(item.metricKey)} /></div>))}<div className="flex items-center gap-2 md:gap-4 px-4 py-3 bg-slate-900 text-white"><div className="flex-1"><p className="text-[11px] md:text-xs font-black uppercase">Total Costos</p></div><p className="font-black font-mono text-sm md:text-lg text-rose-400">{fmt(totalCostos)}</p><MetricInfoButton onClick={() => openMetricHelp('totalCosts')} light /></div></Card>)}</div>
 
         {/* RANKING */}
         <div className="space-y-2"><SectionHeader title="RANKING DE VENDEDORAS" icon={Award} section="ranking" totalItems={stats.rankingVendedoras?.length} />{openSections.ranking && (<div className="cc-tech-scroll w-full"><table className="w-full text-left border-collapse text-xs md:text-sm"><thead className="bg-slate-100 text-[8px] md:text-[9px] font-black uppercase text-slate-500"><tr><th className="p-2 rounded-l-xl">#</th><th className="p-2">Vendedora</th><th className="p-2 text-right">Pedidos</th><th className="p-2 text-right">Recaudo Neto</th><th className="p-2 text-right">Utilidad</th><th className="p-2 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{stats.rankingVendedoras?.map((v,idx) => (<tr key={v.vendedora} className="hover:bg-slate-50"><td className="p-2 font-black text-emerald-600">{idx+1}</td><td className="p-2 font-bold uppercase">{v.vendedora}</td><td className="p-2 text-right font-mono">{fmtN(v.pedidos)}</td><td className="p-2 text-right font-mono">{fmt(v.recaudoNeto)}</td><td className={`p-2 text-right font-mono ${v.utilidad >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(v.utilidad)}</td><td className="p-2 text-right font-mono">{fmtDec(v.ierPromedio,2)}%</td></tr>))}</tbody></table></div>)}</div>
 
         {/* PROYECCIÓN */}
-        <div className="space-y-2"><SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />{openSections.proyeccion && (<div className="flex flex-col md:grid md:grid-cols-2 gap-4"><Card dark className="space-y-3"><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs"><div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div><div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div><div><p className="text-[8px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[8px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div></div></Card><div className={`rounded-2xl p-4 text-white shadow-xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><div><p className="text-[8px] font-black opacity-60">Proyección 30 Días</p><p className="text-[8px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-2xl md:text-4xl font-black">{fmt(proyeccion30)}</p><div className="bg-white/20 px-3 py-2 rounded-xl mt-2"><p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div><div className="flex justify-between text-[8px] font-black opacity-60 mt-3"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal, 2)}%</span></div></div>{targetProfit > 0 && (<Card className="col-span-2"><div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div></Card>)}</div>)}</div>
+        <div className="space-y-2"><SectionHeader title="UTILIDAD Y PROYECCIÓN" icon={TrendingUp} section="proyeccion" />{openSections.proyeccion && (<div className="flex flex-col md:grid md:grid-cols-2 gap-4"><Card dark className="relative space-y-3"><MetricInfoButton onClick={() => openMetricHelp('netProfit')} light className="absolute top-3 right-3" /><Label className="text-zinc-500">Utilidad Neta Período</Label><p className={`text-2xl md:text-4xl font-black font-mono ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{fmt(stats.net)}</p><div className="grid grid-cols-2 gap-2 pt-3 border-t border-zinc-800 text-xs"><div><p className="text-[8px] text-zinc-500">Ingresos Reales</p><p className="font-black text-white">{fmt(stats.realRev)}</p></div><div><p className="text-[8px] text-zinc-500">Total Costos</p><p className="font-black text-rose-400">{fmt(totalCostos)}</p></div><div><p className="text-[8px] text-zinc-500">Margen Neto</p><p className="font-black text-emerald-400">{stats.realRev > 0 ? fmtDec((stats.net / stats.realRev) * 100) : '0.00'}%</p></div><div><p className="text-[8px] text-zinc-500">Profit / Día</p><p className="font-black text-white">{fmt(avgDiario)}</p></div></div></Card><div className={`relative rounded-2xl p-4 text-white shadow-xl ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-600' : semaforo.color === 'bg-blue-500' ? 'bg-blue-600' : 'bg-rose-600'}`}><MetricInfoButton onClick={() => openMetricHelp('projection30')} light className="absolute top-3 right-3" /><div><p className="text-[8px] font-black opacity-60">Proyección 30 Días</p><p className="text-[8px] opacity-50 mt-0.5">({fmt(avgDiario)}/día × 30)</p></div><p className="text-2xl md:text-4xl font-black">{fmt(proyeccion30)}</p><div className="bg-white/20 px-3 py-2 rounded-xl mt-2"><p className="text-sm md:text-lg font-black">{semaforo.emoji} {semaforo.texto}</p>{targetProfit > 0 && <p className="text-[8px] opacity-70">Meta: {fmt(targetProfit)} · 1M excelente</p>}</div><div className="flex justify-between text-[8px] font-black opacity-60 mt-3"><span>Días activos: {activeDays}</span><span>IER: {fmtDec(stats.ierGlobal, 2)}%</span></div></div>{targetProfit > 0 && (<Card className="col-span-2"><div className="flex justify-between text-xs"><Label>Avance vs Meta</Label><span className={`text-xs font-black ${semaforo.textColor}`}>{fmtDec((proyeccion30 / targetProfit) * 100, 2)}%</span></div><div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className={`h-full rounded-full ${semaforo.color === 'bg-emerald-500' ? 'bg-emerald-500' : semaforo.color === 'bg-blue-500' ? 'bg-blue-500' : 'bg-rose-500'}`} style={{ width: `${Math.min((proyeccion30 / targetProfit) * 100, 100)}%` }} /></div></Card>)}</div>)}</div>
 
         {/* PRODUCTOS EN REVISIÓN + BUEN RENDIMIENTO · MESA DE DECISIÓN VISUAL */}
         <div className="space-y-2">
@@ -1561,9 +2161,9 @@ function VistaDashboard({ configs, months }) {
                     <thead className="bg-[#f4f7fc] text-[7px] md:text-[8px] font-black uppercase text-[#032A78]">
                       <tr>
                         <th className="p-2 md:p-3">Estado</th><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th>
-                        <th className="p-2 md:p-3 text-right">Utilidad</th><th className="p-2 md:p-3 text-right">Proy. 30d</th><th className="p-2 md:p-3 text-right">Meta</th>
-                        <th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th>
-                        <th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3 text-right">CPA Eq.</th><th className="p-2 md:p-3 text-right">AOV</th><th className="p-2 md:p-3 text-right">U/P</th><th className="p-2 md:p-3 text-right">CPA Econ.</th><th className="p-2 md:p-3 text-right">Utilidad / Ent.</th><th className="p-2 md:p-3">Lectura</th>
+                        <th className="p-2 md:p-3 text-right">Utilidad <button type="button" onClick={() => openMetricHelp('netProfit')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Proy. 30d <button type="button" onClick={() => openMetricHelp('projection30')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Meta</th>
+                        <th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER <button type="button" onClick={() => openMetricHelp('ier')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">ROAS <button type="button" onClick={() => openMetricHelp('roas')} className="inline-flex ml-1"><Info size={9} /></button></th>
+                        <th className="p-2 md:p-3 text-right">CPA <button type="button" onClick={() => openMetricHelp('cpaReal')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">CPA Eq. <button type="button" onClick={() => openMetricHelp('cpaEquilibrium')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">AOV <button type="button" onClick={() => openMetricHelp('aov')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">U/P <button type="button" onClick={() => openMetricHelp('upo')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">CPA Econ. <button type="button" onClick={() => openMetricHelp('cpaEconomic')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Utilidad / Ent. <button type="button" onClick={() => openMetricHelp('profitPerDelivery')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3">Lectura</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1606,6 +2206,7 @@ function VistaDashboard({ configs, months }) {
         {/* COMPARATIVA ENTRE VENDEDORAS */}
         <div className="space-y-2"><button onClick={() => toggleSection('comparativaVendedoras')} className="w-full flex items-center justify-between py-2 px-3 md:py-3 md:px-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors"><div className="flex items-center gap-1.5 md:gap-2"><Users size={14} className="text-indigo-600" /><span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-indigo-700">📊 COMPARATIVA ENTRE VENDEDORAS</span></div>{openSections.comparativaVendedoras ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>{openSections.comparativaVendedoras && (<Card className="cc-tech-scroll w-full"><table className="w-full text-left border-collapse text-[10px] md:text-sm"><thead className="bg-indigo-50 text-[7px] md:text-[8px] font-black uppercase text-indigo-700"><tr><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3 text-right">Inversión Ads</th><th className="p-2 md:p-3 text-right">CPA Promedio</th><th className="p-2 md:p-3 text-right">Utilidad Período</th><th className="p-2 md:p-3 text-right">Proy. 30 días</th><th className="p-2 md:p-3 text-right">Facturación Real</th><th className="p-2 md:p-3 text-right">ROAS</th><th className="p-2 md:p-3 text-right">IER</th></tr></thead><tbody className="divide-y divide-slate-100">{selectedVendors.length === 0 ? (<tr><td colSpan="8" className="p-4 text-center text-slate-400">Selecciona al menos una vendedora en los filtros para ver la comparativa.</td></tr>) : selectedVendors.map(vendor => { const vendorRecords = filteredRecords.filter(r => { const c = configs.find(x => x.id === r.configId); return c && c.vendedora === vendor; }); const vendorStats = calcularStats(vendorRecords, configs); const activeDaysV = new Set(vendorRecords.filter(r => !r.restDay).map(r => r.date)).size; const proy30 = activeDaysV > 0 ? (vendorStats.net / activeDaysV) * 30 : 0; return (<tr key={vendor} className="hover:bg-indigo-50/50"><td className="p-2 md:p-3 font-black uppercase text-indigo-700">{vendor}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.totalAds)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.cpaReal)}</td><td className={`p-2 md:p-3 text-right font-mono font-black ${vendorStats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(vendorStats.net)}</td><td className="p-2 md:p-3 text-right font-mono font-black">{fmt(proy30)}</td><td className="p-2 md:p-3 text-right font-mono">{fmt(vendorStats.realRev)}</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.roas, 2)}x</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(vendorStats.ierGlobal, 1)}%</td></tr>); })}</tbody></table>{selectedVendors.length > 0 && (<div className="p-3 bg-indigo-50 text-[8px] font-black text-indigo-600 flex justify-between"><span>Período: {filter.startDate} al {filter.endDate}</span><span>Registros analizados: {filteredRecords.length}</span></div>)}</Card>)}</div>
       </>)}
+      <MetricHelpModal metric={metricHelp} onClose={() => setMetricHelp(null)} />
     </div>
   );
 }
