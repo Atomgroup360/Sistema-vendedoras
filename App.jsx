@@ -331,6 +331,29 @@ function buildDashboardTicketEconomy(records, configs) {
     ? contributionBeforeAdsTotal / stats.finalDeliveries
     : 0;
 
+  // Métricas económicas derivadas para presentación. No alteran calcularStats().
+  const realRevenuePerDelivery = stats.finalDeliveries > 0 ? stats.realRev / stats.finalDeliveries : 0;
+  const estimatedProfitPerDelivery = cushion;
+  const marginPctPerDelivery = realRevenuePerDelivery > 0
+    ? (estimatedProfitPerDelivery / realRevenuePerDelivery) * 100
+    : null;
+  const logisticsTotal = stats.totalFreightCost + stats.totalFulfillment + stats.totalCommissions + stats.totalFixedCosts;
+  const logisticsPerDelivery = stats.finalDeliveries > 0 ? logisticsTotal / stats.finalDeliveries : 0;
+  const merchandisePerDelivery = stats.finalDeliveries > 0 ? stats.productCostTotal / stats.finalDeliveries : 0;
+  const adsPerDelivery = stats.finalDeliveries > 0 ? stats.totalAds / stats.finalDeliveries : 0;
+  const totalCostPerDelivery = stats.finalDeliveries > 0
+    ? (stats.productCostTotal + logisticsTotal + stats.totalAds) / stats.finalDeliveries
+    : 0;
+  const profitAdsRatio = stats.totalAds > 0 ? stats.net / stats.totalAds : null;
+  const profitAdsPct = profitAdsRatio !== null ? profitAdsRatio * 100 : null;
+  const profitPer1000Ads = profitAdsRatio !== null ? profitAdsRatio * 1000 : null;
+  const collectionEfficiencyRatio = stats.grossRev > 0 ? stats.realRev / stats.grossRev : 0;
+  const totalEconomicCosts = stats.productCostTotal + logisticsTotal + stats.totalAds;
+  const aovBreakEven = stats.grossOrd > 0 && collectionEfficiencyRatio > 0
+    ? totalEconomicCosts / (stats.grossOrd * collectionEfficiencyRatio)
+    : 0;
+  const aovHeadroom = aovBreakEven > 0 ? stats.aov - aovBreakEven : 0;
+
   let tone = 'neutral';
   let code = 'NO_DATA';
   let label = 'ECONOMÍA DEL TICKET · NO EVALUABLE';
@@ -346,17 +369,17 @@ function buildDashboardTicketEconomy(records, configs) {
       tone = 'alert';
       code = 'LOW_CUSHION';
       label = 'ECONOMÍA DEL TICKET · MARGEN BAJO PRESIÓN';
-      message = `La operación sigue positiva, pero solo quedan ${fmt(cushion)} de colchón estimado por entrega sobre el CPA actual.`;
+      message = `La operación sigue positiva, pero solo quedan ${fmt(cushion)} de utilidad estimada por entrega sobre el CPA actual.`;
     } else if (baseAov > 0 && ticketLiftPct !== null && ticketLiftPct >= 10) {
       tone = 'strong';
       code = 'STRONG_TICKET';
       label = 'ECONOMÍA DEL TICKET · TICKET FUERTE';
-      message = `El ticket está ${fmtDec(ticketLiftPct, 1)}% por encima de la base ponderada y deja ${fmt(cushion)} de colchón económico por entrega.`;
+      message = `El ticket está ${fmtDec(ticketLiftPct, 1)}% por encima de la base ponderada y deja ${fmt(cushion)} de utilidad estimada por entrega.`;
     } else {
       tone = 'good';
       code = 'HEALTHY_TICKET';
       label = 'ECONOMÍA DEL TICKET · SALUDABLE';
-      message = `El mix vendido mantiene contribución positiva y deja ${fmt(cushion)} de colchón económico por entrega.`;
+      message = `El mix vendido mantiene contribución positiva y deja ${fmt(cushion)} de utilidad estimada por entrega.`;
     }
   }
 
@@ -375,7 +398,20 @@ function buildDashboardTicketEconomy(records, configs) {
     cpaEconomic,
     cpaReal: stats.cpaReal,
     cushion,
+    estimatedProfitPerDelivery,
     netMarginPerDelivery,
+    realRevenuePerDelivery,
+    marginPctPerDelivery,
+    logisticsTotal,
+    logisticsPerDelivery,
+    merchandisePerDelivery,
+    adsPerDelivery,
+    totalCostPerDelivery,
+    profitAdsRatio,
+    profitAdsPct,
+    profitPer1000Ads,
+    aovBreakEven,
+    aovHeadroom,
     orders: stats.grossOrd,
     units: stats.grossUnits,
     deliveries: stats.finalDeliveries
@@ -1146,7 +1182,8 @@ function VistaDashboard({ configs, months }) {
 
   const [openSections, setOpenSections] = useState({
     embudo: false, costos: false, ranking: false, proyeccion: false,
-    analisisProductos: false, comparativaVendedoras: false, productosRevision: true
+    analisisProductos: false, comparativaVendedoras: false, productosRevision: true,
+    economiaTicketDetalle: false
   });
   const [productDecisionFilter, setProductDecisionFilter] = useState('all');
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -1388,22 +1425,85 @@ function VistaDashboard({ configs, months }) {
                 <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.12em]">Economía del Ticket</p>
                 <span className="text-[7px] md:text-[8px] font-black uppercase px-2 py-1 rounded-full bg-white/70 border border-current/10">Informativo</span>
               </div>
-              <p className="text-[8px] md:text-[9px] opacity-70 mt-1">Usa facturación, unidades, IER y el costeo operativo ya existente. No modifica semáforos ni decisiones.</p>
+              <p className="text-[8px] md:text-[9px] opacity-70 mt-1">Resumen económico del rango seleccionado · usa facturación, unidades, IER y el costeo operativo existente.</p>
             </div>
             <span className="inline-flex w-fit px-3 py-1.5 rounded-full bg-white/80 border border-current/10 text-[8px] md:text-[9px] font-black uppercase">{ticketEconomy.label}</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">AOV registrado</p><p className="text-sm md:text-base font-black font-mono mt-1">{fmt(ticketEconomy.aov)}</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Unid. / pedido</p><p className="text-sm md:text-base font-black font-mono mt-1">{fmtDec(ticketEconomy.upo, 2)}</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Ticket base pond.</p><p className="text-sm md:text-base font-black font-mono mt-1">{ticketEconomy.baseAov > 0 ? fmt(ticketEconomy.baseAov) : '—'}</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Elevación ticket</p><p className={`text-sm md:text-base font-black font-mono mt-1 ${ticketEconomy.ticketLift >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.baseAov > 0 ? `${ticketEconomy.ticketLift >= 0 ? '+' : ''}${fmt(ticketEconomy.ticketLift)}` : '—'}</p><p className="text-[7px] font-bold opacity-55">{ticketEconomy.ticketLiftPct !== null ? `${ticketEconomy.ticketLiftPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.ticketLiftPct, 1)}%` : 'Sin base'}</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">CPA económico</p><p className="text-sm md:text-base font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.cpaEconomic) : '—'}</p><p className="text-[7px] font-bold opacity-55">Punto cero del mix</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">CPA actual</p><p className="text-sm md:text-base font-black font-mono mt-1">{fmt(ticketEconomy.cpaReal)}</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Colchón</p><p className={`text-sm md:text-base font-black font-mono mt-1 ${ticketEconomy.cushion >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.cushion >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.cushion))}` : '—'}</p><p className="text-[7px] font-bold opacity-55">por entrega</p></div>
-            <div className="rounded-2xl bg-white/80 border border-white p-3"><p className="text-[7px] font-black uppercase opacity-55">Margen neto</p><p className={`text-sm md:text-base font-black font-mono mt-1 ${ticketEconomy.netMarginPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? fmt(ticketEconomy.netMarginPerDelivery) : '—'}</p><p className="text-[7px] font-bold opacity-55">por entrega</p></div>
+          {/* Lectura principal: solo las 5 métricas que deben verse siempre */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+            <div className="rounded-2xl bg-white/85 border border-white p-3.5">
+              <p className="text-[7px] font-black uppercase opacity-55">AOV</p>
+              <p className="text-lg md:text-xl font-black font-mono mt-1">{fmt(ticketEconomy.aov)}</p>
+              <p className="text-[7px] font-bold opacity-55">{fmtN(ticketEconomy.orders)} pedidos</p>
+            </div>
+            <div className="rounded-2xl bg-white/85 border border-white p-3.5">
+              <p className="text-[7px] font-black uppercase opacity-55">UPO · Unidades / pedido</p>
+              <p className="text-lg md:text-xl font-black font-mono mt-1">{fmtDec(ticketEconomy.upo, 2)}</p>
+              <p className="text-[7px] font-bold opacity-55">{fmtN(ticketEconomy.units)} unidades registradas</p>
+            </div>
+            <div className="rounded-2xl bg-white/90 border-2 border-emerald-200 p-3.5">
+              <p className="text-[7px] font-black uppercase text-emerald-700">Utilidad estimada / entrega</p>
+              <p className={`text-lg md:text-xl font-black font-mono mt-1 ${ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.estimatedProfitPerDelivery >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.estimatedProfitPerDelivery))}` : '—'}</p>
+              <p className="text-[7px] font-bold text-slate-500">antes llamado colchón económico</p>
+            </div>
+            <div className="rounded-2xl bg-white/85 border border-white p-3.5">
+              <p className="text-[7px] font-black uppercase opacity-55">Margen % / entrega</p>
+              <p className={`text-lg md:text-xl font-black font-mono mt-1 ${(ticketEconomy.marginPctPerDelivery ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.marginPctPerDelivery !== null ? `${fmtDec(ticketEconomy.marginPctPerDelivery, 1)}%` : '—'}</p>
+              <p className="text-[7px] font-bold opacity-55">utilidad ÷ recaudo real</p>
+            </div>
+            <div className="col-span-2 lg:col-span-1 rounded-2xl bg-[#032A78] text-white border border-[#032A78] p-3.5 shadow-sm">
+              <p className="text-[7px] font-black uppercase text-blue-200">Retorno neto de publicidad</p>
+              <p className={`text-lg md:text-xl font-black font-mono mt-1 ${ticketEconomy.profitAdsRatio === null ? 'text-white' : ticketEconomy.profitAdsRatio >= 0 ? 'text-[#F7C928]' : 'text-rose-300'}`}>{ticketEconomy.profitPer1000Ads !== null ? `${ticketEconomy.profitPer1000Ads >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.profitPer1000Ads))}` : '—'}</p>
+              <p className="text-[7px] font-black text-blue-100">por cada $1.000 en Ads · {ticketEconomy.profitAdsPct !== null ? `${ticketEconomy.profitAdsPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.profitAdsPct, 1)}%` : 'sin inversión'}</p>
+            </div>
           </div>
+
           <div className="mt-3 rounded-2xl bg-white/65 border border-white px-3 py-2.5 flex items-start gap-2"><Info size={12} className="shrink-0 mt-0.5" /><p className="text-[8px] md:text-[9px] font-bold leading-relaxed">{ticketEconomy.message}</p></div>
+
+          <button type="button" onClick={() => toggleSection('economiaTicketDetalle')} className="mt-3 w-full rounded-2xl bg-white/80 hover:bg-white border border-white px-3 py-2.5 flex items-center justify-between gap-3 transition-colors">
+            <div className="text-left"><p className="text-[8px] md:text-[9px] font-black uppercase">Ver economía detallada</p><p className="text-[7px] opacity-60">Costos por entrega, CPA económico y AOV de equilibrio</p></div>
+            {openSections.economiaTicketDetalle ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+
+          {openSections.economiaTicketDetalle && (
+            <div className="mt-3 rounded-2xl bg-white/75 border border-white p-3 md:p-4 space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Mercancía / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.merchandisePerDelivery) : '—'}</p></div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Logística / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.logisticsPerDelivery) : '—'}</p><p className="text-[6.5px] text-slate-400 mt-0.5">flete + fulfillment + comisión + fijos</p></div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Ads / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.adsPerDelivery) : '—'}</p></div>
+                <div className="rounded-xl bg-slate-900 text-white p-3"><p className="text-[7px] font-black uppercase text-slate-400">Costo total / entrega</p><p className="text-sm font-black font-mono mt-1 text-rose-300">{ticketEconomy.evaluable ? fmt(ticketEconomy.totalCostPerDelivery) : '—'}</p></div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3.5">
+                  <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-[#032A78]">Capacidad de CPA</p><span className="text-[7px] font-black text-blue-500">mix actual</span></div>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">CPA económico</p><p className="text-sm font-black font-mono text-[#032A78]">{ticketEconomy.evaluable ? fmt(ticketEconomy.cpaEconomic) : '—'}</p></div>
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">CPA actual</p><p className="text-sm font-black font-mono">{fmt(ticketEconomy.cpaReal)}</p></div>
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Utilidad / entrega</p><p className={`text-sm font-black font-mono ${ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.estimatedProfitPerDelivery >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.estimatedProfitPerDelivery))}` : '—'}</p></div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-3.5">
+                  <div className="flex items-center justify-between gap-3"><p className="text-[8px] font-black uppercase text-amber-700">Punto de equilibrio AOV</p><span className="text-[7px] font-black text-amber-600">IER + mix actual</span></div>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">AOV equilibrio</p><p className="text-sm font-black font-mono text-amber-700">{ticketEconomy.aovBreakEven > 0 ? fmt(ticketEconomy.aovBreakEven) : '—'}</p></div>
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">AOV actual</p><p className="text-sm font-black font-mono">{fmt(ticketEconomy.aov)}</p></div>
+                    <div><p className="text-[6.5px] uppercase font-black text-slate-400">Diferencia</p><p className={`text-sm font-black font-mono ${ticketEconomy.aovHeadroom >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.aovBreakEven > 0 ? `${ticketEconomy.aovHeadroom >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.aovHeadroom))}` : '—'}</p></div>
+                  </div>
+                  <p className="text-[6.5px] text-slate-500 mt-2">AOV mínimo estimado para quedar en cero manteniendo el IER, UPO y estructura de costos observados en el período.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Ticket base ponderado</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.baseAov > 0 ? fmt(ticketEconomy.baseAov) : '—'}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Elevación de ticket</p><p className={`text-sm font-black font-mono mt-1 ${ticketEconomy.ticketLift >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.baseAov > 0 ? `${ticketEconomy.ticketLift >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.ticketLift))}` : '—'}</p><p className="text-[6.5px] text-slate-400">{ticketEconomy.ticketLiftPct !== null ? `${ticketEconomy.ticketLiftPct >= 0 ? '+' : ''}${fmtDec(ticketEconomy.ticketLiftPct, 1)}% vs base` : 'Sin base completa'}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Recaudo real / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.realRevenuePerDelivery) : '—'}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] font-black uppercase text-slate-500">Utilidad neta período</p><p className={`text-sm font-black font-mono mt-1 ${stats.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(stats.net)}</p></div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* EMBUDO */}
@@ -1463,7 +1563,7 @@ function VistaDashboard({ configs, months }) {
                         <th className="p-2 md:p-3">Estado</th><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th>
                         <th className="p-2 md:p-3 text-right">Utilidad</th><th className="p-2 md:p-3 text-right">Proy. 30d</th><th className="p-2 md:p-3 text-right">Meta</th>
                         <th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER</th><th className="p-2 md:p-3 text-right">ROAS</th>
-                        <th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3 text-right">CPA Eq.</th><th className="p-2 md:p-3 text-right">AOV</th><th className="p-2 md:p-3 text-right">U/P</th><th className="p-2 md:p-3 text-right">CPA Econ.</th><th className="p-2 md:p-3 text-right">Colchón</th><th className="p-2 md:p-3">Lectura</th>
+                        <th className="p-2 md:p-3 text-right">CPA</th><th className="p-2 md:p-3 text-right">CPA Eq.</th><th className="p-2 md:p-3 text-right">AOV</th><th className="p-2 md:p-3 text-right">U/P</th><th className="p-2 md:p-3 text-right">CPA Econ.</th><th className="p-2 md:p-3 text-right">Utilidad / Ent.</th><th className="p-2 md:p-3">Lectura</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
