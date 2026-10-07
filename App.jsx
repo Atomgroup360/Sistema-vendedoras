@@ -399,6 +399,44 @@ function VistaConfig({ configs, onSaved }) {
 
   const isPrefilledVendor = showForm && !editId && form.vendedora && configs.some(c => c.vendedora === form.vendedora);
 
+  // UI ONLY · fila visual reutilizable para productos activos/inactivos.
+  // No altera estado, cálculos, Firestore ni reglas de vigencia.
+  const renderStrategyProductRow = (p) => {
+    const isActive = p.activo !== false;
+    return (
+      <div key={p.id} className={`p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-all ${!isActive ? 'bg-slate-50/80' : ''}`}>
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className={`font-black uppercase text-xs md:text-sm ${!isActive ? 'text-slate-500' : 'text-emerald-600'}`}>{p.productName}</p>
+            {!isActive && <span className="flex items-center gap-1 text-[9px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full"><PowerOff size={10} /> INACTIVO</span>}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
+            <span className="text-[8px] md:text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
+            <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
+            <span className="text-[8px] md:text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
+            {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
+            <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
+            {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
+          </div>
+          <div className="grid grid-cols-3 gap-1 md:gap-2">
+            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.productCost)}</p></div>
+            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.commission)}</p></div>
+            <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
+          </div>
+          <div className="text-[8px] text-slate-400 font-mono flex gap-2 flex-wrap">
+            {p.fechaCreacion && <span>📅 Creación: {parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO')}</span>}
+            {p.fechaDesactivacion && <span className="text-red-400">🔴 Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</span>}
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => openEdit(p)} className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={14} /></button>
+          <button onClick={() => remove(p.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={14} /></button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 md:space-y-8 anim-fade">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -418,61 +456,56 @@ function VistaConfig({ configs, onSaved }) {
               <div className="flex items-center justify-between gap-3 p-4 md:p-5 bg-white">
                 <div onClick={() => toggleV(vendedora)} className="flex-1 flex items-center gap-3 cursor-pointer select-none">
                   <div className="w-8 h-8 md:w-10 md:h-10 rounded-2xl bg-emerald-500 flex items-center justify-center text-white font-black text-sm shrink-0">{vendedora[0]?.toUpperCase()}</div>
-                  <div><p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.length} producto{productos.length > 1 ? 's' : ''}</p></div>
+                  <div><p className="font-black text-xs md:text-sm uppercase tracking-wide">{vendedora}</p><p className="text-[10px] text-slate-400 font-semibold">{productos.filter(p => p.activo !== false).length} activos{productos.some(p => p.activo === false) ? ` · ${productos.filter(p => p.activo === false).length} inactivos` : ''}</p></div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button type="button" onClick={(e) => { e.stopPropagation(); openNewForVendor(vendedora); }} className="flex items-center gap-1 bg-emerald-500 text-zinc-950 px-3 py-2 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-emerald-400"><Plus size={12} /> Producto</button>
                   <button type="button" onClick={() => toggleV(vendedora)} className="p-1 rounded-xl hover:bg-slate-100 text-slate-400 transition-colors">{expandedV[vendedora] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>
                 </div>
               </div>
-              {expandedV[vendedora] && (
-                <div className="border-t border-slate-100 divide-y divide-slate-100">
-                  {[...productos].sort((a, b) => {
-  const aActive = a.activo !== false;
-  const bActive = b.activo !== false;
-  if (aActive && !bActive) return -1;
-  if (!aActive && bActive) return 1;
-  return (a.productName || '').localeCompare(b.productName || '');
-}).map(p => {
-  const isActive = p.activo !== false;
-  return (
-    <div key={p.id} className={`p-4 md:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-all ${!isActive ? 'bg-slate-100 opacity-70' : ''}`}>
-      <div className="flex-1 space-y-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className={`font-black uppercase text-xs md:text-sm ${!isActive ? 'text-slate-500 line-through' : 'text-emerald-600'}`}>{p.productName}</p>
-          {!isActive && <span className="flex items-center gap-1 text-[9px] font-black bg-red-100 text-red-600 px-2 py-0.5 rounded-full"><PowerOff size={10} /> INACTIVO</span>}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <span className="text-[8px] md:text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-1 rounded-lg uppercase">EFF {p.effectiveness}%</span>
-          <span className="text-[8px] md:text-[9px] font-black bg-rose-50 text-rose-500 px-2 py-1 rounded-lg uppercase">DEV {p.returnRate}%</span>
-          <span className="text-[8px] md:text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg uppercase">IER {(parseFloat(p.effectiveness) / 100 * (1 - parseFloat(p.returnRate) / 100) * 100).toFixed(1)}%</span>
-          <span className="text-[8px] md:text-[9px] font-black bg-blue-50 text-blue-500 px-2 py-1 rounded-lg uppercase">Flete {fmt(p.freight)}</span>
-          {p.extraUnitCharge && parseFloat(p.extraUnitCharge) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-yellow-50 text-yellow-600 px-2 py-1 rounded-lg uppercase">Extra x2+ {fmt(p.extraUnitCharge)}</span>}
-          <span className="text-[8px] md:text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg uppercase">Meta {fmt(p.targetProfit)}</span>
-          {p.cpaEquilibrio && parseFloat(p.cpaEquilibrio) > 0 && <span className="text-[8px] md:text-[9px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase">CPA Eq {fmt(p.cpaEquilibrio)}</span>}
-        </div>
-        <div className="grid grid-cols-3 gap-1 md:gap-2">
-          <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Costo Unit</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.productCost)}</p></div>
-          <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Comisión</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.commission)}</p></div>
-          <div className="text-center bg-slate-50 p-1 md:p-2 rounded-xl"><p className="text-[7px] md:text-[8px] text-slate-400 uppercase font-black">Fijos/Ent</p><p className="font-black text-[10px] md:text-xs text-slate-700">{fmt(p.fixedCosts)}</p></div>
-        </div>
-        <div className="text-[8px] text-slate-400 font-mono flex gap-2 flex-wrap">
-          {p.fechaCreacion && <span>📅 Creación: {parseColombiaDate(p.fechaCreacion).toLocaleDateString('es-CO')}</span>}
-          {p.fechaDesactivacion && <span className="text-red-400">🔴 Desactivado: {parseColombiaDate(p.fechaDesactivacion).toLocaleDateString('es-CO')}</span>}
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
-        <button onClick={() => openEdit(p)} className="p-2 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 text-slate-400 transition-colors"><Pencil size={14} /></button>
-        <button onClick={() => remove(p.id)} className="p-2 rounded-xl hover:bg-rose-50 hover:text-rose-500 text-slate-400 transition-colors"><Trash2 size={14} /></button>
-      </div>
-    </div>
-  );
-})}
+              {expandedV[vendedora] && (() => {
+                const activos = [...productos]
+                  .filter(p => p.activo !== false)
+                  .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
+                const inactivos = [...productos]
+                  .filter(p => p.activo === false)
+                  .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''));
 
-                  
-                  <div className="p-4 bg-slate-50/60"><button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50"><Plus size={14} /> Agregar nuevo producto a {vendedora}</button></div>
-                </div>
-              )}
+                return (
+                  <div className="border-t border-slate-100">
+                    <div className="divide-y divide-slate-100">
+                      {activos.length > 0 ? activos.map(renderStrategyProductRow) : (
+                        <div className="px-4 md:px-5 py-5 bg-slate-50/50 text-center">
+                          <p className="text-[10px] font-black uppercase text-slate-400">Sin productos activos</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {inactivos.length > 0 && (
+                      <details className="group border-t border-slate-200 bg-slate-50/70">
+                        <summary className="list-none cursor-pointer select-none px-4 md:px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-slate-100 transition-colors [&::-webkit-details-marker]:hidden">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center text-slate-500 shrink-0"><PowerOff size={14} /></div>
+                            <div className="min-w-0">
+                              <p className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-600">Productos inactivos</p>
+                              <p className="text-[8px] md:text-[9px] text-slate-400 font-semibold">Ocultos para mantener limpia la vista · {inactivos.length} producto{inactivos.length !== 1 ? 's' : ''}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="px-2 py-1 rounded-full bg-white border border-slate-200 text-[9px] font-black text-slate-500">{inactivos.length}</span>
+                            <ChevronDown size={16} className="text-slate-400 transition-transform duration-200 group-open:rotate-180" />
+                          </div>
+                        </summary>
+                        <div className="border-t border-slate-200 divide-y divide-slate-100 bg-white/80">
+                          {inactivos.map(renderStrategyProductRow)}
+                        </div>
+                      </details>
+                    )}
+
+                    <div className="p-4 bg-slate-50/60"><button onClick={() => openNewForVendor(vendedora)} className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-emerald-200 text-emerald-600 bg-white px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-50"><Plus size={14} /> Agregar nuevo producto a {vendedora}</button></div>
+                  </div>
+                );
+              })()}
             </Card>
           ))}
         </div>
