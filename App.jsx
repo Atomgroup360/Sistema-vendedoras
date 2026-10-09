@@ -12,7 +12,7 @@ import {
   DollarSign, Users, ShoppingBag, ArrowUpRight, ArrowDownRight, Info,
   Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,
   Archive, ArchiveRestore, CircleDollarSign, FileUp, Gauge, RefreshCcw,
-  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download, Paintbrush, Scissors
+  Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download, Paintbrush, Scissors, Bell
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
@@ -2340,8 +2340,237 @@ const COLLECTIONS = {
   recommendations: 'campaign_control_recommendations',
   decisions: 'campaign_control_decisions',
   actionItems: 'campaign_control_action_items',
+  reviews: 'campaign_control_reviews',
   imports: 'campaign_control_imports'
 };
+
+
+function addDaysIsoCC(dateStr, days = 0) {
+  const iso = dateToIso(dateStr);
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + Number(days || 0)));
+  return dt.toISOString().slice(0, 10);
+}
+
+function daysBetweenIsoCC(fromDate, toDate) {
+  const from = dateToIso(fromDate);
+  const to = dateToIso(toDate);
+  if (!from || !to) return 0;
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
+}
+
+function campaignReviewTypeCC(campaign) {
+  return ['testing', 'scaling'].includes(campaign?.reviewType) ? campaign.reviewType : null;
+}
+
+function campaignReviewTypeLabelCC(type) {
+  if (type === 'testing') return 'Testeo';
+  if (type === 'scaling') return 'Escalado';
+  return 'Sin tipo';
+}
+
+function campaignReviewScheduleCC(campaign, reviews = [], today = todayColombiaCC(), futureHorizonDays = 30) {
+  const type = campaignReviewTypeCC(campaign);
+  const startDate = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate);
+  const campaignReviews = (reviews || []).filter(r => r.campaignId === campaign?.id && r.status === 'reviewed');
+  const reviewedByDate = new Map(campaignReviews.map(r => [String(r.scheduledFor || ''), r]));
+
+  if (!campaign?.id || !type || !startDate) {
+    return {
+      type,
+      startDate,
+      dueDates: [],
+      pendingDates: [],
+      pendingCount: 0,
+      primaryPending: null,
+      nextDue: null,
+      lastReviewed: campaignReviews.sort((a, b) => String(b.scheduledFor || '').localeCompare(String(a.scheduledFor || '')))[0] || null,
+      reviewedByDate
+    };
+  }
+
+  const dueDates = [];
+  const firstDue = addDaysIsoCC(startDate, 2); // Día de creación = Día 1; revisión = Día 3.
+  const activeUntil = campaign.active === false
+    ? addDaysIsoCC(campaign.deactivatedDate || campaign.stateChangedDate || today, -1)
+    : today;
+
+  if (type === 'testing') {
+    if (firstDue && firstDue <= activeUntil) dueDates.push(firstDue);
+  } else if (type === 'scaling') {
+    let cursor = firstDue;
+    let guard = 0;
+    while (cursor && cursor <= activeUntil && guard < 2000) {
+      dueDates.push(cursor);
+      cursor = addDaysIsoCC(cursor, 2);
+      guard += 1;
+    }
+  }
+
+  const pendingDates = dueDates.filter(date => !reviewedByDate.has(date));
+  const primaryPending = pendingDates.length ? pendingDates[0] : null;
+  let nextDue = null;
+
+  if (campaign.active !== false) {
+    if (type === 'testing') {
+      if (firstDue > today && !reviewedByDate.has(firstDue)) nextDue = firstDue;
+    } else {
+      let cursor = firstDue;
+      let guard = 0;
+      while (cursor && cursor <= today && guard < 2000) {
+        cursor = addDaysIsoCC(cursor, 2);
+        guard += 1;
+      }
+      nextDue = cursor && cursor <= addDaysIsoCC(today, futureHorizonDays) ? cursor : cursor;
+    }
+  }
+
+  const reviewedSorted = [...campaignReviews].sort((a, b) => String(b.scheduledFor || '').localeCompare(String(a.scheduledFor || '')));
+  return {
+    type,
+    startDate,
+    firstDue,
+    dueDates,
+    pendingDates,
+    pendingCount: pendingDates.length,
+    primaryPending,
+    nextDue,
+    lastReviewed: reviewedSorted[0] || null,
+    reviewedByDate
+  };
+}
+
+function campaignReviewNotificationCountCC(campaigns = [], products = [], reviews = [], today = todayColombiaCC()) {
+  const activeProductIds = new Set((products || []).filter(p => p.active !== false).map(p => p.id));
+  return (campaigns || [])
+    .filter(c => c.active !== false && !c.archived && activeProductIds.has(c.productId))
+    .reduce((sum, campaign) => sum + campaignReviewScheduleCC(campaign, reviews, today).pendingCount, 0);
+}
+
+function CampaignReviewPanelCC({ products = [], campaigns = [], reviews = [], onOpenCampaign, onSetCampaignReviewType }) {
+  const [filter, setFilter] = useState('attention');
+  const today = todayColombiaCC();
+  const activeProductIds = useMemo(() => new Set(products.filter(p => p.active !== false).map(p => p.id)), [products]);
+
+  const rows = useMemo(() => campaigns
+    .filter(c => c.active !== false && !c.archived && activeProductIds.has(c.productId))
+    .map(campaign => {
+      const product = products.find(p => p.id === campaign.productId) || null;
+      const schedule = campaignReviewScheduleCC(campaign, reviews, today);
+      const overdue = schedule.primaryPending && schedule.primaryPending < today;
+      const dueToday = schedule.primaryPending === today;
+      const overdueDays = overdue ? Math.max(1, daysBetweenIsoCC(schedule.primaryPending, today)) : 0;
+      const reviewedToday = reviews.some(r => r.campaignId === campaign.id && r.status === 'reviewed' && r.reviewedAtDate === today);
+      let state = 'upcoming';
+      if (!schedule.type) state = 'unconfigured';
+      else if (overdue) state = 'overdue';
+      else if (dueToday) state = 'today';
+      else if (schedule.type === 'testing' && schedule.lastReviewed && !schedule.nextDue) state = 'reviewed';
+      else if (reviewedToday && !schedule.primaryPending) state = 'reviewed';
+      return { campaign, product, schedule, state, overdueDays, reviewedToday };
+    })
+    .sort((a, b) => {
+      const rank = { overdue: 0, today: 1, unconfigured: 2, upcoming: 3, reviewed: 4 };
+      const ra = rank[a.state] ?? 9;
+      const rb = rank[b.state] ?? 9;
+      if (ra !== rb) return ra - rb;
+      const da = a.schedule.primaryPending || a.schedule.nextDue || '9999-12-31';
+      const db = b.schedule.primaryPending || b.schedule.nextDue || '9999-12-31';
+      return String(da).localeCompare(String(db));
+    }), [campaigns, products, reviews, activeProductIds, today]);
+
+  const counts = {
+    overdue: rows.reduce((n, r) => n + r.schedule.pendingDates.filter(date => date < today).length, 0),
+    today: rows.reduce((n, r) => n + r.schedule.pendingDates.filter(date => date === today).length, 0),
+    upcoming: rows.filter(r => r.schedule.type && !r.schedule.primaryPending && r.schedule.nextDue).length,
+    reviewed: reviews.filter(r => r.status === 'reviewed' && r.reviewedAtDate === today).length,
+    unconfigured: rows.filter(r => r.state === 'unconfigured').length
+  };
+  const pendingTotal = counts.overdue + counts.today;
+
+  const visibleRows = rows.filter(row => {
+    if (filter === 'attention') return ['overdue', 'today', 'unconfigured'].includes(row.state);
+    if (filter === 'overdue') return row.state === 'overdue';
+    if (filter === 'today') return row.state === 'today';
+    if (filter === 'upcoming') return row.state === 'upcoming';
+    if (filter === 'reviewed') return row.state === 'reviewed' || row.reviewedToday;
+    return true;
+  });
+
+  const pill = (state, row) => {
+    if (state === 'overdue') return <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 text-[8px] font-black uppercase">🔴 Atrasada · +{row.overdueDays}d</span>;
+    if (state === 'today') return <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800 text-[8px] font-black uppercase">🔔 Revisar hoy</span>;
+    if (state === 'reviewed') return <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[8px] font-black uppercase">✅ Revisada</span>;
+    if (state === 'unconfigured') return <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase">⚙️ Sin calendario</span>;
+    return <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-[8px] font-black uppercase">🕒 Próxima</span>;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-3xl bg-gradient-to-br from-[#032A78] via-[#07398f] to-[#032A78] text-white p-4 sm:p-5 shadow-[0_16px_40px_rgba(3,42,120,0.16)]">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2"><Bell size={17} className={pendingTotal > 0 ? 'cc-review-bell' : ''}/><p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#F7C928]">Centro de revisiones</p></div>
+            <h3 className="text-xl sm:text-2xl font-black mt-1">Control diario de campañas</h3>
+            <p className="text-[9px] text-blue-100/70 mt-1 max-w-2xl">Testeo: primera revisión en el Día 3 contando la creación como Día 1. Escalado: revisión cada 2 días desde la fecha de creación.</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0 lg:min-w-[540px]">
+            <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Hoy</p><p className="text-xl font-black text-[#F7C928] mt-1">{counts.today}</p></div>
+            <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Atrasadas</p><p className="text-xl font-black text-rose-300 mt-1">{counts.overdue}</p></div>
+            <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Próximas</p><p className="text-xl font-black mt-1">{counts.upcoming}</p></div>
+            <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Revisadas hoy</p><p className="text-xl font-black text-emerald-300 mt-1">{counts.reviewed}</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        {[
+          ['attention', `Atención ${pendingTotal + counts.unconfigured}`],
+          ['today', `Hoy ${counts.today}`],
+          ['overdue', `Atrasadas ${counts.overdue}`],
+          ['upcoming', `Próximas ${counts.upcoming}`],
+          ['reviewed', `Revisadas ${counts.reviewed}`],
+          ['all', 'Todas']
+        ].map(([id, label]) => <button key={id} onClick={() => setFilter(id)} className={`px-3 py-2 rounded-xl text-[8px] font-black uppercase ${filter === id ? 'bg-[#032A78] text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>{label}</button>)}
+      </div>
+
+      {visibleRows.length === 0 ? <EmptyState>No hay campañas en este estado.</EmptyState> : (
+        <div className="space-y-3">
+          {visibleRows.map(row => {
+            const dueLabel = row.schedule.primaryPending || row.schedule.nextDue || row.schedule.lastReviewed?.scheduledFor || '—';
+            return (
+              <div key={row.campaign.id} className={`rounded-2xl border bg-white p-4 shadow-[0_6px_20px_rgba(15,23,42,0.04)] ${row.state === 'overdue' ? 'border-rose-200' : row.state === 'today' ? 'border-amber-200' : 'border-slate-200'}`}>
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">{pill(row.state, row)}<span className="px-2 py-1 rounded-full bg-slate-50 border border-slate-200 text-[8px] font-black text-slate-500 uppercase">{campaignReviewTypeLabelCC(row.schedule.type)}</span>{row.schedule.pendingCount > 1 ? <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600 text-[8px] font-black uppercase">{row.schedule.pendingCount} pendientes</span> : null}</div>
+                    <p className="text-[10px] text-slate-400 font-black uppercase mt-2">{row.product?.name || 'Producto'}</p>
+                    <h4 className="text-sm sm:text-base font-black text-zinc-900 mt-0.5">{row.campaign.name}</h4>
+                    <p className="text-[8px] text-slate-500 mt-1">Creada/inicio: <strong>{row.schedule.startDate || '—'}</strong> · {row.state === 'reviewed' ? 'última revisión' : row.schedule.primaryPending ? 'revisión pendiente' : 'próxima revisión'}: <strong>{dueLabel}</strong></p>
+                    {row.schedule.lastReviewed ? <p className="text-[8px] text-emerald-700 mt-1">Última completada: {row.schedule.lastReviewed.scheduledFor} · realizada {row.schedule.lastReviewed.reviewedAtDate || '—'}</p> : null}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 lg:justify-end">
+                    {!row.schedule.type ? (
+                      <>
+                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'testing')} className="px-3 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase">Configurar Testeo</button>
+                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'scaling')} className="px-3 py-2.5 rounded-xl bg-blue-50 text-blue-700 text-[8px] font-black uppercase">Configurar Escalado</button>
+                      </>
+                    ) : (
+                      <button onClick={() => onOpenCampaign?.(row.campaign.id)} className={`px-4 py-2.5 rounded-xl text-[8px] font-black uppercase inline-flex items-center justify-center gap-2 ${['overdue','today'].includes(row.state) ? 'bg-[#032A78] text-white' : 'bg-slate-100 text-slate-700'}`}><Activity size={12}/>{['overdue','today'].includes(row.state) ? 'Revisar campaña' : 'Ver diagnóstico'}</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const PERIODS = [
   { id: 'last', label: 'Último día', size: 1, previousSize: 3 },
@@ -7112,6 +7341,11 @@ function CampaignControlModule() {
   const [recommendations, setRecommendations] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [actionItems, setActionItems] = useState([]);
+  const [campaignReviews, setCampaignReviews] = useState([]);
+  const [reviewOpenRequest, setReviewOpenRequest] = useState(null);
+  const [reviewCompletionTarget, setReviewCompletionTarget] = useState(null);
+  const [reviewCompletionNote, setReviewCompletionNote] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [period, setPeriod] = useState('last');
@@ -7149,6 +7383,7 @@ function CampaignControlModule() {
     listen(COLLECTIONS.recommendations, setRecommendations);
     listen(COLLECTIONS.decisions, setDecisions);
     listen(COLLECTIONS.actionItems, setActionItems);
+    listen(COLLECTIONS.reviews, setCampaignReviews);
     return () => listeners.forEach(unsub => unsub());
   }, [ownerUid]);
 
@@ -7183,11 +7418,96 @@ function CampaignControlModule() {
     if (!selectedCampaignId && activeCampaigns.length) setSelectedCampaignId(activeCampaigns[0].id);
   }, [activeCampaigns, selectedCampaignId]);
 
+  const reviewPendingCount = useMemo(
+    () => campaignReviewNotificationCountCC(campaigns, products, campaignReviews, todayColombiaCC()),
+    [campaigns, products, campaignReviews]
+  );
+  const reviewOverdueCount = useMemo(() => {
+    const today = todayColombiaCC();
+    const activeProductIds = new Set(products.filter(p => p.active !== false).map(p => p.id));
+    return campaigns
+      .filter(c => c.active !== false && !c.archived && activeProductIds.has(c.productId))
+      .reduce((sum, c) => {
+        const schedule = campaignReviewScheduleCC(c, campaignReviews, today);
+        return sum + schedule.pendingDates.filter(date => date < today).length;
+      }, 0);
+  }, [campaigns, products, campaignReviews]);
+  const reviewTodayCount = Math.max(0, reviewPendingCount - reviewOverdueCount);
+
+  const openCampaignForReview = campaignId => {
+    if (!campaignId) return;
+    setSelectedCampaignId(campaignId);
+    setReviewOpenRequest({ campaignId, token: Date.now() });
+    if (subTab === 'dashboard') {
+      setSubTabState('dashboard');
+    } else {
+      setSubTab('dashboard');
+    }
+  };
+
+  const setCampaignReviewType = async (campaign, reviewType) => {
+    if (!campaign?.id || !['testing', 'scaling'].includes(reviewType)) return;
+    try {
+      await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), {
+        reviewType,
+        reviewTypeUpdatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Lectura de Campañas · tipo de revisión', error);
+      window.alert(error?.message || 'No fue posible configurar el calendario de revisión.');
+    }
+  };
+
+  const requestReviewCompletion = (campaign, product, scheduledFor) => {
+    if (!campaign?.id || !scheduledFor) return;
+    setReviewCompletionTarget({ campaign, product, scheduledFor, reviewType: campaignReviewTypeCC(campaign) });
+    setReviewCompletionNote('');
+  };
+
+  const saveReviewCompletion = async () => {
+    const target = reviewCompletionTarget;
+    if (!target || !ownerUid || reviewBusy) return;
+    const alreadyReviewed = campaignReviews.some(r => r.campaignId === target.campaign.id && r.scheduledFor === target.scheduledFor && r.status === 'reviewed');
+    if (alreadyReviewed) {
+      setReviewCompletionTarget(null);
+      setReviewCompletionNote('');
+      return;
+    }
+    setReviewBusy(true);
+    try {
+      await addDoc(collection(db, COLLECTIONS.reviews), {
+        ownerUid,
+        productId: target.campaign.productId || target.product?.id || null,
+        campaignId: target.campaign.id,
+        productNameSnapshot: target.product?.name || null,
+        campaignNameSnapshot: target.campaign.name || null,
+        reviewType: target.reviewType,
+        scheduledFor: target.scheduledFor,
+        reviewedAtDate: todayColombiaCC(),
+        reviewedBy: user?.email || user?.uid || 'Usuario Winner',
+        note: String(reviewCompletionNote || '').trim(),
+        status: 'reviewed',
+        completedAtMs: Date.now(),
+        reviewedAt: serverTimestamp(),
+        createdAt: serverTimestamp()
+      });
+      setReviewCompletionTarget(null);
+      setReviewCompletionNote('');
+    } catch (error) {
+      console.error('Lectura de Campañas · completar revisión', error);
+      window.alert(error?.message || 'No fue posible guardar la revisión.');
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
   if (loading) return <TuPedidoLoadingOverlay active label="Cargando Lectura de Campañas..." />;
 
   const tabs = [
     { id: 'dashboard', label: 'Resumen', icon: BarChart3 },
     { id: 'globalClose', label: 'Cierre global', icon: Calendar },
+    { id: 'reviews', label: 'Revisiones', icon: Bell, count: reviewPendingCount },
     { id: 'campaigns', label: 'Campañas', icon: Layers },
     { id: 'register', label: 'Registro diario', icon: CalendarDays },
     { id: 'actions', label: 'Acciones', icon: ListChecks, count: pendingActionItems.length },
@@ -7215,6 +7535,15 @@ function CampaignControlModule() {
         .cc-ui-shell * {
           box-sizing: border-box;
         }
+        @keyframes cc-review-bell-ring {
+          0%, 70%, 100% { transform: rotate(0deg); }
+          74% { transform: rotate(14deg); }
+          78% { transform: rotate(-12deg); }
+          82% { transform: rotate(9deg); }
+          86% { transform: rotate(-6deg); }
+          90% { transform: rotate(0deg); }
+        }
+        .cc-review-bell { animation: cc-review-bell-ring 2.4s ease-in-out infinite; transform-origin: 50% 8%; }
 
         .cc-ui-shell p,
         .cc-ui-shell span,
@@ -8247,6 +8576,12 @@ function CampaignControlModule() {
           }
         }
       `}</style>
+      {reviewPendingCount > 0 && subTab !== 'reviews' ? (
+        <button type="button" onClick={() => setSubTab('reviews')} className="w-full rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white px-4 py-3 flex items-center justify-between gap-3 text-left shadow-sm">
+          <div className="flex items-center gap-3 min-w-0"><span className="relative w-9 h-9 rounded-full bg-[#032A78] text-[#F7C928] flex items-center justify-center shrink-0"><Bell size={17} className="cc-review-bell"/><span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#B52B36] text-white text-[7px] font-black flex items-center justify-center">{reviewPendingCount}</span></span><div className="min-w-0"><p className="text-[9px] font-black uppercase text-[#032A78]">Revisiones pendientes</p><p className="text-[8px] text-slate-500 mt-0.5">{reviewTodayCount} para hoy · {reviewOverdueCount} atrasada{reviewOverdueCount === 1 ? '' : 's'}</p></div></div>
+          <span className="text-[8px] font-black uppercase text-[#032A78] shrink-0">Ver panel →</span>
+        </button>
+      ) : null}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
@@ -8260,7 +8595,7 @@ function CampaignControlModule() {
           </div>
         </div>
         <div className="w-full">
-          <div className="cc-top-tabs grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 w-full bg-[#032A78] p-1 rounded-2xl gap-1">
+          <div className="cc-top-tabs grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 w-full bg-[#032A78] p-1 rounded-2xl gap-1">
             {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`min-w-0 flex items-center justify-center gap-1.5 px-2.5 lg:px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-normal leading-tight text-center ${subTab === t.id ? 'bg-[#F7C928] text-[#032A78] shadow-sm' : 'text-blue-100/70 hover:text-white hover:bg-white/5'}`}><t.icon size={12} />{t.label}{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
@@ -8288,6 +8623,19 @@ function CampaignControlModule() {
           selectedCampaign={selectedCampaign}
           setSelectedCampaignId={setSelectedCampaignId}
           setSubTab={setSubTab}
+          campaignReviews={campaignReviews}
+          reviewOpenRequest={reviewOpenRequest}
+          onRequestReviewComplete={requestReviewCompletion}
+        />
+      )}
+
+      {subTab === 'reviews' && (
+        <CampaignReviewPanelCC
+          products={products}
+          campaigns={campaigns}
+          reviews={campaignReviews}
+          onOpenCampaign={openCampaignForReview}
+          onSetCampaignReviewType={setCampaignReviewType}
         />
       )}
 
@@ -8347,6 +8695,25 @@ function CampaignControlModule() {
           decisions={decisions}
         />
       )}
+
+      {reviewCompletionTarget ? (
+        <div className="fixed inset-0 z-[120] bg-zinc-950/55 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div><p className="text-[8px] font-black uppercase tracking-[0.16em] text-emerald-600">Cerrar revisión</p><h3 className="text-lg font-black text-zinc-900 mt-1">¿Revisión completada?</h3></div>
+              <button onClick={() => !reviewBusy && setReviewCompletionTarget(null)} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center"><X size={15}/></button>
+            </div>
+            <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 p-3">
+              <p className="text-[8px] font-black uppercase text-slate-400">Producto</p><p className="text-xs font-black mt-0.5">{reviewCompletionTarget.product?.name || '—'}</p>
+              <p className="text-[8px] font-black uppercase text-slate-400 mt-3">Campaña</p><p className="text-xs font-black mt-0.5">{reviewCompletionTarget.campaign?.name || '—'}</p>
+              <div className="grid grid-cols-2 gap-2 mt-3"><div><p className="text-[8px] font-black uppercase text-slate-400">Programada</p><p className="text-[10px] font-black">{reviewCompletionTarget.scheduledFor}</p></div><div><p className="text-[8px] font-black uppercase text-slate-400">Realizada</p><p className="text-[10px] font-black">{todayColombiaCC()}</p></div></div>
+            </div>
+            <label className="block mt-4"><span className="text-[8px] font-black uppercase text-slate-500">Nota opcional</span><textarea rows={3} value={reviewCompletionNote} onChange={e => setReviewCompletionNote(e.target.value)} placeholder="Ej: CPA estable, mantener presupuesto." className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"/></label>
+            <p className="text-[8px] text-slate-500 mt-3">Al confirmar, esta fecha queda guardada en el historial. Si existen revisiones anteriores atrasadas, seguirán pendientes hasta cerrarlas.</p>
+            <div className="grid grid-cols-2 gap-2 mt-4"><button disabled={reviewBusy} onClick={() => setReviewCompletionTarget(null)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-[8px] font-black uppercase">Cancelar</button><button disabled={reviewBusy} onClick={saveReviewCompletion} className="rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-[8px] font-black uppercase inline-flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={13}/>{reviewBusy ? 'Guardando...' : 'Confirmar revisión'}</button></div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -8408,7 +8775,8 @@ function CampaignCpaMiniChart({ campaign, product, dailyCampaigns }) {
 function CampaignDashboard({
   ownerUid, products, campaigns, ads, dailyCampaigns, dailyAds, budgetChanges, decisions, recommendations, actionItems,
   attentionRows, activeProducts, activeCampaigns, activeAds, latestDate,
-  period, setPeriod, selectedCampaign, setSelectedCampaignId, setSubTab
+  period, setPeriod, selectedCampaign, setSelectedCampaignId, setSubTab,
+  campaignReviews = [], reviewOpenRequest = null, onRequestReviewComplete
 }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -8416,6 +8784,12 @@ function CampaignDashboard({
   const [drawerPeriod, setDrawerPeriod] = useState(period || 'last');
   const [auditHighlightBusyId, setAuditHighlightBusyId] = useState('');
   const [showInactiveCampaigns, setShowInactiveCampaigns] = useState(false);
+
+  useEffect(() => {
+    if (!reviewOpenRequest?.campaignId) return;
+    setShowInactiveCampaigns(false);
+    setDrawerCampaignId(reviewOpenRequest.campaignId);
+  }, [reviewOpenRequest?.token]);
 
   // RESUMEN tiene dos modos completamente separados:
   // 1) operativo actual = solo productos/campañas activos;
@@ -8612,6 +8986,8 @@ function CampaignDashboard({
       : c.active !== false && activeProductIdsForSummary.has(c.productId))
   ) || null;
   const drawerProduct = drawerCampaign ? products.find(p=>p.id===drawerCampaign.productId) : null;
+  const drawerReviewSchedule = drawerCampaign ? campaignReviewScheduleCC(drawerCampaign, campaignReviews, todayColombiaCC()) : null;
+  const drawerPendingReviewDate = drawerReviewSchedule?.primaryPending || null;
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
     dailyCampaigns.filter(r=>r.campaignId===drawerCampaign.id), drawerCampaign
   ).sort((a,b)=>String(a.date).localeCompare(String(b.date))) : [];
@@ -8953,6 +9329,15 @@ function CampaignDashboard({
               <p className="text-[10px] text-slate-400 mt-1">{drawerCampaign.name} · {drawerCampaign.active === false ? 'Consulta histórica de métricas anteriores al cierre' : 'Historial, variaciones y capacidad de escala'}</p>
               {drawerCampaign.active === false ? <p className="text-[8px] font-black text-amber-700 mt-1">Fecha de desactivación: {drawerCampaign.deactivatedDate || drawerCampaign.stateChangedDate || '—'} · Solo lectura</p> : null}
             </div>
+
+            {drawerCampaign.active !== false && drawerReviewSchedule?.type ? (
+              <div className={`mt-4 rounded-2xl border p-3 ${drawerPendingReviewDate ? (drawerPendingReviewDate < today ? 'border-rose-200 bg-rose-50' : 'border-amber-200 bg-amber-50') : 'border-emerald-200 bg-emerald-50'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div><p className="text-[8px] font-black uppercase text-slate-500">Control de revisión · {campaignReviewTypeLabelCC(drawerReviewSchedule.type)}</p>{drawerPendingReviewDate ? <><p className={`text-[11px] font-black mt-1 ${drawerPendingReviewDate < today ? 'text-rose-700' : 'text-amber-800'}`}>{drawerPendingReviewDate < today ? `Revisión atrasada · ${drawerPendingReviewDate}` : `Revisión programada para hoy · ${drawerPendingReviewDate}`}</p><p className="text-[8px] text-slate-500 mt-1">Realiza el diagnóstico y, cuando termines, cierra esta revisión.</p></> : <><p className="text-[11px] font-black text-emerald-700 mt-1">Sin revisiones pendientes</p><p className="text-[8px] text-slate-500 mt-1">Próxima: {drawerReviewSchedule.nextDue || 'sin nueva fecha programada'}</p></>}</div>
+                  {drawerPendingReviewDate ? <button onClick={() => onRequestReviewComplete?.(drawerCampaign, drawerProduct, drawerPendingReviewDate)} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-[8px] font-black uppercase inline-flex items-center justify-center gap-2"><CheckCircle2 size={13}/> Revisión completada</button> : null}
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex gap-2 mt-5 mb-4 flex-wrap">
               {PERIODS.map(p=><button key={p.id} onClick={()=>{setDrawerPeriod(p.id);setPeriod(p.id)}} className={`px-3 py-2 rounded-lg text-[9px] font-black ${drawerPeriod===p.id?'bg-zinc-950 text-white':'bg-slate-100 text-slate-500'}`}>{p.label}</button>)}
@@ -16445,6 +16830,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
   const [productForm, setProductForm] = useState({ name: '', maxCpa: '20000', createdDate: todayColombiaCC() });
   const [campaignNameByProduct, setCampaignNameByProduct] = useState({});
   const [campaignDateByProduct, setCampaignDateByProduct] = useState({});
+  const [campaignTypeByProduct, setCampaignTypeByProduct] = useState({});
   const [adNameByCampaign, setAdNameByCampaign] = useState({});
   const [expandedProductsManager, setExpandedProductsManager] = useState({});
   const [expanded, setExpanded] = useState({});
@@ -16976,6 +17362,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         name,
         active: true,
         archived: false,
+        reviewType: campaignTypeByProduct[productId] || 'testing',
         // Fecha operativa elegida por el usuario. Es independiente del producto.
         createdDate: campaignStartDate,
         effectiveStartDate: campaignStartDate,
@@ -16988,6 +17375,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       });
       setCampaignNameByProduct(x => ({ ...x, [productId]: '' }));
       setCampaignDateByProduct(x => ({ ...x, [productId]: today }));
+      setCampaignTypeByProduct(x => ({ ...x, [productId]: x[productId] || 'testing' }));
       setExpanded(x => ({ ...x, [ref.id]: true }));
       setExpandedAds(x => ({ ...x, [ref.id]: false }));
       showManagerMessage('success', `Campaña "${name}" creada con fecha de inicio ${campaignStartDate}.`);
@@ -16998,6 +17386,21 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       setBusyKey('');
     }
   };
+  const updateCampaignReviewType = async (campaign, reviewType) => {
+    if (!['testing', 'scaling'].includes(reviewType)) return;
+    try {
+      await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), {
+        reviewType,
+        reviewTypeUpdatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      showManagerMessage('success', `Calendario de "${campaign.name}" actualizado a ${campaignReviewTypeLabelCC(reviewType)}.`);
+    } catch (error) {
+      console.error('Lectura de Campañas · calendario revisión', error);
+      showManagerMessage('error', readableFirebaseError(error, 'No se pudo actualizar el calendario'));
+    }
+  };
+
   const editCampaignStartDate = async campaign => {
     const oldStart = dateToIso(campaign.effectiveStartDate || campaign.createdDate) || today;
 
@@ -17540,7 +17943,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
           )}
         </div>
 
-      <div className="cc-new-campaign-grid grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-2 mt-4">
+      <div className="cc-new-campaign-grid grid grid-cols-1 md:grid-cols-[1fr_160px_190px_auto] gap-2 mt-4">
         <div>
           <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Nombre campaña</p>
           <input
@@ -17550,6 +17953,14 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
             placeholder="Nombre nueva campaña"
             className="w-full bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold"
           />
+        </div>
+        <div>
+          <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Tipo / calendario</p>
+          <select value={campaignTypeByProduct[product.id] || 'testing'} onChange={e=>setCampaignTypeByProduct(x=>({...x,[product.id]:e.target.value}))} className="w-full bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold">
+            <option value="testing">Testeo · Día 3</option>
+            <option value="scaling">Escalado · cada 2 días</option>
+          </select>
+          <p className="text-[7px] text-slate-400 mt-1">Define alertas de revisión</p>
         </div>
         <div>
           <p className="text-[8px] font-black uppercase text-slate-400 mb-1">Fecha inicio campaña</p>
@@ -17605,6 +18016,9 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
                   }`}>
                     {isPlaybookEligibleCampaignCC(campaign) ? 'PLAYBOOK ESCALA' : 'PLAYBOOK NO APLICA'}
                   </span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[8px] font-black ${campaignReviewTypeCC(campaign) === 'scaling' ? 'bg-blue-100 text-blue-700' : campaignReviewTypeCC(campaign) === 'testing' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
+                    {campaignReviewTypeCC(campaign) ? `REVISIÓN ${campaignReviewTypeLabelCC(campaignReviewTypeCC(campaign)).toUpperCase()}` : 'REVISIÓN SIN CONFIGURAR'}
+                  </span>
                 </div>
                 <p className="text-[8px] text-slate-400 mt-2">
                   inicio campaña {campaign.effectiveStartDate||campaign.createdDate||'—'} · fecha independiente del producto · alta técnica conservada · último cambio {campaign.stateChangedDate||'—'}{campaign.active===false ? ` · apagada desde ${campaign.deactivatedDate||campaign.stateChangedDate||'—'}` : ''}
@@ -17612,6 +18026,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
               </div>
 
               <div className="cc-campaign-actions flex gap-1 flex-wrap">
+                {!campaign.archived ? <select title="Calendario de revisiones" value={campaignReviewTypeCC(campaign) || ''} onChange={e=>e.target.value && updateCampaignReviewType(campaign,e.target.value)} className="px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[8px] font-black uppercase text-slate-600"><option value="">Tipo revisión</option><option value="testing">Testeo · Día 3</option><option value="scaling">Escalado · 2 días</option></select> : null}
                 <button title="Editar nombre de campaña" onClick={()=>editCampaignName(campaign)} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={11}/> Editar</button>
                 <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
                 {!campaign.archived&&<button
@@ -18930,6 +19345,9 @@ export default function App() {
   const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
   const [months, setMonths] = useState([]);
+  const [campaignMenuProducts, setCampaignMenuProducts] = useState([]);
+  const [campaignMenuCampaigns, setCampaignMenuCampaigns] = useState([]);
+  const [campaignMenuReviews, setCampaignMenuReviews] = useState([]);
   const [activeTab, setTabState] = useState('dashboard');
   const [navigationLoading, setNavigationLoading] = useState(false);
   const navigationLoadingTimer = useRef(null);
@@ -18953,6 +19371,25 @@ export default function App() {
     return () => { u1(); u2(); };
   }, [user]);
 
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    const ownerUid = user.uid;
+    const listenOwned = (collectionName, setter) => onSnapshot(
+      query(collection(db, collectionName), where('ownerUid', '==', ownerUid)),
+      snap => setter(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      error => console.warn(`Notificaciones Campañas · ${collectionName}`, error)
+    );
+    const u1 = listenOwned(COLLECTIONS.products, setCampaignMenuProducts);
+    const u2 = listenOwned(COLLECTIONS.campaigns, setCampaignMenuCampaigns);
+    const u3 = listenOwned(COLLECTIONS.reviews, setCampaignMenuReviews);
+    return () => { u1(); u2(); u3(); };
+  }, [user?.uid]);
+
+  const campaignMenuPendingCount = useMemo(
+    () => campaignReviewNotificationCountCC(campaignMenuCampaigns, campaignMenuProducts, campaignMenuReviews, todayColombiaCC()),
+    [campaignMenuCampaigns, campaignMenuProducts, campaignMenuReviews]
+  );
+
   if (loading) return <TuPedidoLoadingOverlay active label="Cargando plataforma..." variant="initial" />;
   if (!user) return <Login />;
 
@@ -18961,7 +19398,7 @@ export default function App() {
     { id: 'records', icon: ClipboardList, label: 'Cierres' },
     { id: 'config', icon: Settings, label: 'Estrategias' },
     { id: 'agenda', icon: CalendarDays, label: 'Agenda' },
-    { id: 'campaignControl', icon: BarChart3, label: 'Campañas' }
+    { id: 'campaignControl', icon: BarChart3, label: 'Campañas', notificationCount: campaignMenuPendingCount }
   ];
   const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
   const renderDesktopNavButton = (tab) => {
@@ -18976,7 +19413,10 @@ export default function App() {
       >
         <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-[#F7C928] text-[#032A78]' : 'bg-white/5 text-blue-100/70'}`}><Icon size={17} /></span>
         <span className={`text-[11px] font-black uppercase tracking-[0.09em] ${active ? 'text-white' : 'text-blue-100/70'}`}>{tab.label}</span>
-        {active && <span className="ml-auto w-1.5 h-6 rounded-full bg-[#F7C928]" />}
+        <span className="ml-auto flex items-center gap-1.5">
+          {tab.notificationCount > 0 ? <span className="relative inline-flex items-center"><Bell size={14} className="tpc-menu-bell text-[#F7C928]"/><span className="absolute -top-2 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B52B36] text-white text-[7px] font-black flex items-center justify-center ring-2 ring-[#032A78]">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></span> : null}
+          {active && <span className="w-1.5 h-6 rounded-full bg-[#F7C928]" />}
+        </span>
       </button>
     );
   };
@@ -18996,6 +19436,15 @@ export default function App() {
         .tpc-app-shell * { box-sizing: border-box; }
         .tpc-app-shell .tpc-side-nav-item:hover:not(.is-active) { background: rgba(255,255,255,.055); }
         .tpc-app-shell .tpc-side-nav-item.is-active { background: rgba(255,255,255,.09); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+        @keyframes tpc-menu-bell-ring {
+          0%, 68%, 100% { transform: rotate(0deg); }
+          73% { transform: rotate(16deg); }
+          78% { transform: rotate(-14deg); }
+          83% { transform: rotate(10deg); }
+          88% { transform: rotate(-6deg); }
+          93% { transform: rotate(0deg); }
+        }
+        .tpc-app-shell .tpc-menu-bell { animation: tpc-menu-bell-ring 2.5s ease-in-out infinite; transform-origin: 50% 8%; }
         .tpc-app-shell button.bg-emerald-500 { background-color: var(--tpc-yellow) !important; color: var(--tpc-blue) !important; }
         .tpc-app-shell button.bg-emerald-500:hover { background-color: #f1c116 !important; }
         .tpc-app-shell button[class*="focus:border-emerald"]:focus { border-color: var(--tpc-yellow) !important; }
@@ -19119,7 +19568,7 @@ export default function App() {
             return (
               <button key={tab.id} type="button" onClick={() => setTab(tab.id)} className="relative flex flex-col items-center justify-center min-w-0 rounded-xl py-1.5 px-1">
                 {active && <span className="absolute top-0 w-5 h-[3px] rounded-full bg-[#F7C928]" />}
-                <span className={`w-8 h-8 rounded-xl flex items-center justify-center ${active ? 'bg-[#032A78] text-[#F7C928]' : 'text-slate-400'}`}><Icon size={16} /></span>
+                <span className={`relative w-8 h-8 rounded-xl flex items-center justify-center ${active ? 'bg-[#032A78] text-[#F7C928]' : 'text-slate-400'}`}><Icon size={16} />{tab.notificationCount > 0 ? <><Bell size={10} className="tpc-menu-bell absolute -top-1 -right-1 text-[#B52B36] fill-white"/><span className="absolute -top-2.5 -right-3 min-w-[16px] h-[16px] px-1 rounded-full bg-[#B52B36] text-white text-[6.5px] font-black flex items-center justify-center ring-2 ring-white">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></> : null}</span>
                 <span className={`mt-0.5 text-[7px] font-black uppercase tracking-tight truncate w-full text-center ${active ? 'text-[#032A78]' : 'text-slate-400'}`}>{tab.label}</span>
               </button>
             );
