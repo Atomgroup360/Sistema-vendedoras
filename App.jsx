@@ -2372,16 +2372,31 @@ function campaignReviewTypeLabelCC(type) {
   return 'Sin tipo';
 }
 
+function campaignReviewStartModeCC(campaign) {
+  return campaign?.reviewStartMode === 'today' ? 'today' : 'original';
+}
+
+function campaignReviewStartModeLabelCC(campaign) {
+  return campaignReviewStartModeCC(campaign) === 'today' ? 'Desde hoy' : 'Desde creación';
+}
+
 function campaignReviewScheduleCC(campaign, reviews = [], today = todayColombiaCC(), futureHorizonDays = 30) {
   const type = campaignReviewTypeCC(campaign);
-  const startDate = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate);
+  const originalStartDate = dateToIso(campaign?.effectiveStartDate || campaign?.createdDate);
+  const startMode = campaignReviewStartModeCC(campaign);
+  const monitoringStartDate = startMode === 'today'
+    ? (dateToIso(campaign?.reviewMonitoringStartDate) || today)
+    : originalStartDate;
   const campaignReviews = (reviews || []).filter(r => r.campaignId === campaign?.id && r.status === 'reviewed');
   const reviewedByDate = new Map(campaignReviews.map(r => [String(r.scheduledFor || ''), r]));
 
-  if (!campaign?.id || !type || !startDate) {
+  if (!campaign?.id || !type || !monitoringStartDate) {
     return {
       type,
-      startDate,
+      startMode,
+      originalStartDate,
+      startDate: monitoringStartDate || originalStartDate,
+      monitoringStartDate,
       dueDates: [],
       pendingDates: [],
       pendingCount: 0,
@@ -2393,7 +2408,9 @@ function campaignReviewScheduleCC(campaign, reviews = [], today = todayColombiaC
   }
 
   const dueDates = [];
-  const firstDue = addDaysIsoCC(startDate, 2); // Día de creación = Día 1; revisión = Día 3.
+  // Desde creación: Día de creación = Día 1 y primera revisión = Día 3 (+2 días).
+  // Desde hoy: la primera revisión vence HOY; después Escalado continúa cada 2 días.
+  const firstDue = startMode === 'today' ? monitoringStartDate : addDaysIsoCC(monitoringStartDate, 2);
   const activeUntil = campaign.active === false
     ? addDaysIsoCC(campaign.deactivatedDate || campaign.stateChangedDate || today, -1)
     : today;
@@ -2431,7 +2448,10 @@ function campaignReviewScheduleCC(campaign, reviews = [], today = todayColombiaC
   const reviewedSorted = [...campaignReviews].sort((a, b) => String(b.scheduledFor || '').localeCompare(String(a.scheduledFor || '')));
   return {
     type,
-    startDate,
+    startMode,
+    originalStartDate,
+    startDate: monitoringStartDate,
+    monitoringStartDate,
     firstDue,
     dueDates,
     pendingDates,
@@ -2515,7 +2535,7 @@ function CampaignReviewPanelCC({ products = [], campaigns = [], reviews = [], on
           <div>
             <div className="flex items-center gap-2"><Bell size={17} className={pendingTotal > 0 ? 'cc-review-bell' : ''}/><p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#F7C928]">Centro de revisiones</p></div>
             <h3 className="text-xl sm:text-2xl font-black mt-1">Control diario de campañas</h3>
-            <p className="text-[9px] text-blue-100/70 mt-1 max-w-2xl">Testeo: primera revisión en el Día 3 contando la creación como Día 1. Escalado: revisión cada 2 días desde la fecha de creación.</p>
+            <p className="text-[9px] text-blue-100/70 mt-1 max-w-2xl">Testeo: Día 3 desde creación, o vencimiento hoy si activas monitoreo desde hoy. Escalado: cada 2 días; al iniciar desde hoy, la primera revisión vence hoy.</p>
           </div>
           <div className="cc-review-summary grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0 lg:min-w-[540px]">
             <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Hoy</p><p className="text-xl font-black text-[#F7C928] mt-1">{counts.today}</p></div>
@@ -2548,18 +2568,23 @@ function CampaignReviewPanelCC({ products = [], campaigns = [], reviews = [], on
                     <div className="flex items-center gap-2 flex-wrap">{pill(row.state, row)}<span className="px-2 py-1 rounded-full bg-slate-50 border border-slate-200 text-[8px] font-black text-slate-500 uppercase">{campaignReviewTypeLabelCC(row.schedule.type)}</span>{row.schedule.pendingCount > 1 ? <span className="px-2 py-1 rounded-full bg-rose-50 text-rose-600 text-[8px] font-black uppercase">{row.schedule.pendingCount} pendientes</span> : null}</div>
                     <p className="text-[10px] text-slate-400 font-black uppercase mt-2">{row.product?.name || 'Producto'}</p>
                     <h4 className="text-sm sm:text-base font-black text-zinc-900 mt-0.5">{row.campaign.name}</h4>
-                    <p className="text-[8px] text-slate-500 mt-1">Creada/inicio: <strong>{row.schedule.startDate || '—'}</strong> · {row.state === 'reviewed' ? 'última revisión' : row.schedule.primaryPending ? 'revisión pendiente' : 'próxima revisión'}: <strong>{dueLabel}</strong></p>
+                    <p className="text-[8px] text-slate-500 mt-1">Creada/inicio: <strong>{row.schedule.originalStartDate || row.schedule.startDate || '—'}</strong> · monitoreo: <strong>{campaignReviewStartModeLabelCC(row.campaign)}</strong>{row.schedule.startMode === 'today' ? ` (${row.schedule.monitoringStartDate})` : ''} · {row.state === 'reviewed' ? 'última revisión' : row.schedule.primaryPending ? 'revisión pendiente' : 'próxima revisión'}: <strong>{dueLabel}</strong></p>
                     {row.schedule.lastReviewed ? <p className="text-[8px] text-emerald-700 mt-1">Última completada: {row.schedule.lastReviewed.scheduledFor} · realizada {row.schedule.lastReviewed.reviewedAtDate || '—'}</p> : null}
                   </div>
 
                   <div className="cc-review-row-actions flex flex-col sm:flex-row gap-2 lg:justify-end">
                     {!row.schedule.type ? (
-                      <>
-                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'testing')} className="px-3 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase">Configurar Testeo</button>
-                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'scaling')} className="px-3 py-2.5 rounded-xl bg-blue-50 text-blue-700 text-[8px] font-black uppercase">Configurar Escalado</button>
-                      </>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'testing', 'original')} className="px-3 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase">Testeo · desde creación</button>
+                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'testing', 'today')} className="px-3 py-2.5 rounded-xl bg-amber-50 text-amber-800 text-[8px] font-black uppercase">Testeo · desde hoy</button>
+                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'scaling', 'original')} className="px-3 py-2.5 rounded-xl bg-blue-50 text-blue-700 text-[8px] font-black uppercase">Escalado · desde creación</button>
+                        <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'scaling', 'today')} className="px-3 py-2.5 rounded-xl bg-cyan-50 text-cyan-700 text-[8px] font-black uppercase">Escalado · desde hoy</button>
+                      </div>
                     ) : (
-                      <button onClick={() => onOpenCampaign?.(row.campaign.id)} className={`px-4 py-2.5 rounded-xl text-[8px] font-black uppercase inline-flex items-center justify-center gap-2 ${['overdue','today'].includes(row.state) ? 'bg-[#032A78] text-white' : 'bg-slate-100 text-slate-700'}`}><Activity size={12}/>{['overdue','today'].includes(row.state) ? 'Revisar campaña' : 'Ver diagnóstico'}</button>
+                      <>
+                        <button onClick={() => onOpenCampaign?.(row.campaign.id, row.schedule.primaryPending || null)} className={`px-4 py-2.5 rounded-xl text-[8px] font-black uppercase inline-flex items-center justify-center gap-2 ${['overdue','today'].includes(row.state) ? 'bg-[#032A78] text-white' : 'bg-slate-100 text-slate-700'}`}><Activity size={12}/>{['overdue','today'].includes(row.state) ? 'Revisar campaña' : 'Ver diagnóstico'}</button>
+                        {row.schedule.startMode !== 'today' ? <button onClick={() => onSetCampaignReviewType?.(row.campaign, row.schedule.type, 'today')} className="px-3 py-2.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-[8px] font-black uppercase">Iniciar monitoreo desde hoy</button> : null}
+                      </>
                     )}
                   </div>
                 </div>
@@ -7434,10 +7459,10 @@ function CampaignControlModule() {
   }, [campaigns, products, campaignReviews]);
   const reviewTodayCount = Math.max(0, reviewPendingCount - reviewOverdueCount);
 
-  const openCampaignForReview = campaignId => {
+  const openCampaignForReview = (campaignId, scheduledFor = null) => {
     if (!campaignId) return;
     setSelectedCampaignId(campaignId);
-    setReviewOpenRequest({ campaignId, token: Date.now() });
+    setReviewOpenRequest({ campaignId, scheduledFor, token: Date.now() });
     if (subTab === 'dashboard') {
       setSubTabState('dashboard');
     } else {
@@ -7445,11 +7470,16 @@ function CampaignControlModule() {
     }
   };
 
-  const setCampaignReviewType = async (campaign, reviewType) => {
-    if (!campaign?.id || !['testing', 'scaling'].includes(reviewType)) return;
+  const setCampaignReviewType = async (campaign, reviewType, startMode = 'original') => {
+    if (!campaign?.id || !['testing', 'scaling'].includes(reviewType) || !['original', 'today'].includes(startMode)) return;
+    const monitoringStartDate = startMode === 'today'
+      ? todayColombiaCC()
+      : dateToIso(campaign.effectiveStartDate || campaign.createdDate);
     try {
       await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), {
         reviewType,
+        reviewStartMode: startMode,
+        reviewMonitoringStartDate: monitoringStartDate || todayColombiaCC(),
         reviewTypeUpdatedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -8804,7 +8834,7 @@ function CampaignControlModule() {
             </div>
             <label className="block mt-4"><span className="text-[8px] font-black uppercase text-slate-500">Nota opcional</span><textarea rows={3} value={reviewCompletionNote} onChange={e => setReviewCompletionNote(e.target.value)} placeholder="Ej: CPA estable, mantener presupuesto." className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"/></label>
             <p className="text-[8px] text-slate-500 mt-3">Al confirmar, esta fecha queda guardada en el historial. Si existen revisiones anteriores atrasadas, seguirán pendientes hasta cerrarlas.</p>
-            <div className="grid grid-cols-2 gap-2 mt-4"><button disabled={reviewBusy} onClick={() => setReviewCompletionTarget(null)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-[8px] font-black uppercase">Cancelar</button><button disabled={reviewBusy} onClick={saveReviewCompletion} className="rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-[8px] font-black uppercase inline-flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={13}/>{reviewBusy ? 'Guardando...' : 'Confirmar revisión'}</button></div>
+            <div className="grid grid-cols-2 gap-2 mt-4"><button disabled={reviewBusy} onClick={() => setReviewCompletionTarget(null)} className="rounded-xl border border-slate-200 px-3 py-2.5 text-[8px] font-black uppercase">Cancelar</button><button disabled={reviewBusy} onClick={saveReviewCompletion} className="rounded-xl bg-emerald-600 text-white px-3 py-2.5 text-[8px] font-black uppercase inline-flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={13}/>{reviewBusy ? 'Guardando...' : `Completar revisión del ${reviewCompletionTarget.scheduledFor}`}</button></div>
           </div>
         </div>
       ) : null}
@@ -9081,7 +9111,10 @@ function CampaignDashboard({
   ) || null;
   const drawerProduct = drawerCampaign ? products.find(p=>p.id===drawerCampaign.productId) : null;
   const drawerReviewSchedule = drawerCampaign ? campaignReviewScheduleCC(drawerCampaign, campaignReviews, todayColombiaCC()) : null;
-  const drawerPendingReviewDate = drawerReviewSchedule?.primaryPending || null;
+  const requestedReviewDate = reviewOpenRequest?.campaignId === drawerCampaign?.id ? dateToIso(reviewOpenRequest?.scheduledFor) : null;
+  const drawerPendingReviewDate = requestedReviewDate && drawerReviewSchedule?.pendingDates?.includes(requestedReviewDate)
+    ? requestedReviewDate
+    : (drawerReviewSchedule?.primaryPending || null);
   const drawerHistory = drawerCampaign ? eligibleCampaignRecords(
     dailyCampaigns.filter(r=>r.campaignId===drawerCampaign.id), drawerCampaign
   ).sort((a,b)=>String(a.date).localeCompare(String(b.date))) : [];
@@ -9427,8 +9460,8 @@ function CampaignDashboard({
             {drawerCampaign.active !== false && drawerReviewSchedule?.type ? (
               <div className={`mt-4 rounded-2xl border p-3 ${drawerPendingReviewDate ? (drawerPendingReviewDate < today ? 'border-rose-200 bg-rose-50' : 'border-amber-200 bg-amber-50') : 'border-emerald-200 bg-emerald-50'}`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div><p className="text-[8px] font-black uppercase text-slate-500">Control de revisión · {campaignReviewTypeLabelCC(drawerReviewSchedule.type)}</p>{drawerPendingReviewDate ? <><p className={`text-[11px] font-black mt-1 ${drawerPendingReviewDate < today ? 'text-rose-700' : 'text-amber-800'}`}>{drawerPendingReviewDate < today ? `Revisión atrasada · ${drawerPendingReviewDate}` : `Revisión programada para hoy · ${drawerPendingReviewDate}`}</p><p className="text-[8px] text-slate-500 mt-1">Realiza el diagnóstico y, cuando termines, cierra esta revisión.</p></> : <><p className="text-[11px] font-black text-emerald-700 mt-1">Sin revisiones pendientes</p><p className="text-[8px] text-slate-500 mt-1">Próxima: {drawerReviewSchedule.nextDue || 'sin nueva fecha programada'}</p></>}</div>
-                  {drawerPendingReviewDate ? <button onClick={() => onRequestReviewComplete?.(drawerCampaign, drawerProduct, drawerPendingReviewDate)} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-[8px] font-black uppercase inline-flex items-center justify-center gap-2"><CheckCircle2 size={13}/> Revisión completada</button> : null}
+                  <div><p className="text-[8px] font-black uppercase text-slate-500">Control de revisión · {campaignReviewTypeLabelCC(drawerReviewSchedule.type)} · {campaignReviewStartModeLabelCC(drawerCampaign)}</p>{drawerPendingReviewDate ? <><p className={`text-[11px] font-black mt-1 ${drawerPendingReviewDate < today ? 'text-rose-700' : 'text-amber-800'}`}>{drawerPendingReviewDate < today ? `Revisión programada: ${drawerPendingReviewDate} · ATRASADA ${Math.max(1, daysBetweenIsoCC(drawerPendingReviewDate, today))} día(s)` : `Revisión programada: ${drawerPendingReviewDate} · VENCE HOY`}</p><p className="text-[8px] text-slate-500 mt-1">Esta es la fecha exacta que cerrarás. Realiza el diagnóstico y luego confirma la revisión.</p></> : <><p className="text-[11px] font-black text-emerald-700 mt-1">Sin revisiones pendientes</p><p className="text-[8px] text-slate-500 mt-1">Próxima: {drawerReviewSchedule.nextDue || 'sin nueva fecha programada'}</p></>}</div>
+                  {drawerPendingReviewDate ? <button onClick={() => onRequestReviewComplete?.(drawerCampaign, drawerProduct, drawerPendingReviewDate)} className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-[8px] font-black uppercase inline-flex items-center justify-center gap-2"><CheckCircle2 size={13}/> Completar revisión del {drawerPendingReviewDate}</button> : null}
                 </div>
               </div>
             ) : null}
@@ -17457,6 +17490,8 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
         active: true,
         archived: false,
         reviewType: campaignTypeByProduct[productId] || 'testing',
+        reviewStartMode: 'original',
+        reviewMonitoringStartDate: campaignStartDate,
         // Fecha operativa elegida por el usuario. Es independiente del producto.
         createdDate: campaignStartDate,
         effectiveStartDate: campaignStartDate,
@@ -17480,15 +17515,18 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       setBusyKey('');
     }
   };
-  const updateCampaignReviewType = async (campaign, reviewType) => {
-    if (!['testing', 'scaling'].includes(reviewType)) return;
+  const updateCampaignReviewType = async (campaign, reviewType, startMode = 'original') => {
+    if (!['testing', 'scaling'].includes(reviewType) || !['original', 'today'].includes(startMode)) return;
+    const monitoringStartDate = startMode === 'today' ? today : (dateToIso(campaign.effectiveStartDate || campaign.createdDate) || today);
     try {
       await updateDoc(doc(db, COLLECTIONS.campaigns, campaign.id), {
         reviewType,
+        reviewStartMode: startMode,
+        reviewMonitoringStartDate: monitoringStartDate,
         reviewTypeUpdatedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      showManagerMessage('success', `Calendario de "${campaign.name}" actualizado a ${campaignReviewTypeLabelCC(reviewType)}.`);
+      showManagerMessage('success', `Calendario de "${campaign.name}" actualizado a ${campaignReviewTypeLabelCC(reviewType)} · ${startMode === 'today' ? 'desde hoy (vence hoy)' : 'desde creación'}.`);
     } catch (error) {
       console.error('Lectura de Campañas · calendario revisión', error);
       showManagerMessage('error', readableFirebaseError(error, 'No se pudo actualizar el calendario'));
@@ -18120,7 +18158,7 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
               </div>
 
               <div className="cc-campaign-actions flex gap-1 flex-wrap">
-                {!campaign.archived ? <select title="Calendario de revisiones" value={campaignReviewTypeCC(campaign) || ''} onChange={e=>e.target.value && updateCampaignReviewType(campaign,e.target.value)} className="px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[8px] font-black uppercase text-slate-600"><option value="">Tipo revisión</option><option value="testing">Testeo · Día 3</option><option value="scaling">Escalado · 2 días</option></select> : null}
+                {!campaign.archived ? <select title="Calendario de revisiones" value={campaignReviewTypeCC(campaign) ? `${campaignReviewTypeCC(campaign)}|${campaignReviewStartModeCC(campaign)}` : ''} onChange={e=>{if(!e.target.value)return; const [reviewType,startMode]=e.target.value.split('|'); updateCampaignReviewType(campaign,reviewType,startMode);}} className="px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[8px] font-black uppercase text-slate-600"><option value="">Tipo revisión</option><option value="testing|original">Testeo · desde creación</option><option value="testing|today">Testeo · desde hoy · vence hoy</option><option value="scaling|original">Escalado · desde creación</option><option value="scaling|today">Escalado · desde hoy · vence hoy</option></select> : null}
                 <button title="Editar nombre de campaña" onClick={()=>editCampaignName(campaign)} className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase inline-flex items-center gap-1"><Pencil size={11}/> Editar</button>
                 <button title="Editar fecha de creación / inicio" onClick={()=>editCampaignStartDate(campaign)} className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><CalendarDays size={12}/></button>
                 {!campaign.archived&&<button
