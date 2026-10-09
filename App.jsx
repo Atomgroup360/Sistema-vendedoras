@@ -2517,7 +2517,7 @@ function CampaignReviewPanelCC({ products = [], campaigns = [], reviews = [], on
             <h3 className="text-xl sm:text-2xl font-black mt-1">Control diario de campañas</h3>
             <p className="text-[9px] text-blue-100/70 mt-1 max-w-2xl">Testeo: primera revisión en el Día 3 contando la creación como Día 1. Escalado: revisión cada 2 días desde la fecha de creación.</p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0 lg:min-w-[540px]">
+          <div className="cc-review-summary grid grid-cols-2 sm:grid-cols-4 gap-2 min-w-0 lg:min-w-[540px]">
             <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Hoy</p><p className="text-xl font-black text-[#F7C928] mt-1">{counts.today}</p></div>
             <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Atrasadas</p><p className="text-xl font-black text-rose-300 mt-1">{counts.overdue}</p></div>
             <div className="rounded-2xl bg-white/10 border border-white/10 p-3"><p className="text-[7px] uppercase font-black text-blue-100/60">Próximas</p><p className="text-xl font-black mt-1">{counts.upcoming}</p></div>
@@ -2552,7 +2552,7 @@ function CampaignReviewPanelCC({ products = [], campaigns = [], reviews = [], on
                     {row.schedule.lastReviewed ? <p className="text-[8px] text-emerald-700 mt-1">Última completada: {row.schedule.lastReviewed.scheduledFor} · realizada {row.schedule.lastReviewed.reviewedAtDate || '—'}</p> : null}
                   </div>
 
-                  <div className="flex flex-col sm:flex-row gap-2 lg:justify-end">
+                  <div className="cc-review-row-actions flex flex-col sm:flex-row gap-2 lg:justify-end">
                     {!row.schedule.type ? (
                       <>
                         <button onClick={() => onSetCampaignReviewType?.(row.campaign, 'testing')} className="px-3 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 text-[8px] font-black uppercase">Configurar Testeo</button>
@@ -8382,6 +8382,99 @@ function CampaignControlModule() {
           scrollbar-gutter: stable;
         }
 
+        /* HEADER + SUBTABS · RESPONSIVE REAL */
+        .cc-ui-shell .cc-campaigns-header {
+          width: 100%;
+          min-width: 0;
+        }
+
+        .cc-ui-shell .cc-campaigns-title,
+        .cc-ui-shell .cc-campaigns-subtitle {
+          overflow-wrap: normal !important;
+          word-break: keep-all !important;
+          hyphens: none !important;
+        }
+
+        .cc-ui-shell .cc-campaigns-title {
+          white-space: normal;
+          line-height: 1.02;
+        }
+
+        .cc-ui-shell .cc-top-tabs-wrap {
+          overflow: hidden;
+        }
+
+        .cc-ui-shell .cc-top-tabs {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          width: 100%;
+          min-width: 0;
+        }
+
+        .cc-ui-shell .cc-top-tab {
+          min-width: 0;
+          width: 100%;
+          overflow: hidden;
+        }
+
+        @media (max-width: 1023px) {
+          .cc-ui-shell .cc-top-tabs-wrap {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            margin-left: -2px;
+            margin-right: -2px;
+            padding-left: 2px;
+            padding-right: 2px;
+          }
+
+          .cc-ui-shell .cc-top-tabs-wrap::-webkit-scrollbar { display: none; }
+
+          .cc-ui-shell .cc-top-tabs {
+            display: flex !important;
+            width: max-content;
+            min-width: 100%;
+            grid-template-columns: none !important;
+          }
+
+          .cc-ui-shell .cc-top-tab {
+            flex: 0 0 auto;
+            width: auto;
+            min-width: 126px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .cc-ui-shell .cc-campaigns-header {
+            gap: 10px;
+          }
+
+          .cc-ui-shell .cc-campaigns-title {
+            font-size: 20px !important;
+            line-height: 1.05 !important;
+            letter-spacing: -0.035em;
+          }
+
+          .cc-ui-shell .cc-campaigns-subtitle {
+            font-size: 9px !important;
+            line-height: 1.35 !important;
+            letter-spacing: .06em !important;
+          }
+
+          .cc-ui-shell .cc-top-tabs {
+            padding: 5px !important;
+            border-radius: 15px !important;
+            gap: 5px !important;
+          }
+
+          .cc-ui-shell .cc-top-tab {
+            min-width: 118px;
+            min-height: 42px !important;
+            padding: 8px 10px !important;
+          }
+        }
+
         @media (min-width: 1280px) {
           .cc-ui-shell > .grid:first-of-type {
             gap: 22px !important;
@@ -8424,19 +8517,25 @@ function CampaignControlModule() {
             margin-right: -2px;
           }
 
-          .cc-ui-shell .cc-top-tabs {
-            position: sticky;
-            top: 6px;
-            z-index: 35;
-            padding: 5px !important;
-            border-radius: 16px !important;
-            box-shadow: 0 10px 30px rgba(15,23,42,.18);
+          .cc-ui-shell .cc-review-summary {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            min-width: 0 !important;
+            width: 100%;
           }
 
-          .cc-ui-shell .cc-top-tabs button {
-            min-height: 46px !important;
-            padding: 8px 7px !important;
-            gap: 5px !important;
+          .cc-ui-shell .cc-review-row-actions {
+            width: 100%;
+          }
+
+          .cc-ui-shell .cc-review-row-actions > button {
+            width: 100%;
+          }
+
+          .cc-ui-shell .cc-top-tabs {
+            position: relative;
+            top: auto;
+            z-index: 1;
+            box-shadow: 0 8px 22px rgba(15,23,42,.12);
           }
 
           .cc-ui-shell .cc-section-card {
@@ -8561,10 +8660,6 @@ function CampaignControlModule() {
         }
 
         @media (max-width: 420px) {
-          .cc-ui-shell .cc-top-tabs {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-          }
-
           .cc-ui-shell .cc-product-actions,
           .cc-ui-shell .cc-campaign-actions {
             grid-template-columns: 1fr !important;
@@ -8582,21 +8677,20 @@ function CampaignControlModule() {
           <span className="text-[8px] font-black uppercase text-[#032A78] shrink-0">Ver panel →</span>
         </button>
       ) : null}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <div className="shrink-0 w-10 h-10 rounded-2xl bg-[#032A78] flex items-center justify-center text-[#F7C928] shadow-[0_6px_16px_rgba(3,42,120,0.16)]"><Activity size={20} /></div>
-            <div className="min-w-0">
-              <h2 className="text-xl sm:text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900 break-words">LECTURA DE CAMPAÑAS</h2>
-              <p className="text-[8px] sm:text-[9px] md:text-[10px] text-slate-400 font-black uppercase tracking-wider sm:tracking-widest leading-relaxed">
-                Diagnóstico Meta Ads · 3D decide · entiende qué pasa en segundos
-              </p>
-            </div>
+      <div className="cc-campaigns-header space-y-3 sm:space-y-4">
+        <div className="min-w-0 flex items-center gap-3">
+          <div className="shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-[#032A78] flex items-center justify-center text-[#F7C928] shadow-[0_6px_16px_rgba(3,42,120,0.16)]"><Activity size={20} /></div>
+          <div className="min-w-0 flex-1">
+            <h2 className="cc-campaigns-title text-xl sm:text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">LECTURA DE CAMPAÑAS</h2>
+            <p className="cc-campaigns-subtitle text-[8px] sm:text-[9px] md:text-[10px] text-slate-400 font-black uppercase tracking-wider sm:tracking-widest leading-relaxed">
+              Diagnóstico Meta Ads · 3D decide · entiende qué pasa en segundos
+            </p>
           </div>
         </div>
-        <div className="w-full">
-          <div className="cc-top-tabs grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 w-full bg-[#032A78] p-1 rounded-2xl gap-1">
-            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`min-w-0 flex items-center justify-center gap-1.5 px-2.5 lg:px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-normal leading-tight text-center ${subTab === t.id ? 'bg-[#F7C928] text-[#032A78] shadow-sm' : 'text-blue-100/70 hover:text-white hover:bg-white/5'}`}><t.icon size={12} />{t.label}{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
+
+        <div className="cc-top-tabs-wrap w-full min-w-0">
+          <div className="cc-top-tabs bg-[#032A78] p-1.5 rounded-2xl gap-1.5">
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`cc-top-tab flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-nowrap leading-none text-center ${subTab === t.id ? 'bg-[#F7C928] text-[#032A78] shadow-sm' : 'text-blue-100/70 hover:text-white hover:bg-white/5'}`}><t.icon size={12} className="shrink-0"/><span>{t.label}</span>{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] shrink-0 ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
       </div>
