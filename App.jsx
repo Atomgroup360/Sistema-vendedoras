@@ -942,7 +942,7 @@ function VistaConfig({ configs, onSaved }) {
                             <ChevronDown size={16} className="text-slate-400 transition-transform duration-200 group-open:rotate-180" />
                           </div>
                         </summary>
-                        <div className="border-t border-slate-200 divide-y divide-slate-100 bg-white/80">
+                        <div className="border-t border-slate-200 divide-y divide-slate-100 bg-white/100">
                           {inactivos.map(renderStrategyProductRow)}
                         </div>
                       </details>
@@ -1068,7 +1068,7 @@ function VistaConfig({ configs, onSaved }) {
                 )}
 
                 {singleFreightLookup.status === 'ok' && twoFreightLookup.status === 'ok' && !freightValidationError && (
-                  <div className="mt-2 rounded-xl bg-white/70 border border-blue-100 px-3 py-2 text-[8px] text-slate-600 font-mono break-words">{fmt(Number(form.priceSingle))} → {fmt(singleFreightLookup.rate.freight)} · {fmt(Number(form.priceTwoUnits))} → {fmt(twoFreightLookup.rate.freight)} · Extra = {fmt(twoFreightLookup.rate.freight)} − {fmt(singleFreightLookup.rate.freight)} = <b>{fmt(twoFreightLookup.rate.freight - singleFreightLookup.rate.freight)}</b></div>
+                  <div className="mt-2 rounded-xl bg-white/100 border border-blue-100 px-3 py-2 text-[8px] text-slate-600 font-mono break-words">{fmt(Number(form.priceSingle))} → {fmt(singleFreightLookup.rate.freight)} · {fmt(Number(form.priceTwoUnits))} → {fmt(twoFreightLookup.rate.freight)} · Extra = {fmt(twoFreightLookup.rate.freight)} − {fmt(singleFreightLookup.rate.freight)} = <b>{fmt(twoFreightLookup.rate.freight - singleFreightLookup.rate.freight)}</b></div>
                 )}
               </div>
 
@@ -1357,7 +1357,7 @@ function VistaRegistro({ configs, months, activeTab }) {
               <p className="font-black text-xs md:text-base">{parseColombiaDate(ultimoDia).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}</p>
               <p className="text-[8px] md:text-[9px] font-semibold mt-1">{diferenciaDias === 0 && ' ✅ Hoy ya hay actividad.'}{diferenciaDias === 1 && ' ⚠️ Ayer fue el último día. Hoy aún no hay registros.'}{diferenciaDias > 1 && ` ❗ Han pasado ${diferenciaDias} días sin registrar.`}</p>
             </div></div>
-            {diasFaltantes.length > 0 && <div className="bg-white/80 rounded-xl p-2 max-h-32 overflow-y-auto text-[10px] w-full md:w-auto"><p className="font-black uppercase text-[8px] flex items-center gap-1"><ListChecks size={10} /> Días sin registrar:</p><ul className="mt-1 space-y-0.5">{diasFaltantes.slice(0, 4).map(d => <li key={d.fecha} className="text-[9px]">📅 {d.nombre}</li>)}{diasFaltantes.length > 4 && <li className="text-[8px] text-amber-600">... y {diasFaltantes.length - 4} más</li>}</ul></div>}
+            {diasFaltantes.length > 0 && <div className="bg-white/100 rounded-xl p-2 max-h-32 overflow-y-auto text-[10px] w-full md:w-auto"><p className="font-black uppercase text-[8px] flex items-center gap-1"><ListChecks size={10} /> Días sin registrar:</p><ul className="mt-1 space-y-0.5">{diasFaltantes.slice(0, 4).map(d => <li key={d.fecha} className="text-[9px]">📅 {d.nombre}</li>)}{diasFaltantes.length > 4 && <li className="text-[8px] text-amber-600">... y {diasFaltantes.length - 4} más</li>}</ul></div>}
           </div>
         </div>
       )}
@@ -2208,22 +2208,22 @@ function VistaDashboard({ configs, months }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <Gauge size={16} className="shrink-0" />
                 <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.12em]">Economía del Ticket</p>
-                <span className="text-[7px] md:text-[8px] font-black uppercase px-2 py-1 rounded-full bg-white/70 border border-current/10">Informativo</span>
+                <span className="text-[7px] md:text-[8px] font-black uppercase px-2 py-1 rounded-full bg-white/100 border border-current/10">Informativo</span>
               </div>
               <p className="text-[8px] md:text-[9px] opacity-70 mt-1">Resumen económico del rango seleccionado · usa facturación, unidades, IER y el costeo operativo existente.</p>
             </div>
-            <span className="inline-flex w-fit px-3 py-1.5 rounded-full bg-white/80 border border-current/10 text-[8px] md:text-[9px] font-black uppercase">{ticketEconomy.label}</span>
+            <span className="inline-flex w-fit px-3 py-1.5 rounded-full bg-white/100 border border-current/10 text-[8px] md:text-[9px] font-black uppercase">{ticketEconomy.label}</span>
           </div>
 
           {/* Lectura principal: compacta, con detalle educativo por métrica */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5">
-            <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
+            <div className="relative rounded-2xl bg-white/105 border border-white p-3.5">
               <MetricInfoButton onClick={() => openMetricHelp('aov')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase opacity-55">AOV registrado</p>
               <p className="text-lg md:text-xl font-black font-mono mt-1">{fmt(ticketEconomy.aov)}</p>
               <p className="text-[7px] font-bold opacity-55">{fmtN(ticketEconomy.orders)} pedidos</p>
             </div>
-            <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
+            <div className="relative rounded-2xl bg-white/105 border border-white p-3.5">
               <MetricInfoButton onClick={() => openMetricHelp('upo')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase opacity-55">UPO · Unidades / pedido</p>
               <p className="text-lg md:text-xl font-black font-mono mt-1">{fmtDec(ticketEconomy.upo, 2)}</p>
@@ -2235,7 +2235,7 @@ function VistaDashboard({ configs, months }) {
               <p className={`text-lg md:text-xl font-black font-mono mt-1 ${ticketEconomy.estimatedProfitPerDelivery >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.evaluable ? `${ticketEconomy.estimatedProfitPerDelivery >= 0 ? '+' : '−'}${fmt(Math.abs(ticketEconomy.estimatedProfitPerDelivery))}` : '—'}</p>
               <p className="text-[7px] font-bold text-slate-500">utilidad neta ÷ entregas</p>
             </div>
-            <div className="relative rounded-2xl bg-white/85 border border-white p-3.5">
+            <div className="relative rounded-2xl bg-white/105 border border-white p-3.5">
               <MetricInfoButton onClick={() => openMetricHelp('marginPerDelivery')} className="absolute top-2 right-2" />
               <p className="text-[7px] font-black uppercase opacity-55">Margen % / entrega</p>
               <p className={`text-lg md:text-xl font-black font-mono mt-1 ${(ticketEconomy.marginPctPerDelivery ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{ticketEconomy.marginPctPerDelivery !== null ? `${fmtDec(ticketEconomy.marginPctPerDelivery, 1)}%` : '—'}</p>
@@ -2251,13 +2251,13 @@ function VistaDashboard({ configs, months }) {
 
           <div className="mt-3 rounded-2xl bg-white/65 border border-white px-3 py-2.5 flex items-start gap-2"><Info size={12} className="shrink-0 mt-0.5" /><p className="text-[8px] md:text-[9px] font-bold leading-relaxed">{ticketEconomy.message}</p></div>
 
-          <button type="button" onClick={() => toggleSection('economiaTicketDetalle')} className="mt-3 w-full rounded-2xl bg-white/80 hover:bg-white border border-white px-3 py-2.5 flex items-center justify-between gap-3 transition-colors">
+          <button type="button" onClick={() => toggleSection('economiaTicketDetalle')} className="mt-3 w-full rounded-2xl bg-white/100 hover:bg-white border border-white px-3 py-2.5 flex items-center justify-between gap-3 transition-colors">
             <div className="text-left"><p className="text-[8px] md:text-[9px] font-black uppercase">Ver economía detallada</p><p className="text-[7px] opacity-60">Costos por entrega, CPA económico y AOV de equilibrio</p></div>
             {openSections.economiaTicketDetalle ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
 
           {openSections.economiaTicketDetalle && (
-            <div className="mt-3 rounded-2xl bg-white/75 border border-white p-3 md:p-4 space-y-4">
+            <div className="mt-3 rounded-2xl bg-white/105 border border-white p-3 md:p-4 space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div className="relative rounded-xl bg-slate-50 border border-slate-100 p-3"><MetricInfoButton onClick={() => openMetricHelp('merchandisePerDelivery')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Mercancía / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.merchandisePerDelivery) : '—'}</p></div>
                 <div className="relative rounded-xl bg-slate-50 border border-slate-100 p-3"><MetricInfoButton onClick={() => openMetricHelp('logisticsPerDelivery')} className="absolute top-1.5 right-1.5" /><p className="text-[7px] font-black uppercase text-slate-500 pr-6">Logística / entrega</p><p className="text-sm font-black font-mono mt-1">{ticketEconomy.evaluable ? fmt(ticketEconomy.logisticsPerDelivery) : '—'}</p><p className="text-[6.5px] text-slate-400 mt-0.5">flete + fulfillment + comisión + fijos</p></div>
@@ -13468,11 +13468,11 @@ function CampaignWeekdayHistoryView({ campaign, analysis }) {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 ">
-                  <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                  <div className="rounded-xl bg-white/100 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Gasto histórico</p>
                     <p className="text-[10px] font-black tabular-nums whitespace-nowrap mt-1">{fmtMoney(row.stats.spend)}</p>
                   </div>
-                  <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                  <div className="rounded-xl bg-white/100 border border-white p-2.5">
                     <p className="text-[7px] font-black uppercase text-slate-400">Compras</p>
                     <p className="text-[10px] font-black tabular-nums whitespace-nowrap mt-1">{fmtNum(row.stats.purchases, 0)}</p>
                   </div>
@@ -14749,7 +14749,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
   const marginalDisplay = marginalCpaDisplayCC(scaleStatus, maxCpa);
 
   const valueBox = (label, value, sub = null) => (
-    <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-3 py-3 sm:px-3.5 sm:py-3.5 lg:px-4 lg:py-4">
+    <div className="min-w-0 rounded-xl border border-white/80 bg-white/100 px-3 py-3 sm:px-3.5 sm:py-3.5 lg:px-4 lg:py-4">
       <p
         className="text-[6px] sm:text-[6.5px] lg:text-[7.5px] font-black uppercase leading-tight tracking-wide text-slate-400"
         style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
@@ -14821,7 +14821,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
           `CPA máximo ${fmtMoney(maxCpa)}`
         )}
 
-        <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 px-2.5 py-2.5 sm:px-3 sm:py-3">
+        <div className="min-w-0 rounded-xl border border-white/80 bg-white/100 px-2.5 py-2.5 sm:px-3 sm:py-3">
           <div className="flex items-start justify-between gap-2">
             <p className="text-[6px] sm:text-[6.5px] lg:text-[7.5px] font-black uppercase leading-tight tracking-wide text-slate-400">
               {diag?.changeType === 'decrease' ? 'Impacto de reducción' : 'CPA marginal'}
@@ -14903,7 +14903,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
           ) : null}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5 mt-3">
-            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/100 p-2.5 sm:p-3">
               <p className="text-[6px] sm:text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase tracking-wide text-slate-400">
                 Lectura
               </p>
@@ -14912,7 +14912,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
               </p>
             </div>
 
-            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/100 p-2.5 sm:p-3">
               <p className="text-[6px] sm:text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase tracking-wide text-slate-400">
                 Evidencia
               </p>
@@ -14921,7 +14921,7 @@ function CurrentScaleStatusCardCC({ scaleStatus, maxCpa }) {
               </p>
             </div>
 
-            <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-2.5 sm:p-3">
+            <div className="min-w-0 rounded-xl border border-white/70 bg-white/100 p-2.5 sm:p-3">
               <p className="text-[6px] sm:text-[6.5px] sm:text-[7px] lg:text-[8px] font-black uppercase tracking-wide text-slate-400">
                 {diag.shouldReduceBudget ? 'Acción' : 'Qué hacer'}
               </p>
@@ -15086,11 +15086,11 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
               <p className="text-sm font-black text-zinc-900 mt-1">{campaignOverview.dominantLayer}</p>
               <p className="text-[9px] text-slate-700 mt-2 leading-relaxed">{campaignOverview.action}</p>
               <div className="grid grid-cols-2 gap-2 mt-3">
-                <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                <div className="rounded-xl bg-white/100 border border-white p-2.5">
                   <p className="text-[7px] font-black uppercase text-slate-400">Presupuesto afectado</p>
                   <p className="text-lg font-black mt-1">{fmtRate(campaignOverview.affectedSpend)}</p>
                 </div>
-                <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                <div className="rounded-xl bg-white/100 border border-white p-2.5">
                   <p className="text-[7px] font-black uppercase text-slate-400">Anuncios afectados</p>
                   <p className="text-lg font-black mt-1">{campaignOverview.affectedCount}/{campaignOverview.activeSpendCount}</p>
                 </div>
@@ -15149,7 +15149,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   <ShutdownProtocolGuideCC protocol={campaignOverview.shutdownProtocol} />
                 </div>
 
-                <div className="lg:w-[360px] rounded-xl border border-white/70 bg-white/80 p-3">
+                <div className="lg:w-[360px] rounded-xl border border-white/70 bg-white/100 p-3">
                   <p className="text-[7px] font-black uppercase text-slate-400">Evidencia exigida</p>
                   <div className="mt-1.5 space-y-1">
                     {(campaignOverview.shutdownProtocol.evidence || []).map((item, index) => (
@@ -15183,7 +15183,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
 
                   {campaignPoda.dominantAd && campaignPoda.candidateAd ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3">
-                      <div className="rounded-xl border border-rose-200 bg-white/75 p-3">
+                      <div className="rounded-xl border border-rose-200 bg-white/105 p-3">
                         <p className="text-[7px] font-black uppercase text-rose-600">Anuncio dominante</p>
                         <p className="text-[10px] font-black text-zinc-900 mt-1 break-words">{campaignPoda.dominantAd.name}</p>
                         <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-[8px] text-slate-600">
@@ -15192,7 +15192,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                         </div>
                       </div>
 
-                      <div className="rounded-xl border border-emerald-200 bg-white/75 p-3">
+                      <div className="rounded-xl border border-emerald-200 bg-white/105 p-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-[7px] font-black uppercase text-emerald-700">Anuncio receptor</p>
                           {campaignPoda.candidateConfidence ? (
@@ -15216,7 +15216,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                   ) : null}
                 </div>
 
-                <div className="xl:w-[360px] xl:shrink-0 rounded-xl border border-white bg-white/75 p-3">
+                <div className="xl:w-[360px] xl:shrink-0 rounded-xl border border-white bg-white/105 p-3">
                   <p className="text-[7px] font-black uppercase text-slate-400">Acción recomendada</p>
                   <p className="text-[9px] sm:text-[10px] font-semibold text-slate-700 mt-1.5 leading-relaxed">
                     {campaignPoda.action}
@@ -15302,13 +15302,13 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
 
                 {!topPlaybook ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mt-3">
-                    <div className="rounded-xl border border-white/80 bg-white/70 p-3">
+                    <div className="rounded-xl border border-white/80 bg-white/100 p-3">
                       <p className="text-[7px] font-black uppercase text-slate-400">Protocolo A · Post-clic</p>
                       <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1 leading-relaxed">
                         {playbookEvaluation.protocolA}
                       </p>
                     </div>
-                    <div className="rounded-xl border border-white/80 bg-white/70 p-3">
+                    <div className="rounded-xl border border-white/80 bg-white/100 p-3">
                       <p className="text-[7px] font-black uppercase text-slate-400">Protocolo B · Fatiga</p>
                       <p className="text-[8px] sm:text-[9px] text-slate-600 mt-1 leading-relaxed">
                         {playbookEvaluation.protocolB}
@@ -15327,7 +15327,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
 
               <div className="lg:w-[310px] lg:shrink-0 space-y-2">
                 {topPlaybook ? (
-                  <div className="rounded-xl bg-white/75 border border-white p-3">
+                  <div className="rounded-xl bg-white/105 border border-white p-3">
                     <p className="text-[7px] font-black uppercase text-slate-400">Filtro económico</p>
                     <p className={`text-[9px] font-black mt-1 ${toneText(topPlaybook.playbook.economicGate?.tone)}`}>
                       {topPlaybook.playbook.economicGate?.label}
@@ -15352,21 +15352,21 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
             {playbookHelpOpen ? (
               <div className="mt-3 pt-3 border-t border-slate-200/80">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
-                  <div className="rounded-xl border border-blue-200 bg-white/80 p-3.5">
+                  <div className="rounded-xl border border-blue-200 bg-white/100 p-3.5">
                     <p className="text-[8px] font-black uppercase text-blue-700">A · Deterioro post-clic</p>
                     <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">
                       Busca una caída marcada del CVR mientras CPM, CTR y CPC permanecen relativamente estables. Si el CPA sigue rentable, solo alerta. Si el CPA supera seguridad y 3D confirma, habilita el protocolo post-clic.
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-amber-200 bg-white/80 p-3.5">
+                  <div className="rounded-xl border border-amber-200 bg-white/100 p-3.5">
                     <p className="text-[8px] font-black uppercase text-amber-700">B · Fatiga creativa</p>
                     <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">
                       Frecuencia 2,5–3,0 es vigilancia, no sentencia. La fatiga necesita repetición alta/subiendo + CTR deteriorándose + presión de CPC/CPM. Solo se confirma estrictamente cuando también existe impacto económico.
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-rose-200 bg-white/80 p-3.5">
+                  <div className="rounded-xl border border-rose-200 bg-white/100 p-3.5">
                     <p className="text-[8px] font-black uppercase text-rose-700">La Poda · Capa 1</p>
                     <p className="text-[9px] text-slate-700 mt-1.5 leading-relaxed">
                       Se evalúa cuando un anuncio concentra la mayor parte del gasto y cumple pausa 3D, mientras otro anuncio rentable puede actuar como receptor. Después de apagar solo el dominante, se observa 48–72 h para distinguir Poda exitosa de Efecto Espejismo.
@@ -15585,7 +15585,7 @@ function CampaignReadingView({ campaign, product, adRows, campaignHistory, campa
                     </p>
 
                     {scaleAuthorization ? (
-                      <div className="mt-3 rounded-xl border border-white/80 bg-white/75 p-2.5">
+                      <div className="mt-3 rounded-xl border border-white/80 bg-white/105 p-2.5">
                         <p className="text-[6.5px] font-black uppercase text-slate-400">Escala Post ID / ABO</p>
                         <p className={`text-[9px] font-black mt-1 ${toneText(scaleAuthorization.tone)}`}>
                           {scaleAuthorization.label}
@@ -16539,7 +16539,7 @@ function CampaignDiagnosticDetail({ ownerUid, campaign, product, ads, allAds, al
             </td>
             <td className="py-2 pr-2">
               {contribution ? (
-                <div className="rounded-xl bg-white/80 border border-white p-2.5">
+                <div className="rounded-xl bg-white/100 border border-white p-2.5">
                   <span className={`inline-block px-2 py-1 rounded-full border text-[8px] font-black uppercase ${contributionClass}`}>
                     {contribution.status}
                   </span>
@@ -18353,8 +18353,8 @@ function CampaignManager({ ownerUid, products, campaigns, ads, dailyCampaigns, d
       {productCampaigns.length > 0 && <div className="flex items-center justify-between gap-2 mt-3">
         <p className="text-[8px] font-bold text-slate-400">Producto → Campaña → resumen y controles → anuncios</p>
         <div className="flex gap-1.5 shrink-0">
-          <button type="button" onClick={()=>expandAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronDown size={11}/> Expandir campañas</button>
-          <button type="button" onClick={()=>collapseAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/80 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronUp size={11}/> Contraer campañas</button>
+          <button type="button" onClick={()=>expandAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/100 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronDown size={11}/> Expandir campañas</button>
+          <button type="button" onClick={()=>collapseAllProductCampaigns(product.id)} className="px-2.5 py-1.5 rounded-lg bg-white/100 border border-slate-200 text-[8px] font-black uppercase text-slate-600 flex items-center gap-1"><ChevronUp size={11}/> Contraer campañas</button>
         </div>
       </div>}
       <div className="space-y-3 mt-3">{productCampaigns.length===0?<EmptyState>0 campañas. Puedes agregar una nueva sin perder el producto.</EmptyState>:productCampaigns.map(campaign=>{const campaignAds=ads.filter(a=>a.campaignId===campaign.id&&a.deleted!==true);const isOpen=expanded[campaign.id]===true;const adsOpen=expandedAds[campaign.id]===true;const campaignAccent=ccVisualAccent(campaign.id||campaign.name,2);return <div key={campaign.id} className={`cc-campaign-card rounded-2xl overflow-hidden ${campaign.archived?'opacity-75':''}`} style={{border:`1px solid ${campaignAccent.border}`,backgroundColor:campaignAccent.soft,boxShadow:`0 6px 18px ${campaignAccent.border}0d`}}>
@@ -18582,11 +18582,11 @@ function CampaignChangeLogCC({ campaign, decisions = [], ads = [] }) {
                       {item.action || 'Cambio'}
                     </span>
                     {adName ? (
-                      <span className="px-2 py-1 rounded-full bg-white/80 border border-white text-[7px] font-black uppercase text-slate-600">
+                      <span className="px-2 py-1 rounded-full bg-white/100 border border-white text-[7px] font-black uppercase text-slate-600">
                         {adName}
                       </span>
                     ) : (
-                      <span className="px-2 py-1 rounded-full bg-white/80 border border-white text-[7px] font-black uppercase text-slate-600">
+                      <span className="px-2 py-1 rounded-full bg-white/100 border border-white text-[7px] font-black uppercase text-slate-600">
                         Campaña
                       </span>
                     )}
@@ -19779,8 +19779,8 @@ export default function App() {
         onClick={() => setTab(tab.id)}
         className={`tpc-side-nav-item w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${active ? 'is-active' : ''}`}
       >
-        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-[#F4C430] text-[#12386B]' : 'bg-white/8 text-white/72'}`}><Icon size={17} /></span>
-        <span className={`text-[11px] font-black uppercase tracking-[0.09em] ${active ? 'text-white' : 'text-white/74'}`}>{tab.label}</span>
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-[#F4C430] text-[#12386B]' : 'bg-white/10 text-white/80'}`}><Icon size={17} /></span>
+        <span className={`text-[11px] font-black uppercase tracking-[0.09em] ${active ? 'text-white' : 'text-white/75'}`}>{tab.label}</span>
         <span className="ml-auto flex items-center gap-1.5">
           {tab.notificationCount > 0 ? <span className="relative inline-flex items-center"><Bell size={14} className="tpc-menu-bell text-[#F7C928]"/><span className="absolute -top-2 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B52B36] text-white text-[7px] font-black flex items-center justify-center ring-2 ring-[#14366C]">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></span> : null}
           {active && <span className="w-1.5 h-6 rounded-full bg-[#F4C430]" />}
@@ -19853,29 +19853,29 @@ export default function App() {
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-5">
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Inicio</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Inicio</p>
             {renderDesktopNavButton(tabs[0])}
           </div>
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Operación</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Operación</p>
             <div className="space-y-1">{renderDesktopNavButton(tabs[1])}{renderDesktopNavButton(tabs[2])}</div>
           </div>
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Marketing</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Marketing</p>
             {renderDesktopNavButton(tabs[4])}
           </div>
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Gestión</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Gestión</p>
             {renderDesktopNavButton(tabs[3])}
           </div>
         </nav>
 
         <div className="p-3 border-t border-white/10">
-          <div className="rounded-2xl bg-white/7 border border-white/12 p-3 mb-2 backdrop-blur-sm">
-            <p className="text-[8px] text-white/42 font-black uppercase tracking-widest">Sesión activa</p>
+          <div className="rounded-2xl bg-white/10 border border-white/10 p-3 mb-2 backdrop-blur-sm">
+            <p className="text-[8px] text-white/40 font-black uppercase tracking-widest">Sesión activa</p>
             <p className="text-[10px] text-white font-bold truncate mt-1">{user?.email || 'Usuario Winner'}</p>
           </div>
-          <button onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }} className="w-full flex items-center justify-center gap-2 bg-white/8 hover:bg-white/12 border border-white/12 text-white px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest">Salir</button>
+          <button onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }} className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/10 border border-white/10 text-white px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest">Salir</button>
         </div>
       </aside>
 
