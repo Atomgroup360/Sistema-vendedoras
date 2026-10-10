@@ -563,11 +563,65 @@ function MetricHelpModal({ metric, onClose }) {
 }
 
 // ─── VISTA 1: CONFIGURACIÓN (ESTRATEGIAS) ────────────────────────────────────
+// Tabla global de Flete Ponderado Base. Alimenta automáticamente los campos
+// freight y extraUnitCharge que el motor existente ya utiliza. No modifica
+// calcularStats(), IER ni la lógica histórica de cierres.
+const FREIGHT_TABLE_COLLECTION = 'sales_freight_tables';
+const FREIGHT_TABLE_DOC_ID = 'ponderado_base';
+const DEFAULT_PONDERADO_BASE_RATES = [
+  { ticketMax: 59900, freight: 18960 },
+  { ticketMax: 69900, freight: 19810 },
+  { ticketMax: 79900, freight: 19990 },
+  { ticketMax: 89900, freight: 20560 },
+  { ticketMax: 99900, freight: 21020 },
+  { ticketMax: 109900, freight: 21660 },
+  { ticketMax: 119900, freight: 22253 }
+];
+
+function normalizeFreightRates(rates = []) {
+  return (Array.isArray(rates) ? rates : [])
+    .map((r, index) => ({
+      id: String(r?.id || `rate_${index + 1}`),
+      ticketMax: Math.round(Number(r?.ticketMax) || 0),
+      freight: Math.round(Number(r?.freight) || 0)
+    }))
+    .filter(r => r.ticketMax > 0 && r.freight >= 0)
+    .sort((a, b) => a.ticketMax - b.ticketMax);
+}
+
+function resolveFreightRate(rates, ticketValue) {
+  const ticket = Number(ticketValue) || 0;
+  const clean = normalizeFreightRates(rates);
+  if (ticket <= 0 || clean.length === 0) return { status: 'empty', ticket, rate: null, maxConfigured: clean.length ? clean[clean.length - 1].ticketMax : 0 };
+  const rate = clean.find(r => ticket <= r.ticketMax) || null;
+  if (!rate) return { status: 'out_of_range', ticket, rate: null, maxConfigured: clean.length ? clean[clean.length - 1].ticketMax : 0 };
+  return { status: 'ok', ticket, rate, maxConfigured: clean.length ? clean[clean.length - 1].ticketMax : 0 };
+}
+
+function applyFreightTableToStrategyForm(currentForm, rates) {
+  const next = { ...currentForm };
+  const single = resolveFreightRate(rates, next.priceSingle);
+  const two = resolveFreightRate(rates, next.priceTwoUnits);
+
+  if (single.status === 'ok') next.freight = String(single.rate.freight);
+  else if (Number(next.priceSingle) > 0) next.freight = '';
+
+  if (Number(next.priceTwoUnits) > 0) {
+    if (single.status === 'ok' && two.status === 'ok') {
+      next.extraUnitCharge = String(two.rate.freight - single.rate.freight);
+    } else {
+      next.extraUnitCharge = '';
+    }
+  }
+
+  return next;
+}
+
 const EMPTY_CONFIG = {
   vendedora: '', productName: '',
   targetProfit: '', productCost: '', freight: '', fulfillment: '',
   commission: '', returnRate: '20', effectiveness: '95',
-  fixedCosts: '', priceSingle: '', dailyAdSpend: '', fixedAdSpend: true,
+  fixedCosts: '', priceSingle: '', priceTwoUnits: '', dailyAdSpend: '', fixedAdSpend: true,
   extraUnitCharge: '',
   cpaEquilibrio: '',
   activo: true,
@@ -582,6 +636,36 @@ function VistaConfig({ configs, onSaved }) {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY_CONFIG);
   const [expandedV, setExpandedV] = useState({});
+  const [showFreightTable, setShowFreightTable] = useState(false);
+  const [freightRates, setFreightRates] = useState(DEFAULT_PONDERADO_BASE_RATES);
+  const [freightRatesDraft, setFreightRatesDraft] = useState(DEFAULT_PONDERADO_BASE_RATES);
+  const [freightTableLoading, setFreightTableLoading] = useState(true);
+  const [freightTableSaving, setFreightTableSaving] = useState(false);
+  const [freightTablePersisted, setFreightTablePersisted] = useState(false);
+  const [freightTableError, setFreightTableError] = useState('');
+
+  useEffect(() => {
+    const ref = doc(db, FREIGHT_TABLE_COLLECTION, FREIGHT_TABLE_DOC_ID);
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const clean = normalizeFreightRates(snap.data()?.rates || []);
+        const resolved = clean.length ? clean : DEFAULT_PONDERADO_BASE_RATES;
+        setFreightRates(resolved);
+        setFreightRatesDraft(resolved.map(r => ({ ...r })));
+        setFreightTablePersisted(clean.length > 0);
+      } else {
+        setFreightRates(DEFAULT_PONDERADO_BASE_RATES);
+        setFreightRatesDraft(DEFAULT_PONDERADO_BASE_RATES.map(r => ({ ...r })));
+        setFreightTablePersisted(false);
+      }
+      setFreightTableLoading(false);
+    }, error => {
+      console.error('Tabla de fletes', error);
+      setFreightTableError('No se pudo cargar la Tabla de Fletes. Verifica permisos de Firestore.');
+      setFreightTableLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -589,19 +673,93 @@ function VistaConfig({ configs, onSaved }) {
     return a;
   }, {}), [configs]);
 
-  const openNew = () => { setEditId(null); setForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia(), monthlyIER: [] }); setShowForm(true); };
+  const openNew = () => {
+    setEditId(null);
+    setForm(applyFreightTableToStrategyForm({ ...EMPTY_CONFIG, fechaCreacion: todayColombia(), monthlyIER: [] }, freightRates));
+    setShowForm(true);
+  };
   const openNewForVendor = (vendedora) => {
     setEditId(null);
-    setForm({ ...EMPTY_CONFIG, vendedora, fechaCreacion: todayColombia(), monthlyIER: [] });
+    setForm(applyFreightTableToStrategyForm({ ...EMPTY_CONFIG, vendedora, fechaCreacion: todayColombia(), monthlyIER: [] }, freightRates));
     setExpandedV(x => ({ ...x, [vendedora]: true }));
     setShowForm(true);
   };
-  const openEdit = (p) => { setEditId(p.id); setForm({ ...p }); setShowForm(true); };
-  const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const openEdit = (p) => {
+    setEditId(p.id);
+    const base = { ...EMPTY_CONFIG, ...p, priceTwoUnits: p.priceTwoUnits ?? '' };
+    setForm(applyFreightTableToStrategyForm(base, freightRates));
+    setShowForm(true);
+  };
+  const setField = (k, v) => setForm(f => {
+    const next = { ...f, [k]: v };
+    return (k === 'priceSingle' || k === 'priceTwoUnits')
+      ? applyFreightTableToStrategyForm(next, freightRates)
+      : next;
+  });
+
+  const singleFreightLookup = useMemo(() => resolveFreightRate(freightRates, form.priceSingle), [freightRates, form.priceSingle]);
+  const twoFreightLookup = useMemo(() => resolveFreightRate(freightRates, form.priceTwoUnits), [freightRates, form.priceTwoUnits]);
+  const freightValidationError = useMemo(() => {
+    if (Number(form.priceSingle) > 0 && singleFreightLookup.status === 'out_of_range') {
+      return `Ticket 1 unidad ${fmt(Number(form.priceSingle))} supera el último tramo ${fmt(singleFreightLookup.maxConfigured)}. Validar costo de flete y adicionar dato a la Tabla de Fletes.`;
+    }
+    if (Number(form.priceTwoUnits) > 0 && twoFreightLookup.status === 'out_of_range') {
+      return `Ticket x2 ${fmt(Number(form.priceTwoUnits))} supera el último tramo ${fmt(twoFreightLookup.maxConfigured)}. Validar costo de flete y adicionar dato a la Tabla de Fletes.`;
+    }
+    return '';
+  }, [form.priceSingle, form.priceTwoUnits, singleFreightLookup, twoFreightLookup]);
+
+  const saveFreightTable = async () => {
+    setFreightTableError('');
+    const clean = normalizeFreightRates(freightRatesDraft);
+    if (!clean.length) {
+      setFreightTableError('Agrega al menos un tramo válido a la Tabla de Fletes.');
+      return;
+    }
+    const duplicateTicket = clean.some((row, index) => index > 0 && row.ticketMax === clean[index - 1].ticketMax);
+    if (duplicateTicket) {
+      setFreightTableError('No puede haber dos tramos con el mismo ticket máximo.');
+      return;
+    }
+    setFreightTableSaving(true);
+    try {
+      await setDoc(doc(db, FREIGHT_TABLE_COLLECTION, FREIGHT_TABLE_DOC_ID), {
+        type: 'ponderado_base',
+        rates: clean,
+        updatedAt: serverTimestamp(),
+        updatedDate: todayColombia()
+      }, { merge: true });
+      setFreightRates(clean);
+      setFreightRatesDraft(clean.map(r => ({ ...r })));
+      setFreightTablePersisted(true);
+      setForm(f => applyFreightTableToStrategyForm(f, clean));
+      setShowFreightTable(false);
+    } catch (error) {
+      console.error('Guardar Tabla de Fletes', error);
+      setFreightTableError('No se pudo guardar la Tabla de Fletes. Verifica permisos de Firestore.');
+    } finally {
+      setFreightTableSaving(false);
+    }
+  };
+
+  const addFreightRateRow = () => setFreightRatesDraft(rows => [
+    ...rows,
+    { id: `rate_${Date.now()}`, ticketMax: '', freight: '' }
+  ]);
+  const updateFreightRateRow = (id, field, value) => setFreightRatesDraft(rows => rows.map(r => r.id === id ? { ...r, [field]: value } : r));
+  const removeFreightRateRow = (id) => setFreightRatesDraft(rows => rows.filter(r => r.id !== id));
 
   const save = async () => {
     if (!form.vendedora.trim() || !form.productName.trim()) return;
-    const data = { ...form };
+    if (Number(form.priceSingle) > 0 && singleFreightLookup.status !== 'ok') {
+      window.alert('⚠️ Validar costo de flete y adicionar dato a la Tabla de Fletes.');
+      return;
+    }
+    if (Number(form.priceTwoUnits) > 0 && twoFreightLookup.status !== 'ok') {
+      window.alert('⚠️ Validar costo de flete y adicionar dato a la Tabla de Fletes.');
+      return;
+    }
+    const data = applyFreightTableToStrategyForm({ ...form }, freightRates);
     if (!data.fechaCreacion) data.fechaCreacion = todayColombia();
     if (data.activo === false && !data.fechaDesactivacion) data.fechaDesactivacion = todayColombia();
     if (data.activo === true) data.fechaDesactivacion = '';
@@ -676,13 +834,64 @@ function VistaConfig({ configs, onSaved }) {
 
   return (
     <div className="space-y-6 md:space-y-8 anim-fade">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-black italic uppercase tracking-tighter text-zinc-900">Estrategias</h2>
           <p className="text-xs text-slate-400 font-semibold mt-1 uppercase tracking-widest">Módulo 1 · Vendedoras y Productos</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 bg-zinc-950 text-white px-4 md:px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"><Plus size={16} /> Nueva Vendedora + Producto</button>
+        <div className="w-full lg:w-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button type="button" onClick={() => { setFreightRatesDraft(freightRates.map(r => ({ ...r }))); setFreightTableError(''); setShowFreightTable(true); }} className="flex items-center justify-center gap-2 bg-white border-2 border-[#032A78]/15 text-[#032A78] px-4 md:px-5 py-3 rounded-2xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:border-[#032A78]/30 hover:bg-blue-50 active:scale-[0.98] transition-all">
+            <Truck size={16} /> Tabla de Fletes
+          </button>
+          <button onClick={openNew} className="flex items-center justify-center gap-2 bg-zinc-950 text-white px-4 md:px-6 py-3 rounded-2xl font-black text-[10px] md:text-xs uppercase tracking-widest hover:bg-zinc-800 active:scale-[0.98] transition-all shadow-lg"><Plus size={16} /> Nueva Vendedora + Producto</button>
+        </div>
       </div>
+
+      <div className="rounded-2xl border border-blue-100 bg-blue-50/60 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex items-start gap-2 min-w-0">
+          <Truck size={16} className="text-[#032A78] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-widest text-[#032A78]">Flete Ponderado Base · fuente logística</p>
+            <p className="text-[8px] sm:text-[9px] text-slate-600 mt-0.5">El IER ya incorpora devoluciones. Winner usa únicamente el ponderado base para completar automáticamente las estrategias.</p>
+          </div>
+        </div>
+        <span className={`shrink-0 px-2.5 py-1 rounded-full text-[8px] font-black uppercase ${freightTablePersisted ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{freightTableLoading ? 'Cargando…' : freightTablePersisted ? `${freightRates.length} tramos configurados` : 'Tabla base pendiente de guardar'}</span>
+      </div>
+
+      {showFreightTable && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full sm:max-w-3xl max-h-[92vh] bg-white rounded-t-[28px] sm:rounded-[28px] shadow-2xl overflow-hidden flex flex-col">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2"><span className="w-9 h-9 rounded-xl bg-blue-50 text-[#032A78] flex items-center justify-center"><Truck size={18}/></span><div><p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Configuración logística</p><h3 className="text-lg sm:text-xl font-black text-slate-900">Tabla de Fletes</h3></div></div>
+                <p className="text-[9px] sm:text-[10px] text-slate-500 mt-2 max-w-xl">Configura únicamente <b>Ticket máximo</b> y <b>Flete Ponderado Base</b>. El sistema toma el primer tramo cuyo ticket máximo cubra el precio ingresado.</p>
+              </div>
+              <button type="button" onClick={() => setShowFreightTable(false)} className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 shrink-0"><X size={16}/></button>
+            </div>
+
+            <div className="px-4 sm:px-6 py-4 overflow-y-auto">
+              {freightTableError && <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 flex gap-2 text-rose-700"><AlertTriangle size={15} className="shrink-0 mt-0.5"/><p className="text-[9px] font-bold">{freightTableError}</p></div>}
+              <div className="hidden sm:grid grid-cols-[1fr_1fr_42px] gap-2 px-2 pb-2 text-[8px] font-black uppercase tracking-widest text-slate-400"><span>Ticket de venta hasta</span><span>Flete ponderado base</span><span></span></div>
+              <div className="space-y-2">
+                {freightRatesDraft.map((row, index) => (
+                  <div key={row.id || index} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_42px] gap-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-3 sm:p-2 sm:items-center">
+                    <div><p className="sm:hidden text-[7px] font-black uppercase text-slate-400 mb-1">Ticket de venta hasta</p><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span><input type="number" min="1" value={row.ticketMax} onChange={e=>updateFreightRateRow(row.id,'ticketMax',e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white pl-7 pr-3 py-2.5 text-sm font-black outline-none focus:border-[#032A78]"/></div></div>
+                    <div><p className="sm:hidden text-[7px] font-black uppercase text-slate-400 mb-1">Flete ponderado base</p><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">$</span><input type="number" min="0" value={row.freight} onChange={e=>updateFreightRateRow(row.id,'freight',e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white pl-7 pr-3 py-2.5 text-sm font-black outline-none focus:border-[#032A78]"/></div></div>
+                    <button type="button" onClick={()=>removeFreightRateRow(row.id)} disabled={freightRatesDraft.length <= 1} className="w-full sm:w-10 h-10 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center disabled:opacity-30" title="Eliminar tramo"><Trash2 size={14}/></button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={addFreightRateRow} className="mt-3 w-full sm:w-auto px-4 py-2.5 rounded-xl border border-dashed border-[#032A78]/30 bg-blue-50 text-[#032A78] text-[9px] font-black uppercase inline-flex items-center justify-center gap-1.5"><Plus size={13}/> Agregar tramo</button>
+              <div className="mt-4 rounded-2xl bg-slate-950 text-white p-3 sm:p-4"><p className="text-[8px] font-black uppercase tracking-widest text-[#F7C928]">Regla automática</p><p className="text-[9px] text-slate-300 mt-1 leading-relaxed">Precio 1 UND → Flete base. Precio x2 → Flete x2. Cargo extra = Flete x2 − Flete 1 UND. Si un ticket supera el último tramo, Winner no inventa valores y exige ampliar esta tabla.</p></div>
+            </div>
+
+            <div className="px-4 sm:px-6 py-4 border-t border-slate-100 bg-white grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setShowFreightTable(false)} className="py-3 rounded-xl border border-slate-200 text-slate-600 text-[9px] font-black uppercase">Cancelar</button>
+              <button type="button" disabled={freightTableSaving} onClick={saveFreightTable} className="py-3 rounded-xl bg-[#032A78] text-white text-[9px] font-black uppercase inline-flex items-center justify-center gap-1.5 disabled:opacity-50"><Save size={13}/>{freightTableSaving ? 'Guardando…' : 'Guardar tabla'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {Object.keys(grouped).length === 0 ? (
         <Card className="text-center py-16 text-slate-300"><Users size={48} className="mx-auto mb-4 opacity-30" /><p className="font-black uppercase text-sm">Sin estrategias aún</p><p className="text-xs mt-1">Crea la primera estrategia para comenzar</p></Card>
@@ -833,9 +1042,36 @@ function VistaConfig({ configs, onSaved }) {
               </div>
 
               <InputField label="Precio Venta (1 und)" type="number" value={form.priceSingle} onChange={e => setField('priceSingle', e.target.value)} placeholder="Ej: 79000" />
+              <InputField label="Precio Venta x2 unidades" type="number" value={form.priceTwoUnits || ''} onChange={e => setField('priceTwoUnits', e.target.value)} placeholder="Ej: 99900" />
               <InputField label="Costo Unitario Producto" type="number" value={form.productCost} onChange={e => setField('productCost', e.target.value)} placeholder="Ej: 18000" />
-              <InputField label="Flete Base por Guía" type="number" value={form.freight} onChange={e => setField('freight', e.target.value)} placeholder="Ej: 9500" />
-              <InputField label="Cargo extra x unidad adicional" type="number" value={form.extraUnitCharge} onChange={e => setField('extraUnitCharge', e.target.value)} placeholder="Ej: 5000" />
+
+              <div className="sm:col-span-2 rounded-2xl border-2 border-blue-100 bg-blue-50/55 p-3 sm:p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-[#032A78] flex items-center gap-1.5"><Truck size={13}/> Cálculo logístico automático</p>
+                    <p className="text-[8px] text-slate-500 mt-1">Fuente: Tabla de Fletes · Ponderado Base. Los campos calculados no se editan manualmente.</p>
+                  </div>
+                  <button type="button" onClick={() => { setFreightRatesDraft(freightRates.map(r => ({ ...r }))); setFreightTableError(''); setShowFreightTable(true); }} className="px-3 py-2 rounded-xl bg-white border border-blue-200 text-[#032A78] text-[8px] font-black uppercase shrink-0">Editar tabla</button>
+                </div>
+
+                {freightValidationError ? (
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 flex items-start gap-2">
+                    <AlertTriangle size={15} className="text-rose-600 shrink-0 mt-0.5"/>
+                    <div><p className="text-[9px] font-black text-rose-700">Validar costo de flete y adicionar dato a la Tabla de Fletes.</p><p className="text-[8px] text-rose-600 mt-1">{freightValidationError}</p></div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+                    <div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Flete 1 UND</p><p className="text-base font-black text-[#032A78] mt-1">{singleFreightLookup.status === 'ok' ? fmt(singleFreightLookup.rate.freight) : '—'}</p><p className="text-[7px] text-slate-400 mt-1">{singleFreightLookup.status === 'ok' ? `Tramo hasta ${fmt(singleFreightLookup.rate.ticketMax)}` : 'Ingresa precio 1 UND'}</p></div>
+                    <div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Flete x2</p><p className="text-base font-black text-[#032A78] mt-1">{twoFreightLookup.status === 'ok' ? fmt(twoFreightLookup.rate.freight) : '—'}</p><p className="text-[7px] text-slate-400 mt-1">{twoFreightLookup.status === 'ok' ? `Tramo hasta ${fmt(twoFreightLookup.rate.ticketMax)}` : 'Ingresa precio x2'}</p></div>
+                    <div className="rounded-xl bg-white border border-amber-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Cargo extra x unidad</p><p className="text-base font-black text-amber-600 mt-1">{singleFreightLookup.status === 'ok' && twoFreightLookup.status === 'ok' ? fmt(twoFreightLookup.rate.freight - singleFreightLookup.rate.freight) : '—'}</p><p className="text-[7px] text-slate-400 mt-1">Flete x2 − Flete 1 UND</p></div>
+                  </div>
+                )}
+
+                {singleFreightLookup.status === 'ok' && twoFreightLookup.status === 'ok' && !freightValidationError && (
+                  <div className="mt-2 rounded-xl bg-white/70 border border-blue-100 px-3 py-2 text-[8px] text-slate-600 font-mono break-words">{fmt(Number(form.priceSingle))} → {fmt(singleFreightLookup.rate.freight)} · {fmt(Number(form.priceTwoUnits))} → {fmt(twoFreightLookup.rate.freight)} · Extra = {fmt(twoFreightLookup.rate.freight)} − {fmt(singleFreightLookup.rate.freight)} = <b>{fmt(twoFreightLookup.rate.freight - singleFreightLookup.rate.freight)}</b></div>
+                )}
+              </div>
+
               <InputField label="Fulfillment por guía" type="number" value={form.fulfillment} onChange={e => setField('fulfillment', e.target.value)} placeholder="Ej: 1500" />
               <InputField label="Comisión por Entrega" type="number" value={form.commission} onChange={e => setField('commission', e.target.value)} placeholder="Ej: 3000" />
               <InputField label="Costos Fijos x Entrega" type="number" value={form.fixedCosts} onChange={e => setField('fixedCosts', e.target.value)} placeholder="Ej: 2000" />
@@ -896,7 +1132,7 @@ function VistaConfig({ configs, onSaved }) {
               </div>
             </div>
 
-            <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim()} className="w-full mt-5 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-emerald-400 active:scale-95 disabled:opacity-30 flex items-center justify-center gap-2"><Save size={16} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}</button>
+            <button onClick={save} disabled={!form.vendedora.trim() || !form.productName.trim() || !!freightValidationError || (Number(form.priceSingle) > 0 && singleFreightLookup.status !== 'ok') || (Number(form.priceTwoUnits) > 0 && twoFreightLookup.status !== 'ok')} className="w-full mt-5 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-emerald-400 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"><Save size={16} /> {editId ? 'Actualizar Estrategia' : isPrefilledVendor ? `Agregar Producto a ${form.vendedora}` : 'Guardar Estrategia'}</button>
           </div>
         </div>
       )}
