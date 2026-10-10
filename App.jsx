@@ -8955,8 +8955,8 @@ function CampaignControlModule() {
         </div>
 
         <div className="cc-top-tabs-wrap w-full min-w-0">
-          <div className="cc-top-tabs bg-[#032A78] p-1.5 rounded-2xl gap-1.5">
-            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`cc-top-tab flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-nowrap leading-none text-center ${subTab === t.id ? 'bg-[#F7C928] text-[#032A78] shadow-sm' : 'text-blue-100/70 hover:text-white hover:bg-white/5'}`}><t.icon size={12} className="shrink-0"/><span>{t.label}</span>{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] shrink-0 ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
+          <div className="cc-top-tabs bg-white border border-slate-200 shadow-[0_6px_18px_rgba(15,23,42,0.04)] p-1.5 rounded-2xl gap-1.5">
+            {tabs.map(t => <button key={t.id} onClick={() => setSubTab(t.id)} className={`cc-top-tab flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[8px] sm:text-[8.5px] font-black uppercase whitespace-nowrap leading-none text-center ${subTab === t.id ? 'bg-[#F4C430] text-[#12386B] shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}><t.icon size={12} className="shrink-0"/><span>{t.label}</span>{t.count > 0 ? <span className={`min-w-[17px] h-[17px] px-1 rounded-full inline-flex items-center justify-center text-[7px] shrink-0 ${subTab === t.id ? 'bg-zinc-950 text-white' : 'bg-amber-500 text-zinc-950'}`}>{t.count}</span> : null}</button>)}
           </div>
         </div>
       </div>
@@ -19779,31 +19779,31 @@ export default function App() {
         onClick={() => setTab(tab.id)}
         className={`tpc-side-nav-item w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${active ? 'is-active' : ''}`}
       >
-        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-[#F7C928] text-[#032A78]' : 'bg-white/5 text-blue-100/70'}`}><Icon size={17} /></span>
-        <span className={`text-[11px] font-black uppercase tracking-[0.09em] ${active ? 'text-white' : 'text-blue-100/70'}`}>{tab.label}</span>
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-[#F4C430] text-[#12386B]' : 'bg-white/8 text-white/72'}`}><Icon size={17} /></span>
+        <span className={`text-[11px] font-black uppercase tracking-[0.09em] ${active ? 'text-white' : 'text-white/74'}`}>{tab.label}</span>
         <span className="ml-auto flex items-center gap-1.5">
-          {tab.notificationCount > 0 ? <span className="relative inline-flex items-center"><Bell size={14} className="tpc-menu-bell text-[#F7C928]"/><span className="absolute -top-2 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B52B36] text-white text-[7px] font-black flex items-center justify-center ring-2 ring-[#032A78]">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></span> : null}
-          {active && <span className="w-1.5 h-6 rounded-full bg-[#F7C928]" />}
+          {tab.notificationCount > 0 ? <span className="relative inline-flex items-center"><Bell size={14} className="tpc-menu-bell text-[#F7C928]"/><span className="absolute -top-2 -right-2 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B52B36] text-white text-[7px] font-black flex items-center justify-center ring-2 ring-[#14366C]">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></span> : null}
+          {active && <span className="w-1.5 h-6 rounded-full bg-[#F4C430]" />}
         </span>
       </button>
     );
   };
 
   return (
-    <div className="tpc-app-shell min-h-screen bg-[#f4f6fa] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="tpc-app-shell min-h-screen bg-[#f6f8fc] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <TuPedidoLoadingOverlay active={navigationLoading} label="Cargando módulo..." />
       <style>{`
         .tpc-app-shell {
-          --tpc-blue: #032A78;
-          --tpc-blue-deep: #021d56;
-          --tpc-yellow: #F7C928;
-          --tpc-red: #B52B36;
-          --tpc-bg: #f4f6fa;
-          --tpc-border: #e2e8f0;
+          --tpc-blue: #12386B;
+          --tpc-blue-deep: #0B2347;
+          --tpc-yellow: #F4C430;
+          --tpc-red: #C4454D;
+          --tpc-bg: #F6F8FC;
+          --tpc-border: #E6EAF0;
         }
         .tpc-app-shell * { box-sizing: border-box; }
-        .tpc-app-shell .tpc-side-nav-item:hover:not(.is-active) { background: rgba(255,255,255,.055); }
-        .tpc-app-shell .tpc-side-nav-item.is-active { background: rgba(255,255,255,.09); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+        .tpc-app-shell .tpc-side-nav-item:hover:not(.is-active) { background: rgba(255,255,255,.065); }
+        .tpc-app-shell .tpc-side-nav-item.is-active { background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 10px 24px rgba(7, 23, 52, .18); }
         @keyframes tpc-menu-bell-ring {
           0%, 68%, 100% { transform: rotate(0deg); }
           73% { transform: rotate(16deg); }
@@ -19838,7 +19838,7 @@ export default function App() {
       `}</style>
 
       {/* SIDEBAR DESKTOP · IDENTIDAD TU PEDIDO COLOMBIA */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-[272px] flex-col bg-[#032A78] border-r border-[#092f75] shadow-[10px_0_32px_rgba(3,42,120,0.10)]">
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-[272px] flex-col bg-[linear-gradient(180deg,#0F2B59_0%,#14366C_100%)] border-r border-[#21457E] shadow-[8px_0_28px_rgba(10,26,54,0.12)]">
         <div className="p-4 border-b border-white/10">
           <div className="flex justify-center">
             <div className="w-[118px] h-[118px] rounded-full bg-white/95 p-1.5 shadow-[0_16px_40px_rgba(2,18,61,0.22)] ring-1 ring-white/30">
@@ -19846,36 +19846,36 @@ export default function App() {
             </div>
           </div>
           <div className="mt-3 px-1">
-            <p className="text-[9px] font-black uppercase tracking-[0.18em] text-[#F7C928]">Winner System 360</p>
-            <p className="text-[9px] text-blue-100/55 font-semibold mt-0.5">Plataforma interna · Atom Group 360°</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.18em] text-[#F4C430]">Winner System 360</p>
+            <p className="text-[9px] text-white/60 font-semibold mt-0.5">Plataforma interna · Atom Group 360°</p>
           </div>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-5">
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-blue-100/35">Inicio</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Inicio</p>
             {renderDesktopNavButton(tabs[0])}
           </div>
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-blue-100/35">Operación</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Operación</p>
             <div className="space-y-1">{renderDesktopNavButton(tabs[1])}{renderDesktopNavButton(tabs[2])}</div>
           </div>
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-blue-100/35">Marketing</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Marketing</p>
             {renderDesktopNavButton(tabs[4])}
           </div>
           <div>
-            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-blue-100/35">Gestión</p>
+            <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/32">Gestión</p>
             {renderDesktopNavButton(tabs[3])}
           </div>
         </nav>
 
         <div className="p-3 border-t border-white/10">
-          <div className="rounded-2xl bg-white/5 border border-white/10 p-3 mb-2">
-            <p className="text-[8px] text-blue-100/45 font-black uppercase tracking-widest">Sesión activa</p>
+          <div className="rounded-2xl bg-white/7 border border-white/12 p-3 mb-2 backdrop-blur-sm">
+            <p className="text-[8px] text-white/42 font-black uppercase tracking-widest">Sesión activa</p>
             <p className="text-[10px] text-white font-bold truncate mt-1">{user?.email || 'Usuario Winner'}</p>
           </div>
-          <button onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }} className="w-full flex items-center justify-center gap-2 bg-[#B52B36]/20 hover:bg-[#B52B36]/30 border border-[#B52B36]/30 text-red-100 px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest">Salir</button>
+          <button onClick={() => { import('./src/firebase').then(({ logout }) => logout()); }} className="w-full flex items-center justify-center gap-2 bg-white/8 hover:bg-white/12 border border-white/12 text-white px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest">Salir</button>
         </div>
       </aside>
 
@@ -19887,11 +19887,11 @@ export default function App() {
               <img src={TU_PEDIDO_COLOMBIA_LOGO} alt="Tu Pedido Colombia" className="w-full h-full object-contain rounded-full" />
             </div>
             <div className="min-w-0">
-              <p className="text-[8px] font-black uppercase tracking-[0.16em] text-[#B52B36] truncate">Tu Pedido Colombia</p>
+              <p className="text-[8px] font-black uppercase tracking-[0.16em] text-slate-400 truncate">Tu Pedido Colombia</p>
               <p className="text-[13px] font-black text-[#032A78] truncate">{currentTab.label}</p>
             </div>
           </div>
-          <div className="px-2.5 py-1.5 rounded-xl bg-[#F7C928]/20 border border-[#F7C928]/40 text-[#032A78] text-[8px] font-black uppercase">Winner 360</div>
+          <div className="px-2.5 py-1.5 rounded-xl bg-[#F4C430]/18 border border-[#F4C430]/35 text-[#12386B] text-[8px] font-black uppercase">Winner 360</div>
         </div>
       </header>
 
@@ -19901,7 +19901,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="relative w-11 h-11 rounded-full bg-white ring-1 ring-[#F7C928]/45 shadow-[0_8px_18px_rgba(3,42,120,0.12)] overflow-hidden shrink-0">
               <img src={TU_PEDIDO_COLOMBIA_LOGO} alt="Tu Pedido Colombia" className="w-full h-full object-contain rounded-full" />
-              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#032A78] text-[#F7C928] border border-white flex items-center justify-center"><currentTab.icon size={11} /></div>
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#12386B] text-[#F4C430] border border-white flex items-center justify-center"><currentTab.icon size={11} /></div>
             </div>
             <div>
               <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400">Winner System 360 · Tu Pedido Colombia</p>
@@ -19914,7 +19914,7 @@ export default function App() {
               <p className="text-[10px] font-black text-slate-700">Operación Colombia</p>
             </div>
             <div className="w-px h-8 bg-slate-200" />
-            <div className="w-9 h-9 rounded-full bg-[#032A78] text-white flex items-center justify-center text-[10px] font-black">{String(user?.email || 'U').charAt(0).toUpperCase()}</div>
+            <div className="w-9 h-9 rounded-full bg-[#12386B] text-white flex items-center justify-center text-[10px] font-black">{String(user?.email || 'U').charAt(0).toUpperCase()}</div>
           </div>
         </header>
 
@@ -19935,8 +19935,8 @@ export default function App() {
             const active = activeTab === tab.id;
             return (
               <button key={tab.id} type="button" onClick={() => setTab(tab.id)} className="relative flex flex-col items-center justify-center min-w-0 rounded-xl py-1.5 px-1">
-                {active && <span className="absolute top-0 w-5 h-[3px] rounded-full bg-[#F7C928]" />}
-                <span className={`relative w-8 h-8 rounded-xl flex items-center justify-center ${active ? 'bg-[#032A78] text-[#F7C928]' : 'text-slate-400'}`}><Icon size={16} />{tab.notificationCount > 0 ? <><Bell size={10} className="tpc-menu-bell absolute -top-1 -right-1 text-[#B52B36] fill-white"/><span className="absolute -top-2.5 -right-3 min-w-[16px] h-[16px] px-1 rounded-full bg-[#B52B36] text-white text-[6.5px] font-black flex items-center justify-center ring-2 ring-white">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></> : null}</span>
+                {active && <span className="absolute top-0 w-5 h-[3px] rounded-full bg-[#F4C430]" />}
+                <span className={`relative w-8 h-8 rounded-xl flex items-center justify-center ${active ? 'bg-[#12386B] text-[#F4C430]' : 'text-slate-400'}`}><Icon size={16} />{tab.notificationCount > 0 ? <><Bell size={10} className="tpc-menu-bell absolute -top-1 -right-1 text-[#B52B36] fill-white"/><span className="absolute -top-2.5 -right-3 min-w-[16px] h-[16px] px-1 rounded-full bg-[#B52B36] text-white text-[6.5px] font-black flex items-center justify-center ring-2 ring-white">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></> : null}</span>
                 <span className={`mt-0.5 text-[7px] font-black uppercase tracking-tight truncate w-full text-center ${active ? 'text-[#032A78]' : 'text-slate-400'}`}>{tab.label}</span>
               </button>
             );
