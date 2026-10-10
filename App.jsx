@@ -2346,8 +2346,13 @@ function VistaDashboard({ configs, months }) {
                   <span className="font-black text-sm">No hay productos en esta categoría para el período seleccionado</span>
                 </div>
               ) : (
-                <div className="cc-tech-scroll w-full">
-                  <table className="w-full text-left border-collapse text-[10px] md:text-sm">
+                <div className="w-full">
+                  <div className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-50 border-b border-slate-100">
+                    <p className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-slate-400">Mesa completa · todas las métricas</p>
+                    <p className="text-[7px] sm:text-[8px] font-black text-[#12386B] whitespace-nowrap">Desliza horizontalmente →</p>
+                  </div>
+                  <div className="tpc-decision-scroll w-full overflow-x-auto overflow-y-hidden overscroll-x-contain">
+                  <table className="min-w-[1680px] w-max text-left border-collapse text-[10px] md:text-sm">
                     <thead className="bg-[#f4f7fc] text-[7px] md:text-[8px] font-black uppercase text-[#032A78]">
                       <tr>
                         <th className="p-2 md:p-3">Estado</th><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th>
@@ -2384,6 +2389,7 @@ function VistaDashboard({ configs, months }) {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </Card>
@@ -19822,6 +19828,16 @@ export default function App() {
         .tpc-app-shell .tpc-dashboard-filters { border-top: 3px solid var(--tpc-yellow); }
         .tpc-app-shell .tpc-dashboard-kpis > div,
         .tpc-app-shell .tpc-dashboard-revenue > div { transition: transform .18s ease, box-shadow .18s ease; }
+        .tpc-app-shell .tpc-decision-scroll {
+          scrollbar-width: auto;
+          scrollbar-color: #94a3b8 #e9eef5;
+          -webkit-overflow-scrolling: touch;
+          padding-bottom: 3px;
+        }
+        .tpc-app-shell .tpc-decision-scroll::-webkit-scrollbar { height: 11px; }
+        .tpc-app-shell .tpc-decision-scroll::-webkit-scrollbar-track { background: #e9eef5; border-radius: 999px; }
+        .tpc-app-shell .tpc-decision-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 999px; border: 2px solid #e9eef5; }
+        .tpc-app-shell .tpc-decision-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
         @media (hover:hover) and (min-width:1024px) {
           .tpc-app-shell .tpc-dashboard-kpis > div:hover,
           .tpc-app-shell .tpc-dashboard-revenue > div:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(3,42,120,.08); }
