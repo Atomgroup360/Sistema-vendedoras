@@ -19909,6 +19909,89 @@ function comparableCompetitorsBrief01(research, quantity, price) {
   return rows;
 }
 
+function brief01NormalizeCompetitorName(value='') {
+  return normalizeBrief01Name(value);
+}
+
+function brief01CompetitorAdHistory(competitor) {
+  return Array.isArray(competitor?.activeAdsHistory) ? competitor.activeAdsHistory : [];
+}
+
+function buildBrief01AdActivity(research) {
+  const competitors = Array.isArray(research?.competitors) ? research.competitors : [];
+  const rows = competitors.map(c => {
+    const history = brief01CompetitorAdHistory(c).slice().sort((a,b)=>(Number(a.observedAtMs)||0)-(Number(b.observedAtMs)||0));
+    const knownHistory = history.filter(h => h.measurementType !== 'unknown' && Number.isFinite(Number(h.activeAds)));
+    const latest = knownHistory.length ? knownHistory[knownHistory.length - 1] : null;
+    const previous = knownHistory.length > 1 ? knownHistory[knownHistory.length - 2] : null;
+    const currentCount = c.activeAdsMeasurement === 'unknown' || c.activeAdsCount === null || c.activeAdsCount === undefined || c.activeAdsCount === ''
+      ? (latest ? Number(latest.activeAds) : null)
+      : Math.max(0, Number(c.activeAdsCount) || 0);
+    const previousCount = previous ? Number(previous.activeAds) : null;
+    const delta = currentCount !== null && previousCount !== null ? currentCount - previousCount : null;
+    const deltaPct = delta !== null && previousCount > 0 ? delta / previousCount * 100 : null;
+    return {
+      id:c.id,
+      name:c.name || 'Competidor',
+      url:c.activeAdsUrl || c.metaUrl || '',
+      currentCount,
+      measurementType:c.activeAdsMeasurement || (latest?.measurementType || 'unknown'),
+      lastReviewedAt:c.activeAdsLastReviewedAt || latest?.observedAt || '',
+      notes:c.activeAdsNotes || latest?.notes || '',
+      history,
+      previousCount,
+      delta,
+      deltaPct
+    };
+  });
+  const known = rows.filter(r => r.currentCount !== null && Number.isFinite(r.currentCount));
+  const totalAds = known.reduce((s,r)=>s+r.currentCount,0);
+  const unknownCount = rows.length - known.length;
+  const comparable = rows.filter(r => r.currentCount !== null && r.previousCount !== null);
+  const aggregateCurrent = comparable.reduce((s,r)=>s+r.currentCount,0);
+  const aggregatePrevious = comparable.reduce((s,r)=>s+r.previousCount,0);
+  let trendLabel='Información insuficiente';
+  let trendTone='neutral';
+  if (comparable.length) {
+    if (aggregateCurrent > aggregatePrevious) { trendLabel='Aumento de actividad observado'; trendTone='attention'; }
+    else if (aggregateCurrent < aggregatePrevious) { trendLabel='Disminución de actividad observada'; trendTone='neutral'; }
+    else { trendLabel='Actividad publicitaria estable en las revisiones comparables'; trendTone='good'; }
+  } else if (known.length) {
+    trendLabel='Actividad publicitaria registrada · sin comparación histórica suficiente';
+  }
+  const sortedKnown=[...known].sort((a,b)=>b.currentCount-a.currentCount);
+  const leader=sortedKnown[0] || null;
+  const leaderShare=leader && totalAds>0 ? leader.currentCount/totalAds*100 : null;
+  const cutoff=rows.map(r=>r.lastReviewedAt).filter(Boolean).sort().slice(-1)[0] || '';
+  const limitations=[];
+  if (unknownCount>0) limitations.push(`${unknownCount} tienda(s) tienen cantidad no determinada; el total de anuncios es parcial.`);
+  if (!comparable.length) limitations.push('No hay suficientes revisiones históricas comparables para confirmar una tendencia temporal.');
+  limitations.push('La cantidad de anuncios activos no demuestra inversión, ventas ni rentabilidad; solo describe actividad publicitaria observada manualmente.');
+  let interpretation='Información insuficiente para interpretar cambios de actividad.';
+  if (known.length) {
+    const leaderText=leader ? ` ${leader.name} concentra ${leader.currentCount} de ${totalAds} anuncios observados${leaderShare!==null?` (${leaderShare.toFixed(1)}%)`:''}.` : '';
+    interpretation=`Se registran ${known.length} tienda(s) con medición y ${totalAds} anuncios activos observados${unknownCount?` más ${unknownCount} tienda(s) pendientes`:''}.${leaderText} ${trendLabel}. Esto no confirma escalamiento rentable.`;
+  }
+  return {
+    competitorCount:rows.length,
+    measuredCount:known.length,
+    totalAds,
+    unknownCount,
+    totalIsPartial:unknownCount>0,
+    rows,
+    cutoff,
+    trendLabel,
+    trendTone,
+    aggregateCurrent,
+    aggregatePrevious,
+    comparableCount:comparable.length,
+    leader,
+    leaderShare,
+    interpretation,
+    limitations
+  };
+}
+
 function buildBrief01Diagnosis(research, freightRates) {
   const financial = calculateBrief01Financial(research, freightRates);
   const missing = [];
@@ -19928,6 +20011,7 @@ function buildBrief01Diagnosis(research, freightRates) {
   const higher = comparables.filter(x => x.competitorPrice > financial.price).length;
   const targetPrice = solveBrief01TargetPrice(research, freightRates);
   const targetCost = solveBrief01TargetUnitCost(research, freightRates);
+  const adActivity = buildBrief01AdActivity(research);
 
   const angleValues = [];
   for (const c of (research?.competitors || [])) {
@@ -20003,6 +20087,7 @@ function buildBrief01Diagnosis(research, freightRates) {
     alerts, strengths, weaknesses, actions, targetPrice, targetCost,
     angleAnalysis: { ranking: angleRanking, repeated: repeatedAngles, lessUsed: lessUsedAngles },
     supplierAnalysis: { cheapestSupplier, highestInventorySupplier, paretoSuppliers, clearBalancedSupplier },
+    adActivity,
     classification, classificationReason
   };
 }
@@ -20059,28 +20144,39 @@ function buildBrief01PdfBlob(research, diagnosis) {
   (research?.competitors||[]).slice(0,5).forEach((c,i)=> add(`${i+1}. ${c.name||'Competidor'} | 1 und: ${fmt(Number(c.singlePrice)||0)} | Ads: ${c.adAgeDays||'-'} dias | Angulo: ${c.primaryAngle||'-'} | ${c.salesUrl||c.metaUrl||''}`));
   if (!(research?.competitors||[]).length) add('Sin competidores registrados.');
   add('',{gap:5});
-  add('4. PROVEEDORES DROPI',{bold:true,size:12,gap:6});
+  add('4. ACTIVIDAD PUBLICITARIA DE COMPETIDORES',{bold:true,size:12,gap:6});
+  const activity=diagnosis?.adActivity || buildBrief01AdActivity(research);
+  add(`Fecha de corte: ${activity.cutoff || todayColombia()} | Competidores registrados: ${activity.competitorCount} | Anuncios activos registrados: ${activity.totalAds}${activity.totalIsPartial?' (TOTAL PARCIAL)':''} | Tiendas sin medicion: ${activity.unknownCount}`);
+  for (const row of activity.rows) {
+    const countText=row.currentCount===null?'NO DETERMINADO':`${row.currentCount}${row.measurementType==='estimated'?' aprox.':''}`;
+    const deltaText=row.delta===null?'sin comparacion':`${row.delta>=0?'+':''}${row.delta}${row.deltaPct!==null?` (${row.deltaPct>=0?'+':''}${fmtDec(row.deltaPct,1)}%)`:''}`;
+    add(`${row.name}: ${countText} anuncios | Ultima revision: ${row.lastReviewedAt||'-'} | Cambio: ${deltaText} | ${row.url||''}`);
+  }
+  add(`Interpretacion: ${activity.interpretation}`);
+  activity.limitations.forEach(x=>add(`Limitacion: ${x}`));
+  add('',{gap:5});
+  add('5. PROVEEDORES DROPI',{bold:true,size:12,gap:6});
   (research?.suppliers||[]).forEach((s,i)=> add(`${i+1}. ${s.name||'Proveedor'} | Costo: ${fmt(Number(s.unitCost)||0)} | Inventario: ${s.inventory||0} | ${s.url||''}${s.id===research?.offer?.selectedSupplierId?' | SELECCIONADO':''}`));
   if (!(research?.suppliers||[]).length) add('Sin proveedores registrados.');
   add('',{gap:5});
-  add('5. ANALISIS FINANCIERO',{bold:true,size:12,gap:6});
+  add('6. ANALISIS FINANCIERO',{bold:true,size:12,gap:6});
   const f=diagnosis?.financial||{};
   add(`IER operativo del Brief: despacho 95%, devolucion 20% de despachados, efectividad final 76%.`);
   add(`100 pedidos -> Cancelados ${fmtDec(f.cancelled||0,0)} | Despachados ${fmtDec(f.shipped||0,0)} | Devueltos ${fmtDec(f.returned||0,0)} | Efectivos ${fmtDec(f.delivered||0,0)}`);
   add(`Ingresos cobrados: ${fmt(f.revenueCollected||0)} | Producto: ${fmt(f.productCostTotal||0)} | Fletes: ${fmt(f.freightTotal||0)} | Comisiones: ${fmt(f.commissionTotal||0)} | Otros/fijos: ${fmt((f.fixedTotal||0)+(f.additionalTotal||0))}`);
   add(`Margen disponible total: ${fmt(f.marginTotal||0)} | Margen/pedido generado: ${fmt(f.marginPerGenerated||0)} | ${fmtDec(f.marginPct||0,1)}%`, {gap:8});
-  add('6. ESCENARIOS FINANCIEROS',{bold:true,size:12,gap:6});
+  add('7. ESCENARIOS FINANCIEROS',{bold:true,size:12,gap:6});
   add(`Situacion actual: ticket ${fmt(f.price||0)}, costo unitario ${fmt(f.unitCost||0)}, flete ${fmt(f.freightPerShipment||0)}, margen ${fmt(f.marginPerGenerated||0)}/pedido generado.`);
   if (diagnosis?.targetPrice?.status==='ok') add(`Precio ajustado: ${fmt(diagnosis.targetPrice.price)} -> margen ${fmt(diagnosis.targetPrice.calc.marginPerGenerated)}/pedido generado.`);
   if (diagnosis?.targetCost) add(`Costo objetivo maximo: ${fmt(Math.max(0,diagnosis.targetCost.maxUnitCost))} | Reduccion requerida: ${fmt(Math.max(0,diagnosis.targetCost.reduction))}.`);
   add('',{gap:5});
-  add('7. DIAGNOSTICO ESTRATEGICO',{bold:true,size:12,gap:6});
+  add('8. DIAGNOSTICO ESTRATEGICO',{bold:true,size:12,gap:6});
   for (const x of diagnosis?.alerts||[]) add(`ALERTA: ${x}`);
   for (const x of diagnosis?.strengths||[]) add(`FORTALEZA: ${x}`);
   for (const x of diagnosis?.weaknesses||[]) add(`DEBILIDAD: ${x}`);
   for (const x of diagnosis?.actions||[]) add(`ACCION: ${x}`);
   add('',{gap:5});
-  add('8. CONCLUSION',{bold:true,size:12,gap:6});
+  add('9. CONCLUSION',{bold:true,size:12,gap:6});
   add(`Clasificacion: ${diagnosis?.classification||'PENDIENTE'}`,{bold:true});
   add(diagnosis?.classificationReason||'Faltan datos para clasificar.');
   add('La aprobacion final corresponde siempre al usuario. Este informe no afirma ventas, CPA ni rentabilidad de competidores.',{gap:8});
@@ -20122,6 +20218,138 @@ function buildBrief01PdfBlob(research, diagnosis) {
   for (let i=1;i<offsets.length;i++) pdf += `${String(offsets[i]).padStart(10,'0')} 00000 n \n`;
   pdf += `trailer\n<< /Size ${objects.length+1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new Blob([pdf],{type:'application/pdf'});
+}
+
+function Brief01ExtensionBridge() {
+  const { user } = useAuth();
+  const ownerUid = user?.uid || null;
+  const [records, setRecords] = useState([]);
+
+  useEffect(() => {
+    if (!ownerUid) { setRecords([]); return undefined; }
+    const q = query(collection(db, BRIEF01_COLLECTION), where('ownerUid','==',ownerUid));
+    return onSnapshot(q, snap => setRecords(snap.docs.map(d=>({id:d.id,...d.data()}))), err => console.warn('BRIEF01 extension bridge', err));
+  }, [ownerUid]);
+
+  useEffect(() => {
+    if (!ownerUid) return undefined;
+    const respond = (requestId, ok, data=null, error='') => {
+      window.postMessage({ source:'winner-os-page', type:'BRIEF01_RESPONSE', requestId, ok, data, error }, window.location.origin);
+    };
+    const handler = async event => {
+      if (event.source !== window) return;
+      const msg = event.data || {};
+      if (msg.source !== 'winner-os-extension' || msg.type !== 'BRIEF01_REQUEST' || !msg.requestId) return;
+      const { action, payload={} } = msg;
+      try {
+        if (action === 'ping') {
+          respond(msg.requestId, true, { connected:true, user:user?.email||'', platform:'WINNER OS' });
+          return;
+        }
+        if (action === 'listResearches') {
+          respond(msg.requestId, true, records.map(r=>({ id:r.id, code:r.code||'', name:r.name||'', status:r.status||'draft', classification:r.classification||'', competitorCount:(r.competitors||[]).length, updatedAtMs:r.updatedAtMs||0 })).sort((a,b)=>b.updatedAtMs-a.updatedAtMs));
+          return;
+        }
+        if (action === 'getResearch') {
+          const r=records.find(x=>x.id===payload.researchId);
+          if (!r) throw new Error('Investigación no encontrada o sin permiso.');
+          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], adActivity:buildBrief01AdActivity(r) });
+          return;
+        }
+        if (!payload.researchId) throw new Error('Selecciona una investigación BRIEF 01.');
+        const researchRef=doc(db,BRIEF01_COLLECTION,payload.researchId);
+        if (action === 'addCompetitor') {
+          const result=await runTransaction(db, async tx => {
+            const snap=await tx.get(researchRef);
+            if (!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if (data.ownerUid !== ownerUid) throw new Error('No autorizado para esta investigación.');
+            const competitors=Array.isArray(data.competitors)?data.competitors:[];
+            const normalized=brief01NormalizeCompetitorName(payload.name||'');
+            if (!normalized) throw new Error('Ingresa el nombre de la tienda o anunciante.');
+            const duplicate=competitors.find(c=>brief01NormalizeCompetitorName(c.name)===normalized);
+            if (duplicate) return { duplicate:true, competitor:duplicate };
+            const now=new Date();
+            const competitor={
+              id:`comp_ext_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+              name:String(payload.name||'').trim(), metaUrl:String(payload.url||'').trim(), salesUrl:'', adAgeDays:'', singlePrice:'', shipping:'', cod:false,
+              promotions:'', primaryAngle:'', secondaryAngle1:'', secondaryAngle2:'', notes:'', combos:[],
+              activeAdsCount:null, activeAdsMeasurement:'unknown', activeAdsLastReviewedAt:'', activeAdsUrl:String(payload.url||'').trim(), activeAdsNotes:'', activeAdsHistory:[],
+              createdFromExtension:true, createdAtMs:now.getTime()
+            };
+            tx.update(researchRef,{ competitors:[...competitors,competitor], updatedDate:todayColombia(), updatedAtMs:Date.now() });
+            return { duplicate:false, competitor };
+          });
+          respond(msg.requestId,true,result); return;
+        }
+        if (action === 'updateCompetitor') {
+          const result=await runTransaction(db, async tx => {
+            const snap=await tx.get(researchRef);
+            if (!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if (data.ownerUid !== ownerUid) throw new Error('No autorizado para esta investigación.');
+            const competitors=Array.isArray(data.competitors)?data.competitors:[];
+            const idx=competitors.findIndex(c=>c.id===payload.competitorId);
+            if (idx<0) throw new Error('Competidor no encontrado.');
+            const current={...competitors[idx]};
+            const nextName=String(payload.name??current.name??'').trim();
+            if (!nextName) throw new Error('El nombre no puede quedar vacío.');
+            const normalized=brief01NormalizeCompetitorName(nextName);
+            const duplicate=competitors.find((c,i)=>i!==idx && brief01NormalizeCompetitorName(c.name)===normalized);
+            if (duplicate) return { duplicate:true, competitor:duplicate };
+            const measurement=['exact','estimated','unknown'].includes(payload.measurementType)?payload.measurementType:(current.activeAdsMeasurement||'unknown');
+            let count=null;
+            if (measurement!=='unknown') {
+              const raw=Number(payload.activeAdsCount);
+              if (!Number.isFinite(raw) || raw<0) throw new Error('La cantidad de anuncios debe ser 0 o un número positivo.');
+              count=Math.floor(raw);
+            }
+            const url=String(payload.url??current.activeAdsUrl??current.metaUrl??'').trim();
+            const notes=String(payload.notes??current.activeAdsNotes??'').trim();
+            let history=Array.isArray(current.activeAdsHistory)?[...current.activeAdsHistory]:[];
+            let observedAt=current.activeAdsLastReviewedAt||'';
+            const operationId=String(payload.operationId||'');
+            if (payload.commitObservation) {
+              const already=operationId && history.some(h=>h.operationId===operationId);
+              if (!already) {
+                const now=new Date();
+                observedAt=now.toLocaleString('es-CO',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+                history.push({ id:`obs_${now.getTime()}_${Math.random().toString(36).slice(2,6)}`, operationId, observedAt, observedAtMs:now.getTime(), activeAds:count, measurementType:measurement, url, reviewedBy:user?.email||'', notes });
+                history=history.slice(-40);
+              }
+            }
+            const updated={...current,name:nextName,metaUrl:url||current.metaUrl||'',activeAdsUrl:url,activeAdsCount:count,activeAdsMeasurement:measurement,activeAdsLastReviewedAt:payload.commitObservation?observedAt:(current.activeAdsLastReviewedAt||''),activeAdsNotes:notes,activeAdsHistory:history};
+            const next=[...competitors]; next[idx]=updated;
+            tx.update(researchRef,{ competitors:next, updatedDate:todayColombia(), updatedAtMs:Date.now() });
+            return { duplicate:false, competitor:updated, adActivity:buildBrief01AdActivity({...data,competitors:next}) };
+          });
+          respond(msg.requestId,true,result); return;
+        }
+        if (action === 'deleteCompetitor') {
+          const result=await runTransaction(db, async tx => {
+            const snap=await tx.get(researchRef);
+            if (!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if (data.ownerUid !== ownerUid) throw new Error('No autorizado para esta investigación.');
+            const competitors=Array.isArray(data.competitors)?data.competitors:[];
+            const existing=competitors.find(c=>c.id===payload.competitorId);
+            if (!existing) throw new Error('Competidor no encontrado.');
+            const next=competitors.filter(c=>c.id!==payload.competitorId);
+            tx.update(researchRef,{ competitors:next, updatedDate:todayColombia(), updatedAtMs:Date.now() });
+            return { removed:true, hadHistory:(existing.activeAdsHistory||[]).length>0 };
+          });
+          respond(msg.requestId,true,result); return;
+        }
+        throw new Error('Acción de extensión no reconocida.');
+      } catch (error) {
+        console.error('BRIEF01 extension bridge', action, error);
+        respond(msg.requestId,false,null,error?.message||'Error de sincronización.');
+      }
+    };
+    window.addEventListener('message',handler);
+    return ()=>window.removeEventListener('message',handler);
+  }, [ownerUid,user?.email,records]);
+  return null;
 }
 
 function Brief01Module() {
@@ -20239,7 +20467,7 @@ function Brief01Module() {
     return records.filter(r=>r.id!==current.id && r.normalizedName===n);
   },[current?.name,current?.id,records]);
 
-  const addCompetitor=()=>setCurrent(c=>({...c,competitors:[...(c.competitors||[]),{id:`comp_${Date.now()}`,name:'',metaUrl:'',salesUrl:'',adAgeDays:'',singlePrice:'',shipping:'',cod:false,promotions:'',primaryAngle:'',secondaryAngle1:'',secondaryAngle2:'',notes:'',combos:[]}]}));
+  const addCompetitor=()=>setCurrent(c=>({...c,competitors:[...(c.competitors||[]),{id:`comp_${Date.now()}`,name:'',metaUrl:'',salesUrl:'',adAgeDays:'',singlePrice:'',shipping:'',cod:false,promotions:'',primaryAngle:'',secondaryAngle1:'',secondaryAngle2:'',notes:'',combos:[],activeAdsCount:null,activeAdsMeasurement:'unknown',activeAdsLastReviewedAt:'',activeAdsUrl:'',activeAdsNotes:'',activeAdsHistory:[]}]}));
   const updateCompetitor=(id,field,value)=>setCurrent(c=>({...c,competitors:(c.competitors||[]).map(x=>x.id===id?{...x,[field]:value}:x)}));
   const removeCompetitor=id=>setCurrent(c=>({...c,competitors:(c.competitors||[]).filter(x=>x.id!==id)}));
   const addCombo=id=>setCurrent(c=>({...c,competitors:(c.competitors||[]).map(x=>x.id===id?{...x,combos:[...(x.combos||[]),{id:`combo_${Date.now()}`,name:'',quantity:'2',price:''}]}:x)}));
@@ -20298,6 +20526,7 @@ function Brief01Module() {
       {diag.missing.length>0&&<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-[9px] font-black uppercase text-amber-800">Información indispensable pendiente</p><div className="mt-2 flex flex-wrap gap-2">{diag.missing.map(x=><span key={x} className="rounded-full bg-white border border-amber-200 px-2.5 py-1 text-[8px] font-bold text-amber-800">{x}</span>)}</div></div>}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5"><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-lg font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Flete ponderado</p><p className="text-lg font-black mt-1">{diag.financial.freightLookup.status==='ok'?fmt(diag.financial.freightPerShipment):'—'}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen / pedido</p><p className={`text-lg font-black mt-1 ${diag.financial.marginPerGenerated>=25000?'text-emerald-700':diag.financial.marginPerGenerated<0?'text-rose-700':'text-amber-700'}`}>{fmt(diag.financial.marginPerGenerated)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen %</p><p className="text-lg font-black mt-1">{fmtDec(diag.financial.marginPct,1)}%</p></div><div className="rounded-2xl bg-slate-50 p-3 col-span-2 lg:col-span-1"><p className="text-[7px] uppercase font-black text-slate-400">Objetivo</p><p className="text-lg font-black mt-1">{fmt(BRIEF01_TARGET_MARGIN)}</p></div></div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5"><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Embudo normalizado · 100 pedidos</p><div className="grid grid-cols-4 gap-2 mt-3">{[['Cancelados',diag.financial.cancelled],['Despachados',diag.financial.shipped],['Devueltos',diag.financial.returned],['Efectivos',diag.financial.delivered]].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 p-2 text-center"><p className="text-[7px] uppercase font-black text-slate-400">{l}</p><p className="text-base font-black mt-1">{fmtDec(v,0)}</p></div>)}</div><div className="mt-3 text-[9px] text-slate-600 space-y-1"><p>Ingresos cobrados: <b>{fmt(diag.financial.revenueCollected)}</b></p><p>Costo producto: <b>{fmt(diag.financial.productCostTotal)}</b></p><p>Fletes: <b>{fmt(diag.financial.freightTotal)}</b></p><p>Comisiones + fijos + otros: <b>{fmt(diag.financial.commissionTotal+diag.financial.fixedTotal+diag.financial.additionalTotal)}</b></p><p className="pt-1 border-t">Margen disponible total: <b>{fmt(diag.financial.marginTotal)}</b></p></div></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Escenarios</p><div className="space-y-2 mt-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Situación actual</p><p className="text-xs font-black mt-1">{fmt(diag.financial.price)} · margen {fmt(diag.financial.marginPerGenerated)}</p></div>{diag.targetPrice?.status==='ok'&&<div className="rounded-xl bg-blue-50 p-3"><p className="text-[7px] uppercase font-black text-blue-500">Precio ajustado</p><p className="text-xs font-black text-blue-800 mt-1">{fmt(diag.targetPrice.price)} · margen {fmt(diag.targetPrice.calc.marginPerGenerated)}</p></div>}{diag.targetPrice?.status==='freight_out_of_range'&&<div className="rounded-xl bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Validar costo de flete y adicionar dato a la Tabla de Fletes para calcular el precio objetivo.</div>}{diag.targetCost&&<div className="rounded-xl bg-purple-50 p-3"><p className="text-[7px] uppercase font-black text-purple-500">Costo negociado objetivo</p><p className="text-xs font-black text-purple-800 mt-1">Máximo {fmt(Math.max(0,diag.targetCost.maxUnitCost))} / unidad</p><p className="text-[8px] text-purple-700 mt-1">Reducción requerida: {fmt(Math.max(0,diag.targetCost.reduction))}{diag.targetCost.reductionPct!==null?` · ${fmtDec(Math.max(0,diag.targetCost.reductionPct),1)}%`:''}</p></div>}</div></div></div>
+      <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-[#12386B]">Actividad publicitaria y posibles señales de escalamiento</p><p className="text-[9px] text-slate-600 mt-1">{diag.adActivity?.interpretation}</p></div><span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${diag.adActivity?.trendTone==='attention'?'bg-amber-100 text-amber-800':diag.adActivity?.trendTone==='good'?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{diag.adActivity?.trendLabel}</span></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Competidores</p><p className="text-lg font-black mt-1">{diag.adActivity?.competitorCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Anuncios registrados</p><p className="text-lg font-black mt-1">{diag.adActivity?.totalAds||0}{diag.adActivity?.totalIsPartial?<span className="text-[7px] text-amber-600 ml-1">PARCIAL</span>:null}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Sin medición</p><p className="text-lg font-black mt-1">{diag.adActivity?.unknownCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Fecha de corte</p><p className="text-xs font-black mt-2">{diag.adActivity?.cutoff||'—'}</p></div></div><div className="overflow-x-auto mt-3"><table className="min-w-[760px] w-full text-left"><thead className="text-[7px] uppercase text-slate-400"><tr><th className="p-2">Tienda</th><th className="p-2">Actual</th><th className="p-2">Tipo</th><th className="p-2">Anterior</th><th className="p-2">Cambio</th><th className="p-2">Última revisión</th></tr></thead><tbody>{(diag.adActivity?.rows||[]).map(r=><tr key={r.id} className="border-t border-blue-100 text-[8px]"><td className="p-2 font-black">{r.name}</td><td className="p-2">{r.currentCount===null?'—':r.currentCount}</td><td className="p-2">{r.measurementType==='exact'?'Exacta':r.measurementType==='estimated'?'Aprox.':'No determinada'}</td><td className="p-2">{r.previousCount===null?'—':r.previousCount}</td><td className="p-2 font-black">{r.delta===null?'—':`${r.delta>=0?'+':''}${r.delta}${r.deltaPct!==null?` · ${r.deltaPct>=0?'+':''}${fmtDec(r.deltaPct,1)}%`:''}`}</td><td className="p-2">{r.lastReviewedAt||'—'}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1">{(diag.adActivity?.limitations||[]).map((x,i)=><p key={i} className="text-[8px] text-slate-500">• {x}</p>)}</div></div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">{[['Alertas',diag.alerts,'rose'],['Fortalezas',diag.strengths,'emerald'],['Acciones recomendadas',diag.actions,'blue']].map(([title,arr,tone])=><div key={title} className={`rounded-2xl border p-4 ${tone==='rose'?'border-rose-200 bg-rose-50/50':tone==='emerald'?'border-emerald-200 bg-emerald-50/50':'border-blue-200 bg-blue-50/50'}`}><p className="text-[9px] font-black uppercase">{title}</p><div className="mt-2 space-y-2">{arr.length?arr.map((x,i)=><p key={i} className="text-[9px] leading-relaxed text-slate-700">• {x}</p>):<p className="text-[9px] text-slate-400">Sin registros.</p>}</div></div>)}</div>
       <div className="mt-5 flex flex-wrap gap-2"><button onClick={()=>setOperationalState('approve')} disabled={current.manualApproved} className="rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><CheckCircle2 size={12} className="inline mr-1"/>Aprobar manualmente</button><button onClick={()=>setOperationalState('testing')} disabled={current.inTesting} className="rounded-xl bg-purple-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><FlaskConical size={12} className="inline mr-1"/>Marcar en testeo</button></div>
     </div>
@@ -20309,7 +20538,7 @@ function Brief01Module() {
 
       {step==='meta'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">2. Investigación manual · Meta Ads Library</p><p className="text-xs text-slate-500 mt-1">Cuenta anunciantes independientes, no anuncios individuales.</p></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Anunciantes independientes</label><input type="number" min="0" value={current.meta?.advertisers||''} onChange={e=>updateCurrent('meta.advertisers',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Anunciantes activos &gt; 15 días</label><input type="number" min="0" value={current.meta?.sustained15d||''} onChange={e=>updateCurrent('meta.sustained15d',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Fecha investigación</label><input type="date" value={current.meta?.researchDate||''} onChange={e=>updateCurrent('meta.researchDate',e.target.value)} className={fieldClass}/></div><div className={`rounded-xl border p-3 ${brief01ToneClasses(brief01Saturation(current.meta?.advertisers).tone)}`}><p className="text-[7px] font-black uppercase">Lectura de saturación</p><p className="text-xs font-black mt-1">{brief01Saturation(current.meta?.advertisers).label}</p><p className="text-[8px] mt-1">Es una señal, no una prueba de ventas ni rentabilidad.</p></div><div className="md:col-span-2"><label className={labelClass}>Observaciones</label><textarea rows={4} value={current.meta?.notes||''} onChange={e=>updateCurrent('meta.notes',e.target.value)} className={fieldClass}/></div></div></div>}
 
-      {step==='competitors'&&<div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">3. Competidores · máximo 5 prioritarios</p><p className="text-xs text-slate-500 mt-1">Compara únicamente presentaciones equivalentes.</p></div><button onClick={addCompetitor} disabled={(current.competitors||[]).length>=5} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase disabled:opacity-40"><Plus size={11} className="inline mr-1"/>Agregar</button></div><div className="space-y-3">{(current.competitors||[]).map((c,i)=><div key={c.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-3"><p className="text-[9px] font-black uppercase text-slate-500">Competidor {i+1}</p><button onClick={()=>removeCompetitor(c.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre / tienda</label><input value={c.name||''} onChange={e=>updateCompetitor(c.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Meta Ads Library</label><input value={c.metaUrl||''} onChange={e=>updateCompetitor(c.id,'metaUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace página de venta</label><input value={c.salesUrl||''} onChange={e=>updateCompetitor(c.id,'salesUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Antigüedad publicitaria · días</label><input type="number" min="0" value={c.adAgeDays||''} onChange={e=>updateCompetitor(c.id,'adAgeDays',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio 1 unidad</label><input type="number" min="0" value={c.singlePrice||''} onChange={e=>updateCompetitor(c.id,'singlePrice',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Condiciones de envío</label><input value={c.shipping||''} onChange={e=>updateCompetitor(c.id,'shipping',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Promociones</label><input value={c.promotions||''} onChange={e=>updateCompetitor(c.id,'promotions',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo principal</label><input value={c.primaryAngle||''} onChange={e=>updateCompetitor(c.id,'primaryAngle',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 1</label><input value={c.secondaryAngle1||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle1',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 2</label><input value={c.secondaryAngle2||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle2',e.target.value)} className={fieldClass}/></div><label className="flex items-center gap-2 text-[8px] font-black text-slate-600"><input type="checkbox" checked={!!c.cod} onChange={e=>updateCompetitor(c.id,'cod',e.target.checked)}/> Pago contraentrega</label><div className="lg:col-span-2"><label className={labelClass}>Observaciones</label><input value={c.notes||''} onChange={e=>updateCompetitor(c.id,'notes',e.target.value)} className={fieldClass}/></div></div><div className="mt-3"><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Combos</p><button onClick={()=>addCombo(c.id)} className="text-[8px] font-black text-[#12386B]">+ Agregar combo</button></div><div className="space-y-2 mt-2">{(c.combos||[]).map(b=><div key={b.id} className="grid grid-cols-[1fr_90px_1fr_32px] gap-2"><input placeholder="Nombre" value={b.name||''} onChange={e=>updateCombo(c.id,b.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="1" placeholder="Cant." value={b.quantity||''} onChange={e=>updateCombo(c.id,b.id,'quantity',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Precio" value={b.price||''} onChange={e=>updateCombo(c.id,b.id,'price',e.target.value)} className={fieldClass}/><button onClick={()=>removeCombo(c.id,b.id)} className="text-rose-500"><X size={13}/></button></div>)}</div></div></div>)}</div></div>}
+      {step==='competitors'&&<div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">3. Competidores · máximo 5 prioritarios</p><p className="text-xs text-slate-500 mt-1">Compara únicamente presentaciones equivalentes.</p></div><button onClick={addCompetitor} disabled={(current.competitors||[]).length>=5} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase disabled:opacity-40"><Plus size={11} className="inline mr-1"/>Agregar</button></div><div className="space-y-3">{(current.competitors||[]).map((c,i)=><div key={c.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-3"><p className="text-[9px] font-black uppercase text-slate-500">Competidor {i+1}</p><button onClick={()=>removeCompetitor(c.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre / tienda</label><input value={c.name||''} onChange={e=>updateCompetitor(c.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Meta Ads Library</label><input value={c.metaUrl||''} onChange={e=>updateCompetitor(c.id,'metaUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace página de venta</label><input value={c.salesUrl||''} onChange={e=>updateCompetitor(c.id,'salesUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Antigüedad publicitaria · días</label><input type="number" min="0" value={c.adAgeDays||''} onChange={e=>updateCompetitor(c.id,'adAgeDays',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio 1 unidad</label><input type="number" min="0" value={c.singlePrice||''} onChange={e=>updateCompetitor(c.id,'singlePrice',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Condiciones de envío</label><input value={c.shipping||''} onChange={e=>updateCompetitor(c.id,'shipping',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Promociones</label><input value={c.promotions||''} onChange={e=>updateCompetitor(c.id,'promotions',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo principal</label><input value={c.primaryAngle||''} onChange={e=>updateCompetitor(c.id,'primaryAngle',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 1</label><input value={c.secondaryAngle1||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle1',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 2</label><input value={c.secondaryAngle2||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle2',e.target.value)} className={fieldClass}/></div><label className="flex items-center gap-2 text-[8px] font-black text-slate-600"><input type="checkbox" checked={!!c.cod} onChange={e=>updateCompetitor(c.id,'cod',e.target.checked)}/> Pago contraentrega</label><div className="lg:col-span-2"><label className={labelClass}>Observaciones</label><input value={c.notes||''} onChange={e=>updateCompetitor(c.id,'notes',e.target.value)} className={fieldClass}/></div></div><div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><p className="text-[8px] font-black uppercase text-[#12386B]">Actividad publicitaria observada</p><p className="text-[7px] text-slate-500 mt-0.5">Captura manual · también sincronizable desde la extensión Chrome.</p></div><span className="text-[7px] font-black uppercase text-slate-500">{(c.activeAdsHistory||[]).length} revisión(es)</span></div><div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3"><div><label className={labelClass}>Anuncios activos</label><input type="number" min="0" value={c.activeAdsCount??''} onChange={e=>updateCompetitor(c.id,'activeAdsCount',e.target.value===''?null:Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>Tipo de medición</label><select value={c.activeAdsMeasurement||'unknown'} onChange={e=>updateCompetitor(c.id,'activeAdsMeasurement',e.target.value)} className={fieldClass}><option value="exact">Exacta</option><option value="estimated">Aproximada</option><option value="unknown">No determinada</option></select></div><div><label className={labelClass}>Última revisión</label><input value={c.activeAdsLastReviewedAt||''} disabled className={`${fieldClass} bg-slate-50`}/></div></div></div><div className="mt-3"><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Combos</p><button onClick={()=>addCombo(c.id)} className="text-[8px] font-black text-[#12386B]">+ Agregar combo</button></div><div className="space-y-2 mt-2">{(c.combos||[]).map(b=><div key={b.id} className="grid grid-cols-[1fr_90px_1fr_32px] gap-2"><input placeholder="Nombre" value={b.name||''} onChange={e=>updateCombo(c.id,b.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="1" placeholder="Cant." value={b.quantity||''} onChange={e=>updateCombo(c.id,b.id,'quantity',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Precio" value={b.price||''} onChange={e=>updateCombo(c.id,b.id,'price',e.target.value)} className={fieldClass}/><button onClick={()=>removeCombo(c.id,b.id)} className="text-rose-500"><X size={13}/></button></div>)}</div></div></div>)}</div></div>}
 
       {step==='suppliers'&&<div className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">4. Proveedores Dropi</p><p className="text-xs text-slate-500 mt-1">Registra todos los proveedores del producto exacto. Sin límite.</p></div><button onClick={addSupplier} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Plus size={11} className="inline mr-1"/>Proveedor</button></div>{(current.suppliers||[]).length>5&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Alerta de posible saturación: hay más de 5 proveedores independientes. No implica descarte automático.</div>}<div className="space-y-3">{(current.suppliers||[]).map((s,i)=><div key={s.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><p className="text-[9px] font-black uppercase text-slate-500">Proveedor {i+1}</p><button onClick={()=>removeSupplier(s.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre</label><input value={s.name||''} onChange={e=>updateSupplier(s.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Dropi</label><input value={s.url||''} onChange={e=>updateSupplier(s.id,'url',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Costo unitario</label><input type="number" min="0" value={s.unitCost||''} onChange={e=>updateSupplier(s.id,'unitCost',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Inventario disponible</label><input type="number" min="0" value={s.inventory||''} onChange={e=>updateSupplier(s.id,'inventory',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Variantes</label><input value={s.variants||''} onChange={e=>updateSupplier(s.id,'variants',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Observaciones</label><input value={s.notes||''} onChange={e=>updateSupplier(s.id,'notes',e.target.value)} className={fieldClass}/></div></div></div>)}</div></div>}
 
@@ -20410,6 +20639,7 @@ export default function App() {
 
   return (
     <div className="tpc-app-shell min-h-screen bg-[#f6f8fc] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <Brief01ExtensionBridge />
       <TuPedidoLoadingOverlay active={navigationLoading} label="Cargando módulo..." />
       <style>{`
         .tpc-app-shell {
