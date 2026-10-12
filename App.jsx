@@ -20315,6 +20315,8 @@ function Brief01ExtensionBridge() {
               const count=Math.floor(countRaw);
               const measurement=['exact','estimated','unknown'].includes(raw?.measurementType)?raw.measurementType:'exact';
               const url=String(raw?.url||sourceUrl||'').trim();
+              const rawLandingUrl=String(raw?.landingUrl||'').trim();
+              const landingUrl=/^https?:\/\//i.test(rawLandingUrl) && !/(?:^|\.)wa\.me\/|whatsapp\.com|api\.whatsapp\.com/i.test(rawLandingUrl) ? rawLandingUrl : '';
               const notes=String(raw?.notes||'Lectura automática asistida de resultados cargados en Meta Ads Library.').trim();
               const hasAdsOver15=!!raw?.hasAdsOver15;
               const adsOver15Count=Math.max(0,Math.floor(Number(raw?.adsOver15Count)||0));
@@ -20332,7 +20334,7 @@ function Brief01ExtensionBridge() {
                 const history=[{ id:`obs_${now.getTime()}_${Math.random().toString(36).slice(2,6)}`, operationId:rowOperationId, observedAt, observedAtMs:now.getTime(), activeAds:measurement==='unknown'?null:count, measurementType:measurement, url, reviewedBy:user?.email||'', notes }];
                 const competitor={
                   id:`comp_auto_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
-                  name, metaUrl:url, salesUrl:'', adAgeDays:oldestAdAgeDays??'', singlePrice:'', shipping:'', cod:false,
+                  name, metaUrl:url, salesUrl:landingUrl, adAgeDays:oldestAdAgeDays??'', singlePrice:'', shipping:'', cod:false,
                   promotions:'', primaryAngle:'', secondaryAngle1:'', secondaryAngle2:'', notes:'', combos:[],
                   activeAdsCount:measurement==='unknown'?null:count, activeAdsMeasurement:measurement, activeAdsLastReviewedAt:observedAt,
                   activeAdsUrl:url, activeAdsNotes:notes, activeAdsHistory:history,
@@ -20355,7 +20357,7 @@ function Brief01ExtensionBridge() {
                 }
                 const next={...current,
                   name:name||current.name,
-                  metaUrl:url||current.metaUrl||'', activeAdsUrl:url||current.activeAdsUrl||current.metaUrl||'',
+                  metaUrl:url||current.metaUrl||'', salesUrl:landingUrl||current.salesUrl||'', activeAdsUrl:url||current.activeAdsUrl||current.metaUrl||'',
                   activeAdsCount:measurement==='unknown'?null:count, activeAdsMeasurement:measurement,
                   activeAdsLastReviewedAt:already?(current.activeAdsLastReviewedAt||observedAt):observedAt,
                   activeAdsNotes:notes, activeAdsHistory:history,
@@ -20381,6 +20383,63 @@ function Brief01ExtensionBridge() {
             };
             tx.update(researchRef,{ competitors, meta, updatedDate:todayColombia(), updatedAtMs:Date.now() });
             return { created, updated, skipped, total:touched.length, touched, meta, adActivity:buildBrief01AdActivity({...data,competitors,meta}) };
+          });
+          respond(msg.requestId,true,result); return;
+        }
+        if (action === 'syncCompetitorOffer') {
+          const result=await runTransaction(db, async tx => {
+            const snap=await tx.get(researchRef);
+            if (!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if (data.ownerUid !== ownerUid) throw new Error('No autorizado para esta investigación.');
+            const competitors=Array.isArray(data.competitors)?data.competitors.map(c=>({...c})):[];
+            const idx=competitors.findIndex(c=>c.id===payload.competitorId);
+            if (idx<0) throw new Error('Competidor no encontrado.');
+            const current={...competitors[idx]};
+            const landingUrl=String(payload.url||current.salesUrl||'').trim();
+            if (!/^https?:\/\//i.test(landingUrl) || /(?:^|\.)wa\.me\/|whatsapp\.com|api\.whatsapp\.com/i.test(landingUrl)) throw new Error('La landing debe ser una página web válida y no WhatsApp.');
+            const incomingOffers=(Array.isArray(payload.offers)?payload.offers:[]).map((o,i)=>({
+              quantity:Math.max(1,Math.floor(Number(o?.quantity)||1)),
+              price:Number(o?.price)||0,
+              label:String(o?.label||'').trim().slice(0,160),
+              unitPrice:Number(o?.price)>0 ? Number(o.price)/Math.max(1,Math.floor(Number(o?.quantity)||1)) : 0,
+              source:String(o?.source||'landing').slice(0,40),
+              order:i
+            })).filter(o=>o.price>0 && o.price<=10000000).slice(0,8);
+            if (!incomingOffers.length) throw new Error('No hay una oferta válida confirmada para guardar.');
+            // Un valor por cantidad evita comparar una presentación contra dos precios contradictorios.
+            const byQuantity=new Map();
+            for (const offer of incomingOffers) if (!byQuantity.has(offer.quantity)) byQuantity.set(offer.quantity,offer);
+            const confirmed=[...byQuantity.values()].sort((a,b)=>a.quantity-b.quantity);
+            const single=confirmed.find(o=>o.quantity===1);
+            const extractedCombos=confirmed.filter(o=>o.quantity>1);
+            const existingCombos=Array.isArray(current.combos)?current.combos:[];
+            const extractedQuantities=new Set(extractedCombos.map(o=>o.quantity));
+            const preserved=existingCombos.filter(c=>!extractedQuantities.has(Number(c.quantity)));
+            const mergedExtracted=extractedCombos.map(o=>{
+              const existing=existingCombos.find(c=>Number(c.quantity)===o.quantity);
+              return { id:existing?.id||`combo_land_${Date.now()}_${o.quantity}_${Math.random().toString(36).slice(2,5)}`, name:o.label||`${o.quantity} unidades`, quantity:String(o.quantity), price:String(Math.round(o.price)), autoExtracted:true, landingSourceUrl:landingUrl };
+            });
+            const now=new Date();
+            const scannedAt=String(payload.scannedAt||now.toISOString());
+            const offerSnapshot={ id:`landing_${now.getTime()}_${Math.random().toString(36).slice(2,5)}`, scannedAt, scannedAtMs:now.getTime(), url:landingUrl, title:String(payload.title||'').slice(0,220), offers:confirmed.map(o=>({quantity:o.quantity,price:o.price,unitPrice:o.unitPrice,label:o.label})), confidence:['high','medium','low'].includes(payload.confidence)?payload.confidence:'low', codDetected:!!payload.cod, freeShippingDetected:!!payload.freeShipping };
+            const landingHistory=[...(Array.isArray(current.landingOfferHistory)?current.landingOfferHistory:[]),offerSnapshot].slice(-20);
+            const updated={...current,
+              salesUrl:landingUrl,
+              singlePrice:single?String(Math.round(single.price)):(current.singlePrice||''),
+              combos:[...preserved,...mergedExtracted],
+              shipping:String(payload.shipping||'').trim() && String(payload.shipping).trim()!=='No determinado' ? String(payload.shipping).trim() : (current.shipping||''),
+              cod:!!payload.cod || !!current.cod,
+              promotions:String(payload.promotions||'').trim() || current.promotions || '',
+              landingProductTitle:String(payload.title||'').trim(),
+              landingExtractionConfidence:['high','medium','low'].includes(payload.confidence)?payload.confidence:'low',
+              landingLastScannedAt:scannedAt,
+              landingOfferHistory:landingHistory,
+              updatedFromLandingScan:true
+            };
+            competitors[idx]=updated;
+            tx.update(researchRef,{competitors,updatedDate:todayColombia(),updatedAtMs:Date.now()});
+            return { competitor:updated, comparableOffers:confirmed, diagnosisPreview:{ competitorName:updated.name, singlePrice:updated.singlePrice||'', combos:updated.combos||[] } };
           });
           respond(msg.requestId,true,result); return;
         }
