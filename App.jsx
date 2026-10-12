@@ -20441,6 +20441,9 @@ function Brief01ExtensionBridge() {
             tx.update(researchRef,{competitors,updatedDate:todayColombia(),updatedAtMs:Date.now()});
             return { competitor:updated, comparableOffers:confirmed, diagnosisPreview:{ competitorName:updated.name, singlePrice:updated.singlePrice||'', combos:updated.combos||[] } };
           });
+          try {
+            window.dispatchEvent(new CustomEvent('brief01-extension-offer-sync',{detail:{researchId:payload.researchId,competitor:result.competitor}}));
+          } catch {}
           respond(msg.requestId,true,result); return;
         }
         if (action === 'updateCompetitor') {
@@ -20540,6 +20543,36 @@ function Brief01Module() {
     });
     return ()=>{unsub();unsubFreight();};
   },[ownerUid]);
+
+  // Mantiene el BRIEF abierto sincronizado con ofertas guardadas desde la extensión
+  // sin pisar otros cambios locales aún no guardados del competidor.
+  useEffect(()=>{
+    const handleOfferSync=(event)=>{
+      const detail=event?.detail||{};
+      if(!detail.researchId || !detail.competitor) return;
+      const incoming=detail.competitor;
+      setCurrent(prev=>{
+        if(!prev || prev.id!==detail.researchId) return prev;
+        const offerPatch={
+          salesUrl:incoming.salesUrl||'',
+          singlePrice:incoming.singlePrice||'',
+          combos:Array.isArray(incoming.combos)?incoming.combos:[],
+          shipping:incoming.shipping||'',
+          cod:!!incoming.cod,
+          promotions:incoming.promotions||'',
+          landingProductTitle:incoming.landingProductTitle||'',
+          landingExtractionConfidence:incoming.landingExtractionConfidence||'',
+          landingLastScannedAt:incoming.landingLastScannedAt||'',
+          landingOfferHistory:Array.isArray(incoming.landingOfferHistory)?incoming.landingOfferHistory:[],
+          updatedFromLandingScan:!!incoming.updatedFromLandingScan
+        };
+        return {...prev,competitors:(prev.competitors||[]).map(c=>c.id===incoming.id?{...c,...offerPatch}:c)};
+      });
+      setMessage(`Oferta de ${incoming.name||'competidor'} sincronizada desde la extensión.`);
+    };
+    window.addEventListener('brief01-extension-offer-sync',handleOfferSync);
+    return ()=>window.removeEventListener('brief01-extension-offer-sync',handleOfferSync);
+  },[]);
 
   const filtered=useMemo(()=>records.filter(r=>{
     const q=search.trim().toLowerCase();
