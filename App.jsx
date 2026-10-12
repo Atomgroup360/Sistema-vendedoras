@@ -1152,6 +1152,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [filterVendor, setFilterVendor] = useState('all');
   const [mostrarInactivos, setMostrarInactivos] = useState(false);
+  const [atomFillMsg, setAtomFillMsg] = useState('');
 
   const grouped = useMemo(() => configs.reduce((a, c) => {
     if (!a[c.vendedora]) a[c.vendedora] = [];
@@ -1178,6 +1179,56 @@ function VistaRegistro({ configs, months, activeTab }) {
 
   const selectedConfig = useMemo(() => selectedProductId ? configs.find(c => c.id === selectedProductId) : null, [selectedProductId, configs]);
   const extraUnitCharge = parseFloat(selectedConfig?.extraUnitCharge) || 0;
+
+  // WINNER OS COMPANION · contexto de Cierre Diario para transferencia asistida desde Atom.
+  // Solo expone la selección actual y permite rellenar orders/units/revenue en memoria; nunca guarda.
+  useEffect(() => {
+    const ctx = {
+      available: activeTab === 'records',
+      date: selectedDate || '',
+      vendor: selectedVendor || '',
+      productId: selectedProductId || '',
+      productName: selectedConfig?.productName || '',
+      restDay: !!form.restDay,
+      editing: !!editingRec,
+      orders: form.orders ?? '',
+      units: form.units ?? '',
+      revenue: form.revenue ?? '',
+      updatedAtMs: Date.now()
+    };
+    window.__WINNER_DAILY_RECORD_CONTEXT__ = ctx;
+    return () => {
+      if (window.__WINNER_DAILY_RECORD_CONTEXT__?.updatedAtMs === ctx.updatedAtMs) delete window.__WINNER_DAILY_RECORD_CONTEXT__;
+    };
+  }, [activeTab, selectedDate, selectedVendor, selectedProductId, selectedConfig?.productName, form.restDay, form.orders, form.units, form.revenue, editingRec]);
+
+  useEffect(() => {
+    const normalize = v => String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+    const onAtomFill = event => {
+      const d = event?.detail || {};
+      const transferId = String(d.transferId || '');
+      const fail = message => {
+        try { window.dispatchEvent(new CustomEvent('winner-atom-fill-result',{detail:{transferId,ok:false,error:message}})); } catch {}
+      };
+      if (activeTab !== 'records') return fail('Abre el módulo Cierres antes de transferir.');
+      if (!selectedVendor || !selectedProductId || !selectedConfig) return fail('Selecciona fecha, vendedora y producto en Cierres.');
+      if (form.restDay) return fail('Desactiva Día de descanso / Sin campaña antes de transferir ventas de Atom.');
+      const expected = d.expected || {};
+      if (expected.date && String(expected.date) !== String(selectedDate)) return fail('La fecha del formulario cambió antes de la transferencia.');
+      if (expected.vendor && normalize(expected.vendor) !== normalize(selectedVendor)) return fail('La vendedora del formulario cambió antes de la transferencia.');
+      if (expected.productId && String(expected.productId) !== String(selectedProductId)) return fail('El producto del formulario cambió antes de la transferencia.');
+      if (!expected.productId && expected.productName && normalize(expected.productName) !== normalize(selectedConfig.productName)) return fail('El producto del formulario cambió antes de la transferencia.');
+      const orders = Number(d.orders), units = Number(d.units), revenue = Number(d.revenue);
+      if (![orders,units,revenue].every(Number.isFinite) || orders < 0 || units < 0 || revenue < 0) return fail('Atom entregó valores numéricos inválidos.');
+      setForm(prev => ({...prev, orders:String(Math.trunc(orders)), units:String(Math.trunc(units)), revenue:String(Math.round(revenue))}));
+      setErrorMsg('');
+      setAtomFillMsg(`Datos transferidos desde Atom: ${Math.trunc(orders)} órdenes · ${Math.trunc(units)} unidades · ${fmt(Math.round(revenue))}. Revisa y guarda manualmente.`);
+      window.setTimeout(() => setAtomFillMsg(''), 9000);
+      try { window.dispatchEvent(new CustomEvent('winner-atom-fill-result',{detail:{transferId,ok:true,data:{orders:Math.trunc(orders),units:Math.trunc(units),revenue:Math.round(revenue)}}})); } catch {}
+    };
+    window.addEventListener('winner-atom-fill-daily', onAtomFill);
+    return () => window.removeEventListener('winner-atom-fill-daily', onAtomFill);
+  }, [activeTab, selectedDate, selectedVendor, selectedProductId, selectedConfig, form.restDay]);
 
   const monthId = selectedDate.substring(0, 7);
   const monthDoc = months.find(m => m.id === monthId);
@@ -1394,6 +1445,8 @@ function VistaRegistro({ configs, months, activeTab }) {
         {!form.restDay && avgUnits && (<div className="text-center space-y-0.5"><p className="text-[9px] text-slate-400 font-black uppercase">Promedio: <span className="text-emerald-600">{avgUnits} unid/guía</span></p>{extraUnitCharge > 0 && parseFloat(avgUnits) > 1 && (<p className="text-[8px] font-bold text-yellow-600">Extra: {fmt(extraUnitCharge)} × {fmtN(parseFloat(avgUnits) - 1)} = {fmt(extraPerGuide)}</p>)}</div>)}
 
         <div className="space-y-1.5"><Label>Recaudo Bruto Total del Día</Label><input type="number" value={form.revenue} onChange={e => setFormField('revenue', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full px-4 py-4 rounded-xl bg-slate-50 border-2 border-emerald-100 focus:border-emerald-400 font-black text-2xl outline-none ${form.restDay ? 'text-slate-400 line-through' : 'text-emerald-700'}`} />{form.restDay && <p className="text-[8px] text-amber-500 text-center">→ 0</p>}</div>
+
+        {atomFillMsg && <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-[9px] font-black text-blue-800 leading-relaxed">🤖 {atomFillMsg}<br/><span className="text-[8px] font-semibold text-blue-600">La extensión NO guardó el cierre.</span></div>}
 
         <button onClick={save} disabled={!selectedVendor || !selectedProductId} className="w-full bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 disabled:opacity-30 flex items-center justify-center gap-2"><Save size={14} /> {editingRec ? 'Actualizar' : 'Guardar'}</button>
         {savedMsg && <div className="flex justify-center gap-2 text-emerald-600 text-[10px] font-black"><CheckCircle2 size={12} /> ¡Guardado!</div>}
@@ -20263,6 +20316,40 @@ function Brief01ExtensionBridge() {
       try {
         if (action === 'ping') {
           respond(msg.requestId, true, { connected:true, user:user?.email||'', platform:'WINNER OS' });
+          return;
+        }
+        if (action === 'getDailyRecordContext') {
+          const ctx = window.__WINNER_DAILY_RECORD_CONTEXT__ || null;
+          if (!ctx?.available) throw new Error('Abre Winner OS → Cierres para usar Ventas Atom.');
+          respond(msg.requestId, true, {...ctx});
+          return;
+        }
+        if (action === 'fillDailyRecordFields') {
+          const ctx = window.__WINNER_DAILY_RECORD_CONTEXT__ || null;
+          if (!ctx?.available) throw new Error('Abre Winner OS → Cierres antes de transferir.');
+          if (!ctx.vendor || !ctx.productId) throw new Error('Selecciona fecha, vendedora y producto en Cierres.');
+          if (ctx.restDay) throw new Error('Desactiva Día de descanso / Sin campaña antes de transferir.');
+          const expected = payload.expected || {};
+          const norm = v => String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+          if (expected.date && String(expected.date) !== String(ctx.date)) throw new Error('La fecha de Cierres cambió. Vuelve a analizar Atom.');
+          if (expected.vendor && norm(expected.vendor) !== norm(ctx.vendor)) throw new Error('La vendedora de Cierres cambió. Vuelve a analizar Atom.');
+          if (expected.productId && String(expected.productId) !== String(ctx.productId)) throw new Error('El producto de Cierres cambió. Vuelve a analizar Atom.');
+          const totals = payload.totals || {};
+          const orders=Number(totals.orders), units=Number(totals.units), revenue=Number(totals.revenue);
+          if (![orders,units,revenue].every(Number.isFinite) || orders<0 || units<0 || revenue<0) throw new Error('Los totales de Atom no son válidos.');
+          const transferId = `atom_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+          const result = await new Promise((resolve,reject) => {
+            const timer = window.setTimeout(() => { cleanup(); reject(new Error('Winner OS no confirmó el llenado de los campos.')); }, 2500);
+            const listener = e => {
+              if (e?.detail?.transferId !== transferId) return;
+              cleanup();
+              if (e.detail.ok) resolve(e.detail.data||{}); else reject(new Error(e.detail.error||'No se pudieron rellenar los campos.'));
+            };
+            const cleanup = () => { window.clearTimeout(timer); window.removeEventListener('winner-atom-fill-result',listener); };
+            window.addEventListener('winner-atom-fill-result',listener);
+            window.dispatchEvent(new CustomEvent('winner-atom-fill-daily',{detail:{transferId,expected:{date:ctx.date,vendor:ctx.vendor,productId:ctx.productId,productName:ctx.productName},orders,units,revenue}}));
+          });
+          respond(msg.requestId, true, { filled:true, saved:false, ...result, context:{date:ctx.date,vendor:ctx.vendor,productId:ctx.productId,productName:ctx.productName} });
           return;
         }
         if (action === 'listResearches') {
