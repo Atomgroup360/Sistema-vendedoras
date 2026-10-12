@@ -20434,16 +20434,18 @@ function Brief01ExtensionBridge() {
               const inventory=inventoryRaw===null||inventoryRaw===''?null:Math.max(0,Math.floor(Number(inventoryRaw)||0));
               const variants=String(raw?.variants||'').trim().slice(0,500);
               const notes=String(raw?.notes||'').trim().slice(0,1000);
-              if(!name||!dropiId||!Number.isFinite(unitCost)||unitCost<0){skipped++;continue;}
+              if(!name||!Number.isFinite(unitCost)||unitCost<0){skipped++;continue;}
               const nk=brief01NormalizeCompetitorName(name);
-              let idx=byDropiId.get(dropiId);
+              let idx=dropiId?byDropiId.get(dropiId):undefined;
               if(idx===undefined&&nk)idx=byName.get(nk);
               if(idx===undefined){
                 const supplier={id:`sup_dropi_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,name,dropiId,url:'',unitCost:String(Math.round(unitCost)),inventory:inventory===null?'':String(inventory),variants,notes,createdFromExtension:true,createdFromDropiScan:true,lastDropiScanAt:now.toISOString()};
-                suppliers.push(supplier);idx=suppliers.length-1;byDropiId.set(dropiId,idx);if(nk)byName.set(nk,idx);created++;
+                suppliers.push(supplier);idx=suppliers.length-1;if(dropiId)byDropiId.set(dropiId,idx);if(nk)byName.set(nk,idx);created++;
               }else{
                 const current={...suppliers[idx]};
-                suppliers[idx]={...current,name:name||current.name,dropiId,unitCost:String(Math.round(unitCost)),inventory:inventory===null?(current.inventory??''):String(inventory),variants:variants||current.variants||'',notes:notes||current.notes||'',updatedFromDropiScan:true,lastDropiScanAt:now.toISOString()};updated++;
+                const resolvedDropiId=dropiId||String(current.dropiId||'');
+                suppliers[idx]={...current,name:name||current.name,dropiId:resolvedDropiId,unitCost:String(Math.round(unitCost)),inventory:inventory===null?(current.inventory??''):String(inventory),variants:variants||current.variants||'',notes:notes||current.notes||'',updatedFromDropiScan:true,lastDropiScanAt:now.toISOString()};
+                if(dropiId)byDropiId.set(dropiId,idx);updated++;
               }
             }
             const detectedRaw=Number(payload.detectedSupplierCount);
