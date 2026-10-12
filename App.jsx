@@ -20282,6 +20282,80 @@ function Brief01ExtensionBridge() {
           });
           respond(msg.requestId,true,result); return;
         }
+        if (action === 'bulkSyncCompetitors') {
+          const result=await runTransaction(db, async tx => {
+            const snap=await tx.get(researchRef);
+            if (!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if (data.ownerUid !== ownerUid) throw new Error('No autorizado para esta investigación.');
+            const incoming=Array.isArray(payload.rows)?payload.rows:[];
+            if (!incoming.length) throw new Error('No hay competidores detectados para sincronizar.');
+            if (incoming.length>250) throw new Error('La lectura supera 250 competidores. Divide la captura en bloques para proteger el tamaño del registro.');
+            const operationId=String(payload.operationId||`bulk_${Date.now()}`);
+            const sourceUrl=String(payload.sourceUrl||'').trim();
+            const now=new Date();
+            const observedAt=now.toLocaleString('es-CO',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+            const competitors=Array.isArray(data.competitors)?data.competitors.map(c=>({...c})):[];
+            const byName=new Map();
+            competitors.forEach((c,i)=>{
+              const key=brief01NormalizeCompetitorName(c.name||'');
+              if (key && !byName.has(key)) byName.set(key,i);
+            });
+            let created=0, updated=0, skipped=0;
+            const touched=[];
+            for (const raw of incoming) {
+              const name=String(raw?.name||'').trim();
+              const key=brief01NormalizeCompetitorName(name);
+              if (!key) { skipped++; continue; }
+              const countRaw=Number(raw?.activeAdsCount);
+              if (!Number.isFinite(countRaw) || countRaw<0) { skipped++; continue; }
+              const count=Math.floor(countRaw);
+              const measurement=['exact','estimated','unknown'].includes(raw?.measurementType)?raw.measurementType:'exact';
+              const url=String(raw?.url||sourceUrl||'').trim();
+              const notes=String(raw?.notes||'Lectura automática asistida de resultados cargados en Meta Ads Library.').trim();
+              const rowOperationId=`${operationId}:${key}`;
+              let idx=byName.get(key);
+              if (idx===undefined) {
+                const history=[{ id:`obs_${now.getTime()}_${Math.random().toString(36).slice(2,6)}`, operationId:rowOperationId, observedAt, observedAtMs:now.getTime(), activeAds:measurement==='unknown'?null:count, measurementType:measurement, url, reviewedBy:user?.email||'', notes }];
+                const competitor={
+                  id:`comp_auto_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+                  name, metaUrl:url, salesUrl:'', adAgeDays:'', singlePrice:'', shipping:'', cod:false,
+                  promotions:'', primaryAngle:'', secondaryAngle1:'', secondaryAngle2:'', notes:'', combos:[],
+                  activeAdsCount:measurement==='unknown'?null:count, activeAdsMeasurement:measurement, activeAdsLastReviewedAt:observedAt,
+                  activeAdsUrl:url, activeAdsNotes:notes, activeAdsHistory:history,
+                  createdFromExtension:true, createdFromAutoScan:true, createdAtMs:now.getTime()
+                };
+                competitors.push(competitor);
+                idx=competitors.length-1;
+                byName.set(key,idx);
+                created++;
+                touched.push({id:competitor.id,name:competitor.name,status:'created',activeAdsCount:competitor.activeAdsCount});
+              } else {
+                const current={...competitors[idx]};
+                let history=Array.isArray(current.activeAdsHistory)?[...current.activeAdsHistory]:[];
+                const already=history.some(h=>h.operationId===rowOperationId);
+                if (!already) {
+                  history.push({ id:`obs_${now.getTime()}_${Math.random().toString(36).slice(2,6)}`, operationId:rowOperationId, observedAt, observedAtMs:now.getTime(), activeAds:measurement==='unknown'?null:count, measurementType:measurement, url, reviewedBy:user?.email||'', notes });
+                  history=history.slice(-40);
+                }
+                const next={...current,
+                  name:name||current.name,
+                  metaUrl:url||current.metaUrl||'', activeAdsUrl:url||current.activeAdsUrl||current.metaUrl||'',
+                  activeAdsCount:measurement==='unknown'?null:count, activeAdsMeasurement:measurement,
+                  activeAdsLastReviewedAt:already?(current.activeAdsLastReviewedAt||observedAt):observedAt,
+                  activeAdsNotes:notes, activeAdsHistory:history,
+                  updatedFromAutoScan:true
+                };
+                competitors[idx]=next;
+                updated++;
+                touched.push({id:next.id,name:next.name,status:'updated',activeAdsCount:next.activeAdsCount});
+              }
+            }
+            tx.update(researchRef,{ competitors, updatedDate:todayColombia(), updatedAtMs:Date.now() });
+            return { created, updated, skipped, total:touched.length, touched, adActivity:buildBrief01AdActivity({...data,competitors}) };
+          });
+          respond(msg.requestId,true,result); return;
+        }
         if (action === 'updateCompetitor') {
           const result=await runTransaction(db, async tx => {
             const snap=await tx.get(researchRef);
