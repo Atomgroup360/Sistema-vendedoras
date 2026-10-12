@@ -19761,6 +19761,7 @@ const EMPTY_BRIEF01 = {
   },
   competitors: [],
   suppliers: [],
+  dropiSummary: { supplierCount: '', researchDate: '', sourceUrl: '', updatedAtMs: 0 },
   offer: {
     presentation: '1 unidad',
     quantity: '1',
@@ -19800,6 +19801,22 @@ function brief01Saturation(advertisers) {
   if (n <= 5) return { label:'Competencia moderada', tone:'good' };
   if (n <= 10) return { label:'Competencia elevada', tone:'attention' };
   return { label:'Posible saturación publicitaria', tone:'critical' };
+}
+
+function brief01DropiSupplierCount(research) {
+  const raw = research?.dropiSummary?.supplierCount;
+  if (raw !== '' && raw !== null && raw !== undefined) {
+    const explicit = Number(raw);
+    if (Number.isFinite(explicit) && explicit >= 0) return Math.floor(explicit);
+  }
+  const seen = new Set();
+  for (const supplier of (research?.suppliers || [])) {
+    const name = normalizeBrief01Name(supplier?.name || '');
+    const dropiId = String(supplier?.dropiId || '').replace(/\D/g,'').trim();
+    const key = name ? `name:${name}` : dropiId ? `id:${dropiId}` : '';
+    if (key) seen.add(key);
+  }
+  return seen.size;
 }
 
 function brief01CostForBase(amount, base, ctx) {
@@ -20003,7 +20020,7 @@ function buildBrief01Diagnosis(research, freightRates) {
   if (financial.freightLookup.status !== 'ok') missing.push('Flete ponderado válido para el ticket');
 
   const saturation = brief01Saturation(research?.meta?.advertisers);
-  const supplierCount = (research?.suppliers || []).length;
+  const supplierCount = brief01DropiSupplierCount(research);
   const sustained = Number(research?.meta?.sustained15d) || 0;
   const comparables = comparableCompetitorsBrief01(research, financial.quantity, financial.price);
   const cheaper = comparables.filter(x => x.competitorPrice < financial.price).length;
@@ -20156,7 +20173,9 @@ function buildBrief01PdfBlob(research, diagnosis) {
   activity.limitations.forEach(x=>add(`Limitacion: ${x}`));
   add('',{gap:5});
   add('5. PROVEEDORES DROPI',{bold:true,size:12,gap:6});
-  (research?.suppliers||[]).forEach((s,i)=> add(`${i+1}. ${s.name||'Proveedor'} | Costo: ${fmt(Number(s.unitCost)||0)} | Inventario: ${s.inventory||0} | ${s.url||''}${s.id===research?.offer?.selectedSupplierId?' | SELECCIONADO':''}`));
+  const pdfDropiSupplierCount=brief01DropiSupplierCount(research);
+  add(`Proveedores Dropi detectados en la búsqueda: ${pdfDropiSupplierCount}${pdfDropiSupplierCount>5?' | ALERTA: posible saturación (>5 proveedores)':''}`);
+  (research?.suppliers||[]).forEach((s,i)=> add(`${i+1}. ${s.name||'Proveedor'} | ID Dropi: ${s.dropiId||'—'} | Costo: ${fmt(Number(s.unitCost)||0)} | Inventario: ${s.inventory||0}${s.id===research?.offer?.selectedSupplierId?' | SELECCIONADO':''}`));
   if (!(research?.suppliers||[]).length) add('Sin proveedores registrados.');
   add('',{gap:5});
   add('6. ANALISIS FINANCIERO',{bold:true,size:12,gap:6});
@@ -20253,7 +20272,7 @@ function Brief01ExtensionBridge() {
         if (action === 'getResearch') {
           const r=records.find(x=>x.id===payload.researchId);
           if (!r) throw new Error('Investigación no encontrada o sin permiso.');
-          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], adActivity:buildBrief01AdActivity(r) });
+          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], suppliers:r.suppliers||[], adActivity:buildBrief01AdActivity(r) });
           return;
         }
         if (!payload.researchId) throw new Error('Selecciona una investigación BRIEF 01.');
@@ -20382,8 +20401,58 @@ function Brief01ExtensionBridge() {
               autoScanUndatedAdvertisers:Math.max(0,confirmedAdvertiserKeys.size-datedAdvertiserKeys.size)
             };
             tx.update(researchRef,{ competitors, meta, updatedDate:todayColombia(), updatedAtMs:Date.now() });
-            return { created, updated, skipped, total:touched.length, touched, meta, adActivity:buildBrief01AdActivity({...data,competitors,meta}) };
+            return { created, updated, skipped, total:touched.length, touched, meta, competitors, adActivity:buildBrief01AdActivity({...data,competitors,meta}) };
           });
+          try {
+            window.dispatchEvent(new CustomEvent('brief01-extension-meta-sync',{detail:{researchId:payload.researchId,meta:result.meta,competitors:result.competitors,adActivity:result.adActivity}}));
+          } catch {}
+          respond(msg.requestId,true,result); return;
+        }
+        if (action === 'bulkSyncSuppliers') {
+          const result=await runTransaction(db, async tx => {
+            const snap=await tx.get(researchRef);
+            if (!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if (data.ownerUid !== ownerUid) throw new Error('No autorizado para esta investigación.');
+            const incoming=Array.isArray(payload.rows)?payload.rows:[];
+            if (!incoming.length) throw new Error('No hay proveedores Dropi para sincronizar.');
+            if (incoming.length>100) throw new Error('La lectura supera 100 proveedores. Divide la captura en bloques.');
+            const suppliers=Array.isArray(data.suppliers)?data.suppliers.map(x=>({...x})):[];
+            const byDropiId=new Map();
+            const byName=new Map();
+            suppliers.forEach((item,i)=>{
+              const did=String(item.dropiId||'').trim(); if(did&&!byDropiId.has(did))byDropiId.set(did,i);
+              const nk=brief01NormalizeCompetitorName(item.name||''); if(nk&&!byName.has(nk))byName.set(nk,i);
+            });
+            let created=0,updated=0,skipped=0;
+            const now=new Date();
+            for(const raw of incoming){
+              const name=String(raw?.name||'').trim();
+              const dropiId=String(raw?.dropiId||'').replace(/\D/g,'').trim();
+              const unitCost=Number(raw?.unitCost);
+              const inventoryRaw=raw?.inventory;
+              const inventory=inventoryRaw===null||inventoryRaw===''?null:Math.max(0,Math.floor(Number(inventoryRaw)||0));
+              const variants=String(raw?.variants||'').trim().slice(0,500);
+              const notes=String(raw?.notes||'').trim().slice(0,1000);
+              if(!name||!dropiId||!Number.isFinite(unitCost)||unitCost<0){skipped++;continue;}
+              const nk=brief01NormalizeCompetitorName(name);
+              let idx=byDropiId.get(dropiId);
+              if(idx===undefined&&nk)idx=byName.get(nk);
+              if(idx===undefined){
+                const supplier={id:`sup_dropi_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,name,dropiId,url:'',unitCost:String(Math.round(unitCost)),inventory:inventory===null?'':String(inventory),variants,notes,createdFromExtension:true,createdFromDropiScan:true,lastDropiScanAt:now.toISOString()};
+                suppliers.push(supplier);idx=suppliers.length-1;byDropiId.set(dropiId,idx);if(nk)byName.set(nk,idx);created++;
+              }else{
+                const current={...suppliers[idx]};
+                suppliers[idx]={...current,name:name||current.name,dropiId,unitCost:String(Math.round(unitCost)),inventory:inventory===null?(current.inventory??''):String(inventory),variants:variants||current.variants||'',notes:notes||current.notes||'',updatedFromDropiScan:true,lastDropiScanAt:now.toISOString()};updated++;
+              }
+            }
+            const detectedRaw=Number(payload.detectedSupplierCount);
+            const detectedSupplierCount=Number.isFinite(detectedRaw)&&detectedRaw>=0?Math.floor(detectedRaw):suppliers.length;
+            const dropiSummary={...(data.dropiSummary||{}),supplierCount:detectedSupplierCount,researchDate:todayColombia(),sourceUrl:String(payload.sourceUrl||'').slice(0,1200),updatedAtMs:Date.now()};
+            tx.update(researchRef,{suppliers,dropiSummary,updatedDate:todayColombia(),updatedAtMs:Date.now()});
+            return {created,updated,skipped,total:suppliers.length,suppliers,dropiSummary,detectedSupplierCount};
+          });
+          try{window.dispatchEvent(new CustomEvent('brief01-extension-supplier-sync',{detail:{researchId:payload.researchId,suppliers:result.suppliers,dropiSummary:result.dropiSummary}}));}catch{}
           respond(msg.requestId,true,result); return;
         }
         if (action === 'syncCompetitorOffer') {
@@ -20544,9 +20613,44 @@ function Brief01Module() {
     return ()=>{unsub();unsubFreight();};
   },[ownerUid]);
 
-  // Mantiene el BRIEF abierto sincronizado con ofertas guardadas desde la extensión
-  // sin pisar otros cambios locales aún no guardados del competidor.
+  // Mantiene el BRIEF abierto sincronizado con el análisis Meta y las ofertas de la extensión.
+  // Solo parchea los campos que la extensión controla para no pisar otros cambios locales.
   useEffect(()=>{
+    const handleMetaSync=(event)=>{
+      const detail=event?.detail||{};
+      if(!detail.researchId || !detail.meta) return;
+      const incomingCompetitors=Array.isArray(detail.competitors)?detail.competitors:[];
+      setCurrent(prev=>{
+        if(!prev || prev.id!==detail.researchId) return prev;
+        const local=Array.isArray(prev.competitors)?prev.competitors:[];
+        const localById=new Map(local.map(c=>[c.id,c]));
+        const merged=incomingCompetitors.map(incoming=>{
+          const existing=localById.get(incoming.id);
+          if(!existing) return incoming;
+          return {...existing,
+            name:incoming.name??existing.name,
+            metaUrl:incoming.metaUrl??existing.metaUrl,
+            salesUrl:incoming.salesUrl??existing.salesUrl,
+            adAgeDays:incoming.adAgeDays??existing.adAgeDays,
+            activeAdsCount:incoming.activeAdsCount,
+            activeAdsMeasurement:incoming.activeAdsMeasurement,
+            activeAdsLastReviewedAt:incoming.activeAdsLastReviewedAt||'',
+            activeAdsUrl:incoming.activeAdsUrl||incoming.metaUrl||existing.activeAdsUrl||'',
+            activeAdsNotes:incoming.activeAdsNotes||'',
+            activeAdsHistory:Array.isArray(incoming.activeAdsHistory)?incoming.activeAdsHistory:(existing.activeAdsHistory||[]),
+            activeAdsHasOver15:!!incoming.activeAdsHasOver15,
+            activeAdsOver15Count:incoming.activeAdsOver15Count??0,
+            activeAdsDatedCount:incoming.activeAdsDatedCount??0,
+            activeAdsUndatedCount:incoming.activeAdsUndatedCount??0,
+            activeAdsOldestStartedAt:incoming.activeAdsOldestStartedAt||'',
+            activeAdsOldestAgeDays:incoming.activeAdsOldestAgeDays??null,
+            updatedFromAutoScan:!!incoming.updatedFromAutoScan
+          };
+        });
+        return {...prev,meta:{...(prev.meta||{}),...detail.meta},competitors:merged};
+      });
+      setMessage(`Análisis Meta actualizado: ${Number(detail.meta.advertisers)||0} anunciantes · ${Number(detail.meta.sustained15d)||0} con >15 días.`);
+    };
     const handleOfferSync=(event)=>{
       const detail=event?.detail||{};
       if(!detail.researchId || !detail.competitor) return;
@@ -20570,8 +20674,21 @@ function Brief01Module() {
       });
       setMessage(`Oferta de ${incoming.name||'competidor'} sincronizada desde la extensión.`);
     };
+    const handleSupplierSync=(event)=>{
+      const detail=event?.detail||{};
+      if(!detail.researchId||!Array.isArray(detail.suppliers))return;
+      setCurrent(prev=>prev&&prev.id===detail.researchId?{...prev,suppliers:detail.suppliers,dropiSummary:detail.dropiSummary||prev.dropiSummary}:prev);
+      const detected=detail.dropiSummary?.supplierCount;
+      setMessage(`${detail.suppliers.length} proveedor(es) Dropi sincronizados${Number.isFinite(Number(detected))?` · ${Number(detected)} detectados en la búsqueda`:''}.`);
+    };
+    window.addEventListener('brief01-extension-meta-sync',handleMetaSync);
     window.addEventListener('brief01-extension-offer-sync',handleOfferSync);
-    return ()=>window.removeEventListener('brief01-extension-offer-sync',handleOfferSync);
+    window.addEventListener('brief01-extension-supplier-sync',handleSupplierSync);
+    return ()=>{
+      window.removeEventListener('brief01-extension-meta-sync',handleMetaSync);
+      window.removeEventListener('brief01-extension-offer-sync',handleOfferSync);
+      window.removeEventListener('brief01-extension-supplier-sync',handleSupplierSync);
+    };
   },[]);
 
   const filtered=useMemo(()=>records.filter(r=>{
@@ -20667,7 +20784,7 @@ function Brief01Module() {
   const addCombo=id=>setCurrent(c=>({...c,competitors:(c.competitors||[]).map(x=>x.id===id?{...x,combos:[...(x.combos||[]),{id:`combo_${Date.now()}`,name:'',quantity:'2',price:''}]}:x)}));
   const updateCombo=(cid,bid,field,value)=>setCurrent(c=>({...c,competitors:(c.competitors||[]).map(x=>x.id===cid?{...x,combos:(x.combos||[]).map(b=>b.id===bid?{...b,[field]:value}:b)}:x)}));
   const removeCombo=(cid,bid)=>setCurrent(c=>({...c,competitors:(c.competitors||[]).map(x=>x.id===cid?{...x,combos:(x.combos||[]).filter(b=>b.id!==bid)}:x)}));
-  const addSupplier=()=>setCurrent(c=>({...c,suppliers:[...(c.suppliers||[]),{id:`sup_${Date.now()}`,name:'',url:'',unitCost:'',inventory:'',variants:'',notes:''}]}));
+  const addSupplier=()=>setCurrent(c=>({...c,suppliers:[...(c.suppliers||[]),{id:`sup_${Date.now()}`,name:'',dropiId:'',url:'',unitCost:'',inventory:'',variants:'',notes:''}]}));
   const updateSupplier=(id,field,value)=>setCurrent(c=>({...c,suppliers:(c.suppliers||[]).map(x=>x.id===id?{...x,[field]:value}:x)}));
   const removeSupplier=id=>setCurrent(c=>({...c,suppliers:(c.suppliers||[]).filter(x=>x.id!==id),offer:{...c.offer,selectedSupplierId:c.offer?.selectedSupplierId===id?'':c.offer?.selectedSupplierId}}));
   const addAdditionalCost=()=>setCurrent(c=>({...c,costs:{...c.costs,additional:[...(c.costs?.additional||[]),{id:`cost_${Date.now()}`,name:'',amount:'',base:'per_delivered'}]}}));
@@ -20734,7 +20851,7 @@ function Brief01Module() {
 
       {step==='competitors'&&<div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">3. Competidores · máximo 5 prioritarios</p><p className="text-xs text-slate-500 mt-1">Compara únicamente presentaciones equivalentes.</p></div><button onClick={addCompetitor} disabled={(current.competitors||[]).length>=5} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase disabled:opacity-40"><Plus size={11} className="inline mr-1"/>Agregar</button></div><div className="space-y-3">{(current.competitors||[]).map((c,i)=><div key={c.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-3"><p className="text-[9px] font-black uppercase text-slate-500">Competidor {i+1}</p><button onClick={()=>removeCompetitor(c.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre / tienda</label><input value={c.name||''} onChange={e=>updateCompetitor(c.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Meta Ads Library</label><input value={c.metaUrl||''} onChange={e=>updateCompetitor(c.id,'metaUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace página de venta</label><input value={c.salesUrl||''} onChange={e=>updateCompetitor(c.id,'salesUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Antigüedad publicitaria · días</label><input type="number" min="0" value={c.adAgeDays||''} onChange={e=>updateCompetitor(c.id,'adAgeDays',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio 1 unidad</label><input type="number" min="0" value={c.singlePrice||''} onChange={e=>updateCompetitor(c.id,'singlePrice',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Condiciones de envío</label><input value={c.shipping||''} onChange={e=>updateCompetitor(c.id,'shipping',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Promociones</label><input value={c.promotions||''} onChange={e=>updateCompetitor(c.id,'promotions',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo principal</label><input value={c.primaryAngle||''} onChange={e=>updateCompetitor(c.id,'primaryAngle',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 1</label><input value={c.secondaryAngle1||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle1',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 2</label><input value={c.secondaryAngle2||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle2',e.target.value)} className={fieldClass}/></div><label className="flex items-center gap-2 text-[8px] font-black text-slate-600"><input type="checkbox" checked={!!c.cod} onChange={e=>updateCompetitor(c.id,'cod',e.target.checked)}/> Pago contraentrega</label><div className="lg:col-span-2"><label className={labelClass}>Observaciones</label><input value={c.notes||''} onChange={e=>updateCompetitor(c.id,'notes',e.target.value)} className={fieldClass}/></div></div><div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><p className="text-[8px] font-black uppercase text-[#12386B]">Actividad publicitaria observada</p><p className="text-[7px] text-slate-500 mt-0.5">Captura manual · también sincronizable desde la extensión Chrome.</p></div><span className="text-[7px] font-black uppercase text-slate-500">{(c.activeAdsHistory||[]).length} revisión(es)</span></div><div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3"><div><label className={labelClass}>Anuncios activos</label><input type="number" min="0" value={c.activeAdsCount??''} onChange={e=>updateCompetitor(c.id,'activeAdsCount',e.target.value===''?null:Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>Tipo de medición</label><select value={c.activeAdsMeasurement||'unknown'} onChange={e=>updateCompetitor(c.id,'activeAdsMeasurement',e.target.value)} className={fieldClass}><option value="exact">Exacta</option><option value="estimated">Aproximada</option><option value="unknown">No determinada</option></select></div><div><label className={labelClass}>Última revisión</label><input value={c.activeAdsLastReviewedAt||''} disabled className={`${fieldClass} bg-slate-50`}/></div></div></div><div className="mt-3"><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Combos</p><button onClick={()=>addCombo(c.id)} className="text-[8px] font-black text-[#12386B]">+ Agregar combo</button></div><div className="space-y-2 mt-2">{(c.combos||[]).map(b=><div key={b.id} className="grid grid-cols-[1fr_90px_1fr_32px] gap-2"><input placeholder="Nombre" value={b.name||''} onChange={e=>updateCombo(c.id,b.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="1" placeholder="Cant." value={b.quantity||''} onChange={e=>updateCombo(c.id,b.id,'quantity',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Precio" value={b.price||''} onChange={e=>updateCombo(c.id,b.id,'price',e.target.value)} className={fieldClass}/><button onClick={()=>removeCombo(c.id,b.id)} className="text-rose-500"><X size={13}/></button></div>)}</div></div></div>)}</div></div>}
 
-      {step==='suppliers'&&<div className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">4. Proveedores Dropi</p><p className="text-xs text-slate-500 mt-1">Registra todos los proveedores del producto exacto. Sin límite.</p></div><button onClick={addSupplier} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Plus size={11} className="inline mr-1"/>Proveedor</button></div>{(current.suppliers||[]).length>5&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Alerta de posible saturación: hay más de 5 proveedores independientes. No implica descarte automático.</div>}<div className="space-y-3">{(current.suppliers||[]).map((s,i)=><div key={s.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><p className="text-[9px] font-black uppercase text-slate-500">Proveedor {i+1}</p><button onClick={()=>removeSupplier(s.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre</label><input value={s.name||''} onChange={e=>updateSupplier(s.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Dropi</label><input value={s.url||''} onChange={e=>updateSupplier(s.id,'url',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Costo unitario</label><input type="number" min="0" value={s.unitCost||''} onChange={e=>updateSupplier(s.id,'unitCost',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Inventario disponible</label><input type="number" min="0" value={s.inventory||''} onChange={e=>updateSupplier(s.id,'inventory',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Variantes</label><input value={s.variants||''} onChange={e=>updateSupplier(s.id,'variants',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Observaciones</label><input value={s.notes||''} onChange={e=>updateSupplier(s.id,'notes',e.target.value)} className={fieldClass}/></div></div></div>)}</div></div>}
+      {step==='suppliers'&&<div className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">4. Proveedores Dropi</p><p className="text-xs text-slate-500 mt-1">Registra todos los proveedores del producto exacto. Sin límite.</p></div><button onClick={addSupplier} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Plus size={11} className="inline mr-1"/>Proveedor</button></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4"><p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Proveedores Dropi detectados</p><p className="text-2xl font-black text-[#12386B] mt-1">{brief01DropiSupplierCount(current)}</p><p className="text-[8px] text-slate-500 mt-1">Total único observado en la última búsqueda Dropi.</p></div><div className={`rounded-2xl border p-4 ${brief01DropiSupplierCount(current)>5?'border-amber-200 bg-amber-50':'border-emerald-200 bg-emerald-50'}`}><p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Lectura de saturación</p><p className={`text-sm font-black mt-1 ${brief01DropiSupplierCount(current)>5?'text-amber-800':'text-emerald-700'}`}>{brief01DropiSupplierCount(current)>5?'Posible saturación':'Sin alerta por cantidad'}</p><p className="text-[8px] text-slate-500 mt-1">La alerta se activa únicamente cuando hay más de 5 proveedores.</p></div></div>{brief01DropiSupplierCount(current)>5&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Alerta de posible saturación: se detectaron {brief01DropiSupplierCount(current)} proveedores independientes en Dropi. No implica descarte automático.</div>}<div className="space-y-3">{(current.suppliers||[]).map((s,i)=><div key={s.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><p className="text-[9px] font-black uppercase text-slate-500">Proveedor {i+1}</p><button onClick={()=>removeSupplier(s.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre</label><input value={s.name||''} onChange={e=>updateSupplier(s.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>ID Dropi</label><input inputMode="numeric" value={s.dropiId||''} onChange={e=>updateSupplier(s.id,'dropiId',e.target.value.replace(/\D/g,''))} placeholder="Ej: 1986284" className={fieldClass}/></div><div><label className={labelClass}>Costo unitario</label><input type="number" min="0" value={s.unitCost||''} onChange={e=>updateSupplier(s.id,'unitCost',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Inventario disponible</label><input type="number" min="0" value={s.inventory||''} onChange={e=>updateSupplier(s.id,'inventory',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Variantes</label><input value={s.variants||''} onChange={e=>updateSupplier(s.id,'variants',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Observaciones</label><input value={s.notes||''} onChange={e=>updateSupplier(s.id,'notes',e.target.value)} className={fieldClass}/></div></div></div>)}</div></div>}
 
       {step==='offer'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">5. Oferta comercial</p><p className="text-xs text-slate-500 mt-1">La selección del proveedor es manual. Winner no elige automáticamente el más barato.</p></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Presentación elegida</label><input value={current.offer?.presentation||''} onChange={e=>updateCurrent('offer.presentation',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Cantidad de unidades</label><input type="number" min="1" value={current.offer?.quantity||''} onChange={e=>updateCurrent('offer.quantity',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio de venta total</label><input type="number" min="0" value={current.offer?.price||''} onChange={e=>updateCurrent('offer.price',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Proveedor seleccionado</label><select value={current.offer?.selectedSupplierId||''} onChange={e=>updateCurrent('offer.selectedSupplierId',e.target.value)} className={fieldClass}><option value="">Seleccionar proveedor...</option>{(current.suppliers||[]).map(s=><option key={s.id} value={s.id}>{s.name||'Proveedor'} · {fmt(Number(s.unitCost)||0)} · stock {s.inventory||0}</option>)}</select></div><div className="md:col-span-2"><label className={labelClass}>Observaciones comerciales</label><textarea rows={3} value={current.offer?.notes||''} onChange={e=>updateCurrent('offer.notes',e.target.value)} className={fieldClass}/></div></div><div className={`rounded-2xl border p-4 ${currentFinancial.freightLookup.status==='ok'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><p className="text-[8px] font-black uppercase">Flete ponderado integrado</p>{currentFinancial.freightLookup.status==='ok'?<p className="text-lg font-black mt-1">{fmt(currentFinancial.freightPerShipment)} <span className="text-[8px] font-bold text-slate-500">· tramo hasta {fmt(currentFinancial.freightLookup.rate.ticketMax)}</span></p>:<p className="text-[9px] font-bold text-amber-800 mt-1">Validar costo de flete y adicionar dato a la Tabla de Fletes.</p>}</div></div>}
 
