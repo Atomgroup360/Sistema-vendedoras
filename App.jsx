@@ -20211,7 +20211,11 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(`Anunciantes independientes: ${research?.meta?.advertisers||0} | >15 dias: ${research?.meta?.sustained15d||0} | Saturacion: ${diagnosis?.saturation?.label||'-'}`);
   add(`Observaciones: ${research?.meta?.notes||'Sin observaciones.'}`, {gap:8});
   add('3. COMPETENCIA',{bold:true,size:12,gap:6});
-  (research?.competitors||[]).slice(0,5).forEach((c,i)=> add(`${i+1}. ${c.name||'Competidor'} | 1 und: ${fmt(Number(c.singlePrice)||0)} | Ads: ${c.adAgeDays||'-'} dias | Angulo: ${c.primaryAngle||'-'} | ${c.salesUrl||c.metaUrl||''}`));
+  (research?.competitors||[]).slice(0,5).forEach((c,i)=> {
+    add(`${i+1}. ${c.name||'Competidor'} | 1 und: ${fmt(Number(c.singlePrice)||0)} | Ads: ${c.adAgeDays||'-'} dias | Angulo: ${c.primaryAngle||'-'}`, {bold:true});
+    add(`Tienda / Landing: ${String(c.salesUrl||'').trim() || 'No registrado'}`);
+    add(`Meta Ads Library: ${String(c.metaUrl||'').trim() || 'No registrado'}`, {gap:4});
+  });
   if (!(research?.competitors||[]).length) add('Sin competidores registrados.');
   add('',{gap:5});
   add('4. ACTIVIDAD PUBLICITARIA DE COMPETIDORES',{bold:true,size:12,gap:6});
