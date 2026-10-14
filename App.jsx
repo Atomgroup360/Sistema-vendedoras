@@ -19930,6 +19930,9 @@ function calculateBrief01Financial(research, freightRates, override = {}) {
 }
 
 function calculateBrief01MonthlyProjection(research, financial) {
+  // V32: escenario de planificación comercial solicitado: margen de diagnóstico - CPA
+  // tratado como utilidad por entrega para dimensionar entregas y pedidos registrados.
+  // No modifica calculateBrief01Financial ni la clasificación de viabilidad.
   const planning = research?.planning || {};
   const targetRaw = planning.monthlyProfitTarget;
   const cpaRaw = planning.planningCPA;
@@ -19942,26 +19945,16 @@ function calculateBrief01MonthlyProjection(research, financial) {
   const sellingDays = hasDays ? Number(daysRaw) : null;
   const marginBeforeAds = Number(financial?.marginPerGenerated) || 0;
   const result = {
-    status: 'pending',
-    monthlyProfitTarget,
-    planningCPA,
-    sellingDays,
-    marginBeforeAds,
-    operatingProfitPerGenerated: null,
-    minimumMonthlyOrders: null,
-    requiredDailyOrders: null,
-    monthlyOrdersAtDailyPace: null,
-    expectedShipped: null,
-    expectedDelivered: null,
-    expectedReturned: null,
-    expectedCancelled: null,
-    projectedGrossRevenue: null,
-    projectedMonthlyOperatingProfit: null,
-    message: ''
+    status: 'pending', monthlyProfitTarget, planningCPA, sellingDays, marginBeforeAds,
+    operatingProfitPerDelivered: null, requiredDeliveredOrders: null,
+    minimumMonthlyOrders: null, requiredDailyOrders: null, monthlyOrdersAtDailyPace: null,
+    effectiveRate: BRIEF01_EFFECTIVE_RATE, expectedShipped: null,
+    expectedDelivered: null, expectedReturned: null, expectedCancelled: null,
+    projectedGrossRevenue: null, projectedMonthlyOperatingProfit: null, message: ''
   };
   if (!hasTarget || !Number.isFinite(monthlyProfitTarget) || monthlyProfitTarget < 0) {
     result.status = 'target_missing';
-    result.message = 'Configura una meta de ganancia mensual para calcular las órdenes necesarias.';
+    result.message = 'Configura una meta de ganancia mensual para calcular las entregas necesarias.';
     return result;
   }
   if (!hasCPA || !Number.isFinite(planningCPA) || planningCPA < 0) {
@@ -19969,29 +19962,27 @@ function calculateBrief01MonthlyProjection(research, financial) {
     result.message = 'Configura un CPA de planificación para calcular tu meta mensual.';
     return result;
   }
-  if (!hasDays || !Number.isFinite(sellingDays) || sellingDays < 1 || sellingDays > 31) {
+  if (!hasDays || !Number.isInteger(sellingDays) || sellingDays < 1 || sellingDays > 31) {
     result.status = 'days_invalid';
-    result.message = 'Configura entre 1 y 31 días de venta al mes.';
+    result.message = 'Configura entre 1 y 31 días enteros de venta al mes.';
     return result;
   }
-  const operatingProfitPerGenerated = marginBeforeAds - planningCPA;
-  result.operatingProfitPerGenerated = operatingProfitPerGenerated;
+  const operatingProfitPerDelivered = marginBeforeAds - planningCPA;
+  result.operatingProfitPerDelivered = operatingProfitPerDelivered;
   if (marginBeforeAds < 0) {
     result.status = 'margin_negative';
     result.message = 'La proyección mensual no es viable porque el margen antes de Ads es negativo.';
     return result;
   }
-  if (operatingProfitPerGenerated === 0) {
-    result.status = 'break_even';
-    result.message = 'Con estas condiciones, cada orden no aporta ganancia operativa después de publicidad.';
+  if (operatingProfitPerDelivered <= 0) {
+    result.status = operatingProfitPerDelivered === 0 ? 'break_even' : 'unreachable';
+    result.message = operatingProfitPerDelivered === 0
+      ? 'Con este CPA, la ganancia por entrega sería cero: no se puede alcanzar una meta positiva.'
+      : 'El CPA supera el margen disponible: no se puede alcanzar una meta positiva.';
     return result;
   }
-  if (operatingProfitPerGenerated < 0) {
-    result.status = 'unreachable';
-    result.message = 'La meta mensual no es alcanzable bajo las condiciones configuradas.';
-    return result;
-  }
-  const minimumMonthlyOrders = Math.ceil(monthlyProfitTarget / operatingProfitPerGenerated);
+  const requiredDeliveredOrders = Math.ceil(monthlyProfitTarget / operatingProfitPerDelivered);
+  const minimumMonthlyOrders = Math.ceil(requiredDeliveredOrders / BRIEF01_EFFECTIVE_RATE);
   const requiredDailyOrders = Math.ceil(minimumMonthlyOrders / sellingDays);
   const monthlyOrdersAtDailyPace = requiredDailyOrders * sellingDays;
   const expectedShipped = monthlyOrdersAtDailyPace * BRIEF01_DISPATCH_RATE;
@@ -19999,19 +19990,13 @@ function calculateBrief01MonthlyProjection(research, financial) {
   const expectedReturned = expectedShipped * BRIEF01_RETURN_RATE;
   const expectedDelivered = expectedShipped - expectedReturned;
   const projectedGrossRevenue = expectedDelivered * (Number(financial?.price) || 0);
-  const projectedMonthlyOperatingProfit = monthlyOrdersAtDailyPace * operatingProfitPerGenerated;
+  const projectedMonthlyOperatingProfit = expectedDelivered * operatingProfitPerDelivered;
   Object.assign(result, {
-    status: 'ok',
-    minimumMonthlyOrders,
-    requiredDailyOrders,
-    monthlyOrdersAtDailyPace,
-    expectedShipped,
-    expectedDelivered,
-    expectedReturned,
-    expectedCancelled,
-    projectedGrossRevenue,
+    status: 'ok', requiredDeliveredOrders, minimumMonthlyOrders,
+    requiredDailyOrders, monthlyOrdersAtDailyPace, expectedShipped, expectedDelivered,
+    expectedReturned, expectedCancelled, projectedGrossRevenue,
     projectedMonthlyOperatingProfit,
-    message: 'Proyección calculada con la oferta actual, el margen antes de Ads y el CPA de planificación.'
+    message: 'Escenario comercial: entregas requeridas, ampliadas por IER para obtener pedidos registrados.'
   });
   return result;
 }
@@ -20345,14 +20330,18 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add('',{gap:5});
   add('8. PROYECCION DE OBJETIVO ECONOMICO MENSUAL',{bold:true,size:12,gap:6});
   const mp=diagnosis?.monthlyProjection || calculateBrief01MonthlyProjection(research,f);
-  add(`Oferta vigente: ${research?.offer?.presentation||'-'} | Precio: ${fmt(f.price||0)} | Margen antes de Ads: ${fmt(f.marginPerGenerated||0)}`);
+  add(`Oferta vigente: ${research?.offer?.presentation||'-'} | Precio: ${fmt(f.price||0)} | Margen del diagnostico: ${fmt(f.marginPerGenerated||0)}`);
   add(`Meta mensual: ${mp.monthlyProfitTarget===null?'No configurada':fmt(mp.monthlyProfitTarget)} | CPA de planificacion: ${mp.planningCPA===null?'No configurado':fmt(mp.planningCPA)} | Dias de venta: ${mp.sellingDays??'No configurados'}`);
   if (mp.status==='ok') {
-    add(`Ganancia operativa proyectada por orden generada = ${fmt(mp.marginBeforeAds)} - ${fmt(mp.planningCPA)} = ${fmt(mp.operatingProfitPerGenerated)}`);
-    add(`Ordenes minimas mensuales: ${mp.minimumMonthlyOrders} | Ordenes necesarias por dia: ${mp.requiredDailyOrders}`,{bold:true});
-    add(`Ordenes mensuales al ritmo diario: ${mp.monthlyOrdersAtDailyPace} | Despachadas esperadas: ${fmtDec(mp.expectedShipped,0)} | Entregadas/recaudadas: ${fmtDec(mp.expectedDelivered,0)} | Devueltas: ${fmtDec(mp.expectedReturned,0)} | Canceladas: ${fmtDec(mp.expectedCancelled,0)}`);
-    add(`Recaudo bruto mensual proyectado: ${fmt(mp.projectedGrossRevenue)} | Ganancia operativa mensual proyectada: ${fmt(mp.projectedMonthlyOperatingProfit)}`);
-    add('El CPA es un valor de planificacion y esta proyeccion depende de los supuestos configurados. No modifica el margen antes de Ads ni la clasificacion original.');
+    add(`PASO 1 - GANANCIA POR ENTREGA (criterio comercial): $${fmtDec(mp.operatingProfitPerDelivered,2)} = margen diagnostico $${fmtDec(mp.marginBeforeAds,2)} - CPA ${fmt(mp.planningCPA)}.`);
+    add(`PASO 2 - ENTREGAS PARA LA META: ${mp.requiredDeliveredOrders} = redondear arriba (${fmt(mp.monthlyProfitTarget)} / $${fmtDec(mp.operatingProfitPerDelivered,2)}).`);
+    add(`PASO 3 - PEDIDOS REGISTRADOS ANTES DE IER: ${mp.minimumMonthlyOrders} = redondear arriba (${mp.requiredDeliveredOrders} / ${fmtDec(mp.effectiveRate*100,2)}%).`);
+    add(`PASO 4 - META DIARIA: ${mp.requiredDailyOrders} pedidos registrados/dia = redondear arriba (${mp.minimumMonthlyOrders} / ${mp.sellingDays} dias).`);
+    add(`PLAN AL RITMO DIARIO: ${mp.requiredDailyOrders} x ${mp.sellingDays} = ${mp.monthlyOrdersAtDailyPace} pedidos registrados. Entregas estimadas: ${fmtDec(mp.expectedDelivered,2)}.`);
+    add(`Embudo estimado: despachados ${fmtDec(mp.expectedShipped,2)} | entregados ${fmtDec(mp.expectedDelivered,2)} | devueltos ${fmtDec(mp.expectedReturned,2)} | cancelados ${fmtDec(mp.expectedCancelled,2)}.`);
+    add(`Recaudo bruto estimado: ${fmtDec(mp.expectedDelivered,2)} entregas x ${fmt(f.price||0)} = ${fmt(mp.projectedGrossRevenue)}.`);
+    add(`GANANCIA MENSUAL DEL ESCENARIO: ${fmtDec(mp.expectedDelivered,2)} entregas x $${fmtDec(mp.operatingProfitPerDelivered,2)} = ${fmt(mp.projectedMonthlyOperatingProfit)}.`,{bold:true});
+    add('ADVERTENCIA DE INTERPRETACION: el margen del diagnostico original ya incorpora IER por pedido generado. Esta proyeccion usa ese margen como base de ganancia por entrega por indicacion comercial; podria incorporar IER dos veces y no reemplaza la contabilidad real. El CPA de planificacion no modifica viabilidad, IER, fletes ni clasificacion original.');
   } else add(`Estado de la proyeccion: ${mp.message}`);
   add('',{gap:5});
   add('9. DIAGNOSTICO ESTRATEGICO',{bold:true,size:12,gap:6});
@@ -21043,8 +21032,37 @@ function Brief01Module() {
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4"><div><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Diagnóstico BRIEF 01</p><h3 className="text-2xl font-black mt-1 text-slate-900">{diag.classification||'PENDIENTE DE INFORMACIÓN'}</h3><p className="text-sm text-slate-600 mt-2 max-w-3xl">{diag.classificationReason}</p></div><div className="flex gap-2 flex-wrap"><button onClick={()=>{setScreen('edit');setStep('product');}} className="rounded-xl bg-slate-100 text-slate-700 px-3 py-2 text-[8px] font-black uppercase"><Pencil size={11} className="inline mr-1"/>Editar investigación</button><button onClick={downloadPdf} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Download size={11} className="inline mr-1"/>Descargar PDF</button></div></div>
       {diag.missing.length>0&&<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-[9px] font-black uppercase text-amber-800">Información indispensable pendiente</p><div className="mt-2 flex flex-wrap gap-2">{diag.missing.map(x=><span key={x} className="rounded-full bg-white border border-amber-200 px-2.5 py-1 text-[8px] font-bold text-amber-800">{x}</span>)}</div></div>}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5"><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-lg font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Flete ponderado</p><p className="text-lg font-black mt-1">{diag.financial.freightLookup.status==='ok'?fmt(diag.financial.freightPerShipment):'—'}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen / pedido</p><p className={`text-lg font-black mt-1 ${diag.financial.marginPerGenerated>=25000?'text-emerald-700':diag.financial.marginPerGenerated<0?'text-rose-700':'text-amber-700'}`}>{fmt(diag.financial.marginPerGenerated)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen %</p><p className="text-lg font-black mt-1">{fmtDec(diag.financial.marginPct,1)}%</p></div><div className="rounded-2xl bg-slate-50 p-3 col-span-2 lg:col-span-1"><p className="text-[7px] uppercase font-black text-slate-400">Objetivo</p><p className="text-lg font-black mt-1">{fmt(BRIEF01_TARGET_MARGIN)}</p></div></div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5"><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Embudo normalizado · 100 pedidos</p><div className="grid grid-cols-4 gap-2 mt-3">{[['Cancelados',diag.financial.cancelled],['Despachados',diag.financial.shipped],['Devueltos',diag.financial.returned],['Efectivos',diag.financial.delivered]].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 p-2 text-center"><p className="text-[7px] uppercase font-black text-slate-400">{l}</p><p className="text-base font-black mt-1">{fmtDec(v,0)}</p></div>)}</div><div className="mt-3 text-[9px] text-slate-600 space-y-1"><p>Ingresos cobrados: <b>{fmt(diag.financial.revenueCollected)}</b></p><p>Costo producto: <b>{fmt(diag.financial.productCostTotal)}</b></p><p>Fletes: <b>{fmt(diag.financial.freightTotal)}</b></p><p>Comisiones + fijos + otros: <b>{fmt(diag.financial.commissionTotal+diag.financial.fixedTotal+diag.financial.additionalTotal)}</b></p><p className="pt-1 border-t">Margen disponible total: <b>{fmt(diag.financial.marginTotal)}</b></p></div></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Escenarios</p><div className="space-y-2 mt-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Situación actual</p><p className="text-xs font-black mt-1">{fmt(diag.financial.price)} · margen {fmt(diag.financial.marginPerGenerated)}</p></div>{diag.targetPrice?.status==='ok'&&<div className="rounded-xl bg-blue-50 p-3"><p className="text-[7px] uppercase font-black text-blue-500">Precio ajustado</p><p className="text-xs font-black text-blue-800 mt-1">{fmt(diag.targetPrice.price)} · margen {fmt(diag.targetPrice.calc.marginPerGenerated)}</p></div>}{diag.targetPrice?.status==='freight_out_of_range'&&<div className="rounded-xl bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Validar costo de flete y adicionar dato a la Tabla de Fletes para calcular el precio objetivo.</div>}{diag.targetCost&&<div className="rounded-xl bg-purple-50 p-3"><p className="text-[7px] uppercase font-black text-purple-500">Costo negociado objetivo</p><p className="text-xs font-black text-purple-800 mt-1">Máximo {fmt(Math.max(0,diag.targetCost.maxUnitCost))} / unidad</p><p className="text-[8px] text-purple-700 mt-1">Reducción requerida: {fmt(Math.max(0,diag.targetCost.reduction))}{diag.targetCost.reductionPct!==null?` · ${fmtDec(Math.max(0,diag.targetCost.reductionPct),1)}%`:''}</p></div>}<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[7px] uppercase font-black text-emerald-600">Proyección mensual · escenario actual</p>{diagMonthlyProjection?.status==='ok'?<><p className="text-2xl font-black text-emerald-800 mt-1">{diagMonthlyProjection.requiredDailyOrders} <span className="text-[9px] font-black uppercase">órdenes/día</span></p><p className="text-[8px] text-emerald-800 mt-1">Meta {fmt(diagMonthlyProjection.monthlyProfitTarget)} · CPA {fmt(diagMonthlyProjection.planningCPA)} · {diagMonthlyProjection.sellingDays} días</p><p className="text-[8px] text-slate-600 mt-1">{diagMonthlyProjection.minimumMonthlyOrders} mínimas/mes · {diagMonthlyProjection.monthlyOrdersAtDailyPace} al ritmo diario · ganancia proyectada {fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p></>:<p className="text-[8px] font-bold text-amber-800 mt-1">{diagMonthlyProjection?.message}</p>}</div></div></div></div>
-      <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-emerald-800">Objetivo económico y proyección mensual</p><p className="text-[8px] text-slate-600 mt-1">Planificación comercial del escenario actual. No modifica la viabilidad ni el margen antes de Ads.</p></div>{diagMonthlyProjection.status==='ok'&&<div className="rounded-2xl bg-emerald-600 text-white px-4 py-3 text-center"><p className="text-[7px] font-black uppercase">Órdenes necesarias por día</p><p className="text-3xl font-black mt-1">{diagMonthlyProjection.requiredDailyOrders}</p></div>}</div>{diagMonthlyProjection.status==='ok'?<div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mt-4"><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Precio oferta actual</p><p className="text-sm font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen antes de Ads</p><p className="text-sm font-black mt-1">{fmt(diagMonthlyProjection.marginBeforeAds)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">CPA planificación</p><p className="text-sm font-black mt-1">{fmt(diagMonthlyProjection.planningCPA)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ganancia / orden</p><p className="text-sm font-black mt-1">{fmt(diagMonthlyProjection.operatingProfitPerGenerated)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Meta mensual</p><p className="text-sm font-black mt-1">{fmt(diagMonthlyProjection.monthlyProfitTarget)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Órdenes mínimas / mes</p><p className="text-sm font-black mt-1">{diagMonthlyProjection.minimumMonthlyOrders}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Órdenes ritmo diario</p><p className="text-sm font-black mt-1">{diagMonthlyProjection.monthlyOrdersAtDailyPace}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Entregas esperadas</p><p className="text-sm font-black mt-1">{fmtDec(diagMonthlyProjection.expectedDelivered,0)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Recaudo bruto proyectado</p><p className="text-sm font-black mt-1">{fmt(diagMonthlyProjection.projectedGrossRevenue)}</p></div><div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ganancia mensual proyectada</p><p className="text-sm font-black mt-1">{fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p></div></div>:<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">{diagMonthlyProjection.message}</div>}{diagMonthlyProjection.status==='ok'&&<div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-[8px] text-slate-600"><p>Despachadas: <b>{fmtDec(diagMonthlyProjection.expectedShipped,0)}</b></p><p>Entregadas: <b>{fmtDec(diagMonthlyProjection.expectedDelivered,0)}</b></p><p>Devueltas: <b>{fmtDec(diagMonthlyProjection.expectedReturned,0)}</b></p><p>Canceladas: <b>{fmtDec(diagMonthlyProjection.expectedCancelled,0)}</b></p></div>}</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5"><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Embudo normalizado · 100 pedidos</p><div className="grid grid-cols-4 gap-2 mt-3">{[['Cancelados',diag.financial.cancelled],['Despachados',diag.financial.shipped],['Devueltos',diag.financial.returned],['Efectivos',diag.financial.delivered]].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 p-2 text-center"><p className="text-[7px] uppercase font-black text-slate-400">{l}</p><p className="text-base font-black mt-1">{fmtDec(v,0)}</p></div>)}</div><div className="mt-3 text-[9px] text-slate-600 space-y-1"><p>Ingresos cobrados: <b>{fmt(diag.financial.revenueCollected)}</b></p><p>Costo producto: <b>{fmt(diag.financial.productCostTotal)}</b></p><p>Fletes: <b>{fmt(diag.financial.freightTotal)}</b></p><p>Comisiones + fijos + otros: <b>{fmt(diag.financial.commissionTotal+diag.financial.fixedTotal+diag.financial.additionalTotal)}</b></p><p className="pt-1 border-t">Margen disponible total: <b>{fmt(diag.financial.marginTotal)}</b></p></div></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Escenarios</p><div className="space-y-2 mt-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Situación actual</p><p className="text-xs font-black mt-1">{fmt(diag.financial.price)} · margen {fmt(diag.financial.marginPerGenerated)}</p></div>{diag.targetPrice?.status==='ok'&&<div className="rounded-xl bg-blue-50 p-3"><p className="text-[7px] uppercase font-black text-blue-500">Precio ajustado</p><p className="text-xs font-black text-blue-800 mt-1">{fmt(diag.targetPrice.price)} · margen {fmt(diag.targetPrice.calc.marginPerGenerated)}</p></div>}{diag.targetPrice?.status==='freight_out_of_range'&&<div className="rounded-xl bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Validar costo de flete y adicionar dato a la Tabla de Fletes para calcular el precio objetivo.</div>}{diag.targetCost&&<div className="rounded-xl bg-purple-50 p-3"><p className="text-[7px] uppercase font-black text-purple-500">Costo negociado objetivo</p><p className="text-xs font-black text-purple-800 mt-1">Máximo {fmt(Math.max(0,diag.targetCost.maxUnitCost))} / unidad</p><p className="text-[8px] text-purple-700 mt-1">Reducción requerida: {fmt(Math.max(0,diag.targetCost.reduction))}{diag.targetCost.reductionPct!==null?` · ${fmtDec(Math.max(0,diag.targetCost.reductionPct),1)}%`:''}</p></div>}<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[7px] uppercase font-black text-emerald-600">Proyección mensual · escenario actual</p>{diagMonthlyProjection?.status==='ok'?<><p className="text-2xl font-black text-emerald-800 mt-1">{diagMonthlyProjection.requiredDailyOrders} <span className="text-[9px] font-black uppercase">órdenes/día</span></p><p className="text-[8px] text-emerald-800 mt-1">Meta {fmt(diagMonthlyProjection.monthlyProfitTarget)} · CPA {fmt(diagMonthlyProjection.planningCPA)} · {diagMonthlyProjection.sellingDays} días</p><p className="text-[8px] text-slate-600 mt-1">{diagMonthlyProjection.minimumMonthlyOrders} mínimas generadas/mes → {diagMonthlyProjection.monthlyOrdersAtDailyPace} generadas al ritmo diario (redondeo) · ganancia proyectada {fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p></>:<p className="text-[8px] font-bold text-amber-800 mt-1">{diagMonthlyProjection?.message}</p>}</div></div></div></div>
+      <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
+        <div className="flex flex-col lg:flex-row justify-between gap-3">
+          <div><p className="text-[10px] font-black uppercase text-emerald-800">Objetivo económico y proyección mensual</p><p className="text-[10px] text-slate-600 mt-1">Meta calculada primero en entregas reales, luego ampliada por IER para hallar pedidos a registrar.</p></div>
+          {diagMonthlyProjection.status==='ok'&&<div className="rounded-2xl bg-emerald-600 text-white px-5 py-3 text-center"><p className="text-[9px] font-black uppercase">Pedidos a registrar cada día</p><p className="text-3xl font-black mt-1">{diagMonthlyProjection.requiredDailyOrders}</p><p className="text-[9px]">durante {diagMonthlyProjection.sellingDays} días</p></div>}
+        </div>
+        {diagMonthlyProjection.status==='ok'?<>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
+            <div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Meta mensual</p><p className="text-lg font-black mt-1">{fmt(diagMonthlyProjection.monthlyProfitTarget)}</p></div>
+            <div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Margen del diagnóstico</p><p className="text-lg font-black mt-1">{fmt(diagMonthlyProjection.marginBeforeAds)}</p></div>
+            <div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[9px] uppercase font-black text-slate-500">CPA configurable</p><p className="text-lg font-black mt-1">{fmt(diagMonthlyProjection.planningCPA)}</p></div>
+            <div className="rounded-xl bg-white border border-emerald-100 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Ganancia por entrega · escenario</p><p className="text-lg font-black mt-1">${fmtDec(diagMonthlyProjection.operatingProfitPerDelivered,2)}</p><p className="text-[9px] text-slate-500">Margen − CPA</p></div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-600">1 · Entregas necesarias para la meta</p><p className="text-2xl font-black mt-2">{diagMonthlyProjection.requiredDeliveredOrders}</p><p className="text-[9px] text-slate-500 mt-1">Meta ÷ ganancia por entrega, redondeado hacia arriba.</p></div>
+            <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-600">2 · Pedidos a registrar (IER {fmtDec(diagMonthlyProjection.effectiveRate*100,0)}%)</p><p className="text-2xl font-black mt-2">{diagMonthlyProjection.minimumMonthlyOrders}</p><p className="text-[9px] text-slate-500 mt-1">Entregas necesarias ÷ efectividad, redondeado hacia arriba.</p></div>
+            <div className="rounded-xl bg-white border border-emerald-200 p-4"><p className="text-[9px] font-black uppercase text-emerald-800">3 · Pedidos diarios a registrar</p><p className="text-2xl font-black text-emerald-800 mt-2">{diagMonthlyProjection.requiredDailyOrders}</p><p className="text-[9px] text-slate-500 mt-1">Pedidos mensuales ÷ {diagMonthlyProjection.sellingDays} días, redondeado hacia arriba.</p></div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Registrados al ritmo diario</p><p className="text-lg font-black">{diagMonthlyProjection.monthlyOrdersAtDailyPace}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Despachados estimados</p><p className="text-lg font-black">{fmtDec(diagMonthlyProjection.expectedShipped,1)}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Entregados estimados</p><p className="text-lg font-black">{fmtDec(diagMonthlyProjection.expectedDelivered,1)}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[9px] uppercase font-black text-slate-500">Devueltos / cancelados</p><p className="text-lg font-black">{fmtDec(diagMonthlyProjection.expectedReturned,1)} / {fmtDec(diagMonthlyProjection.expectedCancelled,1)}</p></div>
+          </div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] uppercase font-black text-slate-500">Recaudo bruto estimado</p><p className="text-xl font-black mt-1">{fmt(diagMonthlyProjection.projectedGrossRevenue)}</p><p className="text-[9px] text-slate-600 mt-1">Entregas estimadas × precio de oferta.</p></div>
+            <div className="rounded-xl bg-white border border-emerald-200 p-4"><p className="text-[9px] uppercase font-black text-emerald-800">Ganancia mensual proyectada · escenario</p><p className="text-xl font-black text-emerald-800 mt-1">{fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p><p className="text-[9px] text-slate-600 mt-1">{fmtDec(diagMonthlyProjection.expectedDelivered,2)} entregas estimadas × ${fmtDec(diagMonthlyProjection.operatingProfitPerDelivered,2)}.</p></div>
+          </div>
+          <p className="mt-3 text-[9px] text-amber-800">Advertencia contable: el margen original del diagnóstico ya incorpora el IER por pedido generado. Usarlo como ganancia por entrega y luego dividir entre 76% puede contar la inefectividad dos veces. Esta es una proyección comercial solicitada, no una modificación del diagnóstico financiero ni una garantía de ganancia.</p>
+        </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
+      </div>
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-[#12386B]">Actividad publicitaria y posibles señales de escalamiento</p><p className="text-[9px] text-slate-600 mt-1">{diag.adActivity?.interpretation}</p></div><span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${diag.adActivity?.trendTone==='attention'?'bg-amber-100 text-amber-800':diag.adActivity?.trendTone==='good'?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{diag.adActivity?.trendLabel}</span></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Competidores</p><p className="text-lg font-black mt-1">{diag.adActivity?.competitorCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Anuncios registrados</p><p className="text-lg font-black mt-1">{diag.adActivity?.totalAds||0}{diag.adActivity?.totalIsPartial?<span className="text-[7px] text-amber-600 ml-1">PARCIAL</span>:null}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Sin medición</p><p className="text-lg font-black mt-1">{diag.adActivity?.unknownCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Fecha de corte</p><p className="text-xs font-black mt-2">{diag.adActivity?.cutoff||'—'}</p></div></div><div className="overflow-x-auto mt-3"><table className="min-w-[760px] w-full text-left"><thead className="text-[7px] uppercase text-slate-400"><tr><th className="p-2">Tienda</th><th className="p-2">Actual</th><th className="p-2">Tipo</th><th className="p-2">Anterior</th><th className="p-2">Cambio</th><th className="p-2">Última revisión</th></tr></thead><tbody>{(diag.adActivity?.rows||[]).map(r=><tr key={r.id} className="border-t border-blue-100 text-[8px]"><td className="p-2 font-black">{r.name}</td><td className="p-2">{r.currentCount===null?'—':r.currentCount}</td><td className="p-2">{r.measurementType==='exact'?'Exacta':r.measurementType==='estimated'?'Aprox.':'No determinada'}</td><td className="p-2">{r.previousCount===null?'—':r.previousCount}</td><td className="p-2 font-black">{r.delta===null?'—':`${r.delta>=0?'+':''}${r.delta}${r.deltaPct!==null?` · ${r.deltaPct>=0?'+':''}${fmtDec(r.deltaPct,1)}%`:''}`}</td><td className="p-2">{r.lastReviewedAt||'—'}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1">{(diag.adActivity?.limitations||[]).map((x,i)=><p key={i} className="text-[8px] text-slate-500">• {x}</p>)}</div></div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">{[['Alertas',diag.alerts,'rose'],['Fortalezas',diag.strengths,'emerald'],['Acciones recomendadas',diag.actions,'blue']].map(([title,arr,tone])=><div key={title} className={`rounded-2xl border p-4 ${tone==='rose'?'border-rose-200 bg-rose-50/50':tone==='emerald'?'border-emerald-200 bg-emerald-50/50':'border-blue-200 bg-blue-50/50'}`}><p className="text-[9px] font-black uppercase">{title}</p><div className="mt-2 space-y-2">{arr.length?arr.map((x,i)=><p key={i} className="text-[9px] leading-relaxed text-slate-700">• {x}</p>):<p className="text-[9px] text-slate-400">Sin registros.</p>}</div></div>)}</div>
       <div className="mt-5 flex flex-wrap gap-2"><button onClick={()=>setOperationalState('approve')} disabled={current.manualApproved} className="rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><CheckCircle2 size={12} className="inline mr-1"/>Aprobar manualmente</button><button onClick={()=>setOperationalState('testing')} disabled={current.inTesting} className="rounded-xl bg-purple-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><FlaskConical size={12} className="inline mr-1"/>Marcar en testeo</button></div>
