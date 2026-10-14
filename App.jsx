@@ -19950,7 +19950,8 @@ function calculateBrief01MonthlyProjection(research, financial) {
     minimumMonthlyOrders: null, requiredDailyOrders: null, monthlyOrdersAtDailyPace: null,
     effectiveRate: BRIEF01_EFFECTIVE_RATE, expectedShipped: null,
     expectedDelivered: null, expectedReturned: null, expectedCancelled: null,
-    projectedGrossRevenue: null, projectedMonthlyOperatingProfit: null, message: ''
+    projectedGrossRevenue: null, projectedMonthlyOperatingProfit: null,
+    minimumAdBudget: null, operatingAdBudget: null, adSpendShareOfRevenuePct: null, message: ''
   };
   if (!hasTarget || !Number.isFinite(monthlyProfitTarget) || monthlyProfitTarget < 0) {
     result.status = 'target_missing';
@@ -19991,11 +19992,15 @@ function calculateBrief01MonthlyProjection(research, financial) {
   const expectedDelivered = expectedShipped - expectedReturned;
   const projectedGrossRevenue = expectedDelivered * (Number(financial?.price) || 0);
   const projectedMonthlyOperatingProfit = expectedDelivered * operatingProfitPerDelivered;
+  // V33: presupuesto de pauta sobre pedidos registrados; peso frente al recaudo entregado.
+  const minimumAdBudget = minimumMonthlyOrders * planningCPA;
+  const operatingAdBudget = monthlyOrdersAtDailyPace * planningCPA;
+  const adSpendShareOfRevenuePct = projectedGrossRevenue > 0 ? operatingAdBudget / projectedGrossRevenue * 100 : null;
   Object.assign(result, {
     status: 'ok', requiredDeliveredOrders, minimumMonthlyOrders,
     requiredDailyOrders, monthlyOrdersAtDailyPace, expectedShipped, expectedDelivered,
     expectedReturned, expectedCancelled, projectedGrossRevenue,
-    projectedMonthlyOperatingProfit,
+    projectedMonthlyOperatingProfit, minimumAdBudget, operatingAdBudget, adSpendShareOfRevenuePct,
     message: 'Escenario comercial: entregas requeridas, ampliadas por IER para obtener pedidos registrados.'
   });
   return result;
@@ -20329,7 +20334,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
   if (diagnosis?.targetCost) add(`Costo objetivo maximo: ${fmt(Math.max(0,diagnosis.targetCost.maxUnitCost))} | Reduccion requerida: ${fmt(Math.max(0,diagnosis.targetCost.reduction))}.`);
   add('',{gap:5});
   add('8. PROYECCION DE OBJETIVO ECONOMICO MENSUAL',{bold:true,size:12,gap:6});
-  const mp=diagnosis?.monthlyProjection || calculateBrief01MonthlyProjection(research,f);
+  const mp=calculateBrief01MonthlyProjection(research,f);
   add(`Oferta vigente: ${research?.offer?.presentation||'-'} | Precio: ${fmt(f.price||0)} | Margen del diagnostico: ${fmt(f.marginPerGenerated||0)}`);
   add(`Meta mensual: ${mp.monthlyProfitTarget===null?'No configurada':fmt(mp.monthlyProfitTarget)} | CPA de planificacion: ${mp.planningCPA===null?'No configurado':fmt(mp.planningCPA)} | Dias de venta: ${mp.sellingDays??'No configurados'}`);
   if (mp.status==='ok') {
@@ -20339,9 +20344,12 @@ function buildBrief01PdfBlob(research, diagnosis) {
     add(`PASO 4 - META DIARIA: ${mp.requiredDailyOrders} pedidos registrados/dia = redondear arriba (${mp.minimumMonthlyOrders} / ${mp.sellingDays} dias).`);
     add(`PLAN AL RITMO DIARIO: ${mp.requiredDailyOrders} x ${mp.sellingDays} = ${mp.monthlyOrdersAtDailyPace} pedidos registrados. Entregas estimadas: ${fmtDec(mp.expectedDelivered,2)}.`);
     add(`Embudo estimado: despachados ${fmtDec(mp.expectedShipped,2)} | entregados ${fmtDec(mp.expectedDelivered,2)} | devueltos ${fmtDec(mp.expectedReturned,2)} | cancelados ${fmtDec(mp.expectedCancelled,2)}.`);
+    add(`PAUTA MINIMA PARA META: ${mp.minimumMonthlyOrders} pedidos registrados x CPA ${fmt(mp.planningCPA)} = ${fmt(mp.minimumAdBudget)}.`);
+    add(`PAUTA OPERATIVA MENSUAL: ${mp.monthlyOrdersAtDailyPace} pedidos registrados x CPA ${fmt(mp.planningCPA)} = ${fmt(mp.operatingAdBudget)}.`);
     add(`Recaudo bruto estimado: ${fmtDec(mp.expectedDelivered,2)} entregas x ${fmt(f.price||0)} = ${fmt(mp.projectedGrossRevenue)}.`);
+    add(`PESO DE PAUTA SOBRE RECAUDO ENTREGADO: ${mp.adSpendShareOfRevenuePct===null?'No calculable (sin recaudo)':fmtDec(mp.adSpendShareOfRevenuePct,2)+'%'} = presupuesto operativo / recaudo bruto proyectado.`);
     add(`GANANCIA MENSUAL DEL ESCENARIO: ${fmtDec(mp.expectedDelivered,2)} entregas x $${fmtDec(mp.operatingProfitPerDelivered,2)} = ${fmt(mp.projectedMonthlyOperatingProfit)}.`,{bold:true});
-    add('ADVERTENCIA DE INTERPRETACION: el margen del diagnostico original ya incorpora IER por pedido generado. Esta proyeccion usa ese margen como base de ganancia por entrega por indicacion comercial; podria incorporar IER dos veces y no reemplaza la contabilidad real. El CPA de planificacion no modifica viabilidad, IER, fletes ni clasificacion original.');
+    add('PLANIFICACION CONTRAENTREGA: los pedidos registrados se ajustan por el IER para estimar entregas efectivas. La pauta se presupuestra sobre pedidos registrados y su peso se compara con el recaudo de entregas. El CPA no modifica la viabilidad ni el diagnostico financiero base.');
   } else add(`Estado de la proyeccion: ${mp.message}`);
   add('',{gap:5});
   add('9. DIAGNOSTICO ESTRATEGICO',{bold:true,size:12,gap:6});
@@ -21021,7 +21029,7 @@ function Brief01Module() {
   const diag=current?.diagnosis||buildBrief01Diagnosis(current,freightRates);
   const currentFinancial=calculateBrief01Financial(current,freightRates);
   const currentMonthlyProjection=calculateBrief01MonthlyProjection(current,currentFinancial);
-  const diagMonthlyProjection=diag?.monthlyProjection||currentMonthlyProjection;
+  const diagMonthlyProjection=currentMonthlyProjection;
 
   const StepNav=()=> <div className="overflow-x-auto pb-1"><div className="flex gap-2 min-w-max">{BRIEF01_STEPS.map(s=><button key={s.id} onClick={()=>setStep(s.id)} className={`rounded-xl px-3 py-2 text-[8px] font-black uppercase inline-flex items-center gap-1.5 ${step===s.id?'bg-[#12386B] text-white':'bg-white border border-slate-200 text-slate-500'}`}><s.icon size={11}/>{s.label}</button>)}</div></div>;
 
@@ -21060,7 +21068,15 @@ function Brief01Module() {
             <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] uppercase font-black text-slate-500">Recaudo bruto estimado</p><p className="text-xl font-black mt-1">{fmt(diagMonthlyProjection.projectedGrossRevenue)}</p><p className="text-[9px] text-slate-600 mt-1">Entregas estimadas × precio de oferta.</p></div>
             <div className="rounded-xl bg-white border border-emerald-200 p-4"><p className="text-[9px] uppercase font-black text-emerald-800">Ganancia mensual proyectada · escenario</p><p className="text-xl font-black text-emerald-800 mt-1">{fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p><p className="text-[9px] text-slate-600 mt-1">{fmtDec(diagMonthlyProjection.expectedDelivered,2)} entregas estimadas × ${fmtDec(diagMonthlyProjection.operatingProfitPerDelivered,2)}.</p></div>
           </div>
-          <p className="mt-3 text-[9px] text-amber-800">Advertencia contable: el margen original del diagnóstico ya incorpora el IER por pedido generado. Usarlo como ganancia por entrega y luego dividir entre 76% puede contar la inefectividad dos veces. Esta es una proyección comercial solicitada, no una modificación del diagnóstico financiero ni una garantía de ganancia.</p>
+          <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+            <p className="text-[9px] font-black uppercase text-[#12386B]">Inversión publicitaria para cumplir la meta</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              <div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[9px] font-black uppercase text-slate-600">Presupuesto mínimo Ads</p><p className="text-xl font-black mt-1">{fmt(diagMonthlyProjection.minimumAdBudget)}</p><p className="text-[9px] text-slate-500 mt-1">{diagMonthlyProjection.minimumMonthlyOrders} pedidos a registrar × CPA {fmt(diagMonthlyProjection.planningCPA)}.</p></div>
+              <div className="rounded-xl bg-white border border-blue-200 p-3"><p className="text-[9px] font-black uppercase text-[#12386B]">Presupuesto operativo Ads</p><p className="text-xl font-black text-[#12386B] mt-1">{fmt(diagMonthlyProjection.operatingAdBudget)}</p><p className="text-[9px] text-slate-500 mt-1">{diagMonthlyProjection.monthlyOrdersAtDailyPace} pedidos al ritmo diario × CPA {fmt(diagMonthlyProjection.planningCPA)}.</p></div>
+              <div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[9px] font-black uppercase text-slate-600">Peso de Ads sobre recaudo</p><p className="text-xl font-black mt-1">{diagMonthlyProjection.adSpendShareOfRevenuePct===null?'—':`${fmtDec(diagMonthlyProjection.adSpendShareOfRevenuePct,2)}%`}</p><p className="text-[9px] text-slate-500 mt-1">Presupuesto operativo ÷ recaudo de entregas efectivas.</p></div>
+            </div>
+            <p className="text-[9px] text-slate-600 mt-3">Planificación contraentrega: se presupuesta pauta por pedidos registrados y se compara con el recaudo esperado de las entregas. Sin ROI adicional.</p>
+          </div>
         </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
       </div>
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-[#12386B]">Actividad publicitaria y posibles señales de escalamiento</p><p className="text-[9px] text-slate-600 mt-1">{diag.adActivity?.interpretation}</p></div><span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${diag.adActivity?.trendTone==='attention'?'bg-amber-100 text-amber-800':diag.adActivity?.trendTone==='good'?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{diag.adActivity?.trendLabel}</span></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Competidores</p><p className="text-lg font-black mt-1">{diag.adActivity?.competitorCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Anuncios registrados</p><p className="text-lg font-black mt-1">{diag.adActivity?.totalAds||0}{diag.adActivity?.totalIsPartial?<span className="text-[7px] text-amber-600 ml-1">PARCIAL</span>:null}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Sin medición</p><p className="text-lg font-black mt-1">{diag.adActivity?.unknownCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Fecha de corte</p><p className="text-xs font-black mt-2">{diag.adActivity?.cutoff||'—'}</p></div></div><div className="overflow-x-auto mt-3"><table className="min-w-[760px] w-full text-left"><thead className="text-[7px] uppercase text-slate-400"><tr><th className="p-2">Tienda</th><th className="p-2">Actual</th><th className="p-2">Tipo</th><th className="p-2">Anterior</th><th className="p-2">Cambio</th><th className="p-2">Última revisión</th></tr></thead><tbody>{(diag.adActivity?.rows||[]).map(r=><tr key={r.id} className="border-t border-blue-100 text-[8px]"><td className="p-2 font-black">{r.name}</td><td className="p-2">{r.currentCount===null?'—':r.currentCount}</td><td className="p-2">{r.measurementType==='exact'?'Exacta':r.measurementType==='estimated'?'Aprox.':'No determinada'}</td><td className="p-2">{r.previousCount===null?'—':r.previousCount}</td><td className="p-2 font-black">{r.delta===null?'—':`${r.delta>=0?'+':''}${r.delta}${r.deltaPct!==null?` · ${r.deltaPct>=0?'+':''}${fmtDec(r.deltaPct,1)}%`:''}`}</td><td className="p-2">{r.lastReviewedAt||'—'}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1">{(diag.adActivity?.limitations||[]).map((x,i)=><p key={i} className="text-[8px] text-slate-500">• {x}</p>)}</div></div>
