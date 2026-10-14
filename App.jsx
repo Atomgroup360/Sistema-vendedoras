@@ -20364,42 +20364,124 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(diagnosis?.classificationReason||'Faltan datos para clasificar.');
   add('La aprobacion final corresponde siempre al usuario. Este informe no afirma ventas, CPA ni rentabilidad de competidores.',{gap:8});
 
-  const PAGE_W=595, PAGE_H=842, LEFT=48, TOP=54, BOTTOM=52;
-  const pages=[]; let page=[]; let y=TOP;
-  for (const row of rows) {
-    if (row.gap) y += row.gap;
-    const wrapped=brief01WrapPdf(row.text, row.size>=14?68:92);
-    for (const line of wrapped) {
-      const lineHeight=row.size+4;
-      if (y+lineHeight>PAGE_H-BOTTOM) { pages.push(page); page=[]; y=TOP; }
-      page.push({y,text:line,bold:row.bold,size:row.size}); y += lineHeight;
+  // V35 — Presentación editorial del PDF BRIEF 01. Sin cambios financieros.
+  // Motor PDF vectorial autónomo: no agrega dependencias y mantiene todos los datos originales.
+  const PAGE_W=595, PAGE_H=842, LEFT=43, RIGHT=43, TOP=100, BOTTOM=62;
+  const NAVY=[0.07,0.19,0.35], BLUE=[0.10,0.31,0.56], INK=[0.13,0.19,0.27];
+  const MUTED=[0.39,0.46,0.55], PALE=[0.95,0.97,0.99], LINE=[0.87,0.90,0.94];
+  const WHITE=[1,1,1], GREEN=[0.05,0.49,0.37];
+  const rgb=c=>`${c.map(v=>Number(v).toFixed(3)).join(' ')} rg`;
+  const stroke=c=>`${c.map(v=>Number(v).toFixed(3)).join(' ')} RG`;
+  const box=(x,y,w,h,c)=>`${rgb(c)} ${x} ${PAGE_H-y-h} ${w} ${h} re f\n`;
+  const rule=(x,y,w,c=LINE)=>`${stroke(c)} 0.65 w ${x} ${PAGE_H-y} m ${x+w} ${PAGE_H-y} l S\n`;
+  const pdfText=(text,x,y,size=9,bold=false,color=INK)=>
+    `${rgb(color)} BT /${bold?'F2':'F1'} ${size} Tf 1 0 0 1 ${x} ${PAGE_H-y} Tm (${brief01PdfEscape(brief01PdfLatin(text))}) Tj ET\n`;
+  const textWidth=(t,size,bold=false)=>{
+    // Ajuste aproximado conservador para Helvetica y títulos; evita desbordes visuales.
+    let u=0; for (const c of brief01PdfLatin(t)) u+=(' il.,:;!|\'`'.includes(c)?0.25:'MW@#%'.includes(c)?0.85:0.51);
+    return u*size*(bold?1.065:1);
+  };
+  const breakWord=(w,size,maxWidth,bold)=>{
+    const out=[];let chunk='';
+    for(const char of w){ if(chunk&&textWidth(chunk+char,size,bold)>maxWidth){out.push(chunk);chunk=char;}else chunk+=char; }
+    if(chunk)out.push(chunk);return out;
+  };
+  const wrap=(text,maxWidth,size,bold=false)=>{
+    const words=brief01PdfLatin(text).split(/\s+/).filter(Boolean), result=[];let current='';
+    for(const raw of words){
+      const parts=textWidth(raw,size,bold)>maxWidth?breakWord(raw,size,maxWidth,bold):[raw];
+      for(const word of parts){let next=current?current+' '+word:word;
+        if(textWidth(next,size,bold)>maxWidth&&current){result.push(current);current=word;}else current=next;
+      }
     }
+    if(current)result.push(current);
+    return result.length?result:[''];
+  };
+  const sections=rows.filter(row=>/^\d+\.\s/.test(row.text)&&row.bold&&row.size===12).map(r=>r.text);
+  const pages=[];let commands='',y=TOP, pageIndex=0;
+  const pageShell=()=>{
+    pageIndex++;commands='';
+    commands+=box(0,0,PAGE_W,15,NAVY);
+    commands+=pdfText('WINNER OS',LEFT,40,17,true,NAVY);
+    commands+=pdfText('INTELIGENCIA COMERCIAL / BRIEF 01',LEFT,57,8,true,BLUE);
+    commands+=pdfText(`INFORME ${brief01PdfLatin(research.code||'BRIEF 01')}`,PAGE_W-RIGHT-155,40,8,true,MUTED);
+    commands+=rule(LEFT,72,PAGE_W-LEFT-RIGHT);
+    commands+=rule(LEFT,PAGE_H-49,PAGE_W-LEFT-RIGHT);
+    commands+=pdfText('TU PEDIDO COLOMBIA  |  INFORME DE INVESTIGACION',LEFT,PAGE_H-33,7,false,MUTED);
+    commands+=pdfText(`PAGINA ${pageIndex}`,PAGE_W-RIGHT-61,PAGE_H-33,7,true,MUTED);
+    y=TOP;
+  };
+  const finish=()=>{if(commands)pages.push(commands);};
+  const ensure=(needed)=>{if(y+needed>PAGE_H-BOTTOM){finish();pageShell();}};
+  pageShell();
+  // Cabecera ejecutiva prioritaria, se mantiene en la primera página.
+  const product=brief01PdfLatin(research.name||'Producto sin nombre');
+  commands+=box(LEFT,y,PAGE_W-LEFT-RIGHT,80,PALE);
+  commands+=box(LEFT,y,5,80,BLUE);
+  wrap(product,PAGE_W-LEFT-RIGHT-32,16,true).slice(0,2).forEach((line,i)=>{commands+=pdfText(line,LEFT+17,y+28+i*19,16,true,NAVY);});
+  commands+=pdfText(`DIAGNOSTICO  |  ${todayColombia()}`,LEFT+17,y+70,8,false,MUTED);
+  y+=97;
+  const status=brief01PdfLatin(diagnosis?.classification||'PENDIENTE');
+  commands+=pdfText('CLASIFICACION DE VIABILIDAD',LEFT,y,8,true,MUTED);y+=18;
+  commands+=pdfText(status,LEFT,y,14,true,NAVY);y+=23;
+  commands+=rule(LEFT,y,PAGE_W-LEFT-RIGHT);y+=21;
+  // Secciones y líneas: jerarquía visual sin cambiar fuentes de datos.
+  let sectionIndex=0;
+  const skipPreamble=4; // El título, código y fecha iniciales ya están en la cabecera editorial.
+  for(let i=skipPreamble;i<rows.length;i++){
+    const row=rows[i]; const raw=String(row.text||'');
+    const isSection=/^\d+\.\s/.test(raw)&&row.bold&&row.size===12;
+    if(isSection){
+      ensure(65);
+      if(sectionIndex>0)y+=8;
+      commands+=box(LEFT,y,PAGE_W-LEFT-RIGHT,28,NAVY);
+      commands+=pdfText(raw,LEFT+12,y+19,10,true,WHITE);
+      y+=40;sectionIndex++;
+      continue;
+    }
+    if(!raw.trim()){y+=Math.min(row.gap||5,9);continue;}
+    const isHighlight=/^(GANANCIA MENSUAL DEL ESCENARIO|MARGEN DE GANANCIA ESTIMADA|PAUTA MINIMA PARA META|PAUTA OPERATIVA MENSUAL|PESO DE PAUTA SOBRE RECAUDO ENTREGADO|PASO [1-4] -|Clasificacion:)/i.test(raw);
+    const isLink=/^(Tienda \/ Landing:|Meta Ads Library:)/.test(raw);
+    const isAlert=/^(ALERTA:|DEBILIDAD:)/.test(raw);
+    const isGood=/^(FORTALEZA:|ACCION:)/.test(raw);
+    const isMiniTitle=/^\d+\.\s/.test(raw)&&row.bold;
+    const labelMatch=isHighlight?raw.match(/^([^:]{5,55}):\s*(.*)$/):null;
+    const body=labelMatch?labelMatch[2]:raw;
+    const label=labelMatch?labelMatch[1]:null;
+    const size=isMiniTitle?9.3:isLink?7.6:9;
+    const contentWidth=PAGE_W-LEFT-RIGHT-(isHighlight?26:18);
+    const lines=wrap(body,contentWidth,size,!!row.bold&&!isLink);
+    const h=(isHighlight?(label?15:3):0)+lines.length*(size+5)+(isHighlight?17:9);
+    ensure(h+4);
+    if(isHighlight){
+      commands+=box(LEFT,y,PAGE_W-LEFT-RIGHT,h,PALE);
+      commands+=box(LEFT,y,3,h,isAlert?[0.75,0.23,0.23]:BLUE);
+    }else if(isAlert||isGood){
+      commands+=box(LEFT,y,3,Math.max(15,h-5),isAlert?[0.79,0.32,0.22]:GREEN);
+    }
+    let lineY=y+(isHighlight?14:10);
+    if(label){commands+=pdfText(label,LEFT+12,lineY,8,true,BLUE);lineY+=16;}
+    lines.forEach((line)=>{commands+=pdfText(line,LEFT+(isHighlight?13:8),lineY,size,!!row.bold&&!isLink,isLink?BLUE:INK);lineY+=size+5;});
+    y+=h+(isHighlight?7:0);
   }
-  if (page.length || !pages.length) pages.push(page);
-
-  const objects=[];
-  const addObj = content => { objects.push(content); return objects.length; };
-  const catalogId=addObj('');
-  const pagesId=addObj('');
+  finish();
+  // PDF 1.4, fuentes estándar, paginación real y gráficos vectoriales.
+  const objects=[],addObj=content=>(objects.push(content),objects.length);
+  const catalogId=addObj(''),pagesId=addObj('');
   const fontId=addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   const boldFontId=addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
   const pageIds=[];
-  for (const p of pages) {
-    let stream='';
-    for (const l of p) {
-      stream += `BT /${l.bold?'F2':'F1'} ${l.size} Tf ${LEFT} ${PAGE_H-l.y} Td (${brief01PdfEscape(l.text)}) Tj ET\n`;
-    }
+  for(const stream of pages){
     const contentId=addObj(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
-    const pageId=addObj(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
-    pageIds.push(pageId);
+    pageIds.push(addObj(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >>`));
   }
   objects[catalogId-1]=`<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
   objects[pagesId-1]=`<< /Type /Pages /Kids [${pageIds.map(id=>`${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
-  let pdf='%PDF-1.4\n'; const offsets=[0];
-  objects.forEach((o,i)=>{ offsets.push(pdf.length); pdf += `${i+1} 0 obj\n${o}\nendobj\n`; });
-  const xref=pdf.length; pdf += `xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
-  for (let i=1;i<offsets.length;i++) pdf += `${String(offsets[i]).padStart(10,'0')} 00000 n \n`;
-  pdf += `trailer\n<< /Size ${objects.length+1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  let pdf='%PDF-1.4\n';const offsets=[0];
+  objects.forEach((obj,i)=>{offsets.push(pdf.length);pdf+=`${i+1} 0 obj\n${obj}\nendobj\n`;});
+  const xref=pdf.length;pdf+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;
+  for(let i=1;i<offsets.length;i++)pdf+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;
+  pdf+=`trailer\n<< /Size ${objects.length+1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new Blob([pdf],{type:'application/pdf'});
 }
 
