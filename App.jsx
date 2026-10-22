@@ -19783,10 +19783,40 @@ const BRIEF01_DISPATCH_RATE = 0.95;
 const BRIEF01_RETURN_RATE = 0.20;
 const BRIEF01_EFFECTIVE_RATE = BRIEF01_DISPATCH_RATE * (1 - BRIEF01_RETURN_RATE); // 0.76
 
+
+// BRIEF 01 V36: lectura comercial asistida; todo juicio conserva la evidencia original.
+const BRIEF01_ANGLE_RULES = [
+  {label:'Facilidad y menor esfuerzo',pattern:/sin esfuerzo|fácil de usar|facil de usar|sin complicaciones|olvida.*(esfuerzo|batir)|cansad[oa] de|más fácil|mas facil/i},
+  {label:'Rapidez y ahorro de tiempo',pattern:/rápid[oa]|rapid[oa]|en segundos|ahorra tiempo|menos tiempo|instantáne/i},
+  {label:'Ahorro y precio',pattern:/descuento|ahorra dinero|oferta|promoci[oó]n|precio especial|2x1|gratis/i},
+  {label:'Practicidad y uso diario',pattern:/práctic[oa]|practic[oa]|todos los días|uso diario|lleva contigo|portátil|portatil/i},
+  {label:'Durabilidad y resistencia',pattern:/resistente|durader[oa]|reforzad[oa]|larga duraci[oó]n|calidad premium/i},
+  {label:'Independencia de energía',pattern:/sin pilas|sin bater[ií]as|sin electricidad|no necesita pilas/i}
+];
+function brief01CopyClassification(copy) {
+  const value=String(copy||'').trim();
+  const matches=BRIEF01_ANGLE_RULES.filter(r=>r.pattern.test(value)).map(r=>r.label);
+  const promise=value.split(/[\n.!?]+/).map(x=>x.trim()).find(x=>x.length>=10&&x.length<=220)||value.slice(0,180);
+  return { angle:matches[0]||'Sin clasificar (revisión requerida)', secondaryAngles:matches.slice(1), promise:promise||'', method:'heurística revisable' };
+}
+function brief01CopyGroups(copies) {
+  const groups=new Map();
+  for(const item of Array.isArray(copies)?copies:[]) {
+    const angle=String(item.angle||'Sin clasificar (revisión requerida)').trim();
+    const key=angle.toLocaleLowerCase('es');
+    if(!groups.has(key)) groups.set(key,{angle,records:[],advertisers:new Set(),promises:new Map()});
+    const g=groups.get(key);g.records.push(item);g.advertisers.add(String(item.advertiser||'No identificado'));
+    const normalized=String(item.promise||'').toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+    if(normalized&&!g.promises.has(normalized))g.promises.set(normalized,item.promise);
+  }
+  return [...groups.values()].sort((a,b)=>b.advertisers.size-a.advertisers.size||b.records.length-a.records.length);
+}
+
 const BRIEF01_STEPS = [
   { id: 'product', label: 'Producto', icon: Package },
   { id: 'meta', label: 'Meta Ads', icon: BarChart3 },
   { id: 'competitors', label: 'Competidores', icon: Users },
+  { id: 'angles', label: 'Ángulos y promesas', icon: Target },
   { id: 'suppliers', label: 'Dropi', icon: Truck },
   { id: 'offer', label: 'Oferta', icon: ShoppingBag },
   { id: 'costs', label: 'Costos', icon: Calculator },
@@ -20315,6 +20345,18 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(`Interpretacion: ${activity.interpretation}`);
   activity.limitations.forEach(x=>add(`Limitacion: ${x}`));
   add('',{gap:5});
+  add('4A. ANGULOS DETECTADOS Y PROMESAS DE VALOR',{bold:true,size:12,gap:6});
+  const copyGroups=brief01CopyGroups(research?.adCopies);
+  add(`Copys documentados: ${(research?.adCopies||[]).length} | Angulos detectados: ${copyGroups.length}. La frecuencia observada NO demuestra eficacia.`);
+  if(!copyGroups.length) add('Sin copys publicitarios sincronizados.');
+  for(const g of copyGroups){
+    add(`${g.angle} | Anunciantes diferentes: ${g.advertisers.size} | Anuncios observados: ${g.records.length}`,{bold:true});
+    for(const x of g.records.slice(0,12)){
+      add(`Anunciante: ${x.advertiser} | ID Meta: ${x.libraryId} | Promesa: ${x.promise||'No identificada'}`);
+      add(`Copy original: ${String(x.copy||'').slice(0,2200)}`);
+    }
+  }
+  add('',{gap:5});
   add('5. PROVEEDORES DROPI',{bold:true,size:12,gap:6});
   const pdfDropiSupplierCount=brief01DropiSupplierCount(research);
   add(`Cantidad total declarada de proveedores en Dropi: ${pdfDropiSupplierCount}${pdfDropiSupplierCount>5?' | ALERTA: posible saturación (>5 proveedores)':''}`);
@@ -20552,7 +20594,7 @@ function Brief01ExtensionBridge() {
         if (action === 'getResearch') {
           const r=records.find(x=>x.id===payload.researchId);
           if (!r) throw new Error('Investigación no encontrada o sin permiso.');
-          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], suppliers:r.suppliers||[], adActivity:buildBrief01AdActivity(r) });
+          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], suppliers:r.suppliers||[], adCopies:r.adCopies||[], adActivity:buildBrief01AdActivity(r) });
           return;
         }
         if (!payload.researchId) throw new Error('Selecciona una investigación BRIEF 01.');
@@ -20580,6 +20622,41 @@ function Brief01ExtensionBridge() {
             return { duplicate:false, competitor };
           });
           respond(msg.requestId,true,result); return;
+        }
+        if (action === 'syncAdCopies') {
+          const incoming=Array.isArray(payload.records)?payload.records:[];
+          if (!incoming.length||incoming.length>120) throw new Error('Selecciona entre 1 y 120 copys por captura.');
+          const validated=incoming.map(raw=>({
+            libraryId:String(raw.libraryId||'').trim().slice(0,60),
+            advertiser:String(raw.advertiser||'No identificado').trim().slice(0,180),
+            copy:String(raw.copy||'').trim().slice(0,2200),
+            sourceUrl:String(raw.sourceUrl||'').slice(0,1200),
+            startedAt:String(raw.startedAt||'').slice(0,100)
+          })).filter(x=>/^\d{8,30}$/.test(x.libraryId)&&x.copy.length>=12);
+          if (!validated.length) throw new Error('Sin copys con ID verificable.');
+          const result=await runTransaction(db,async tx=>{
+            const snap=await tx.get(researchRef);
+            if(!snap.exists()) throw new Error('Investigación no encontrada.');
+            const data=snap.data();
+            if(data.ownerUid!==ownerUid) throw new Error('No autorizado para esta investigación.');
+            const store=Array.isArray(data.adCopies)?[...data.adCopies]:[];
+            const existing=new Map(store.map((x,i)=>[String(x.libraryId||''),i]));
+            let added=0,refreshed=0;
+            for(const row of validated){
+              const idx=existing.get(row.libraryId);
+              const prior=idx===undefined?null:store[idx];
+              const initial=brief01CopyClassification(row.copy);
+              const entry={...row,angle:prior?.angle||initial.angle,promise:prior?.promise||initial.promise,secondaryAngles:prior?.secondaryAngles||initial.secondaryAngles,method:prior?.method||initial.method,observedAt:todayColombia()};
+              if(idx===undefined){store.push(entry);existing.set(row.libraryId,store.length-1);added++;}
+              else {store[idx]={...prior,...entry};refreshed++;}
+            }
+            // Firestore document safeguard: bounded source records.
+            if(store.length>250) throw new Error('Límite de 250 anuncios documentados alcanzado.');
+            tx.update(researchRef,{adCopies:store,updatedDate:todayColombia(),updatedAtMs:Date.now()});
+            return {adCopies:store,added,refreshed};
+          });
+          window.dispatchEvent(new CustomEvent('brief01-extension-copies-sync',{detail:{researchId:payload.researchId,adCopies:result.adCopies}}));
+          respond(msg.requestId,true,result);return;
         }
         if (action === 'bulkSyncCompetitors') {
           const result=await runTransaction(db, async tx => {
@@ -20933,6 +21010,8 @@ function Brief01Module() {
       });
       setMessage(`Análisis Meta actualizado: ${Number(detail.meta.advertisers)||0} anunciantes · ${Number(detail.meta.sustained15d)||0} con >15 días.`);
     };
+    const handleCopiesSync=(event)=>{const d=event?.detail||{};if(d.researchId&&Array.isArray(d.adCopies))setCurrent(p=>p?.id===d.researchId?{...p,adCopies:d.adCopies}:p);};
+    window.addEventListener('brief01-extension-copies-sync',handleCopiesSync);
     const handleOfferSync=(event)=>{
       const detail=event?.detail||{};
       if(!detail.researchId || !detail.competitor) return;
@@ -20967,7 +21046,8 @@ function Brief01Module() {
     window.addEventListener('brief01-extension-offer-sync',handleOfferSync);
     window.addEventListener('brief01-extension-supplier-sync',handleSupplierSync);
     return ()=>{
-      window.removeEventListener('brief01-extension-meta-sync',handleMetaSync);
+      window.removeEventListener('brief01-extension-copies-sync',handleCopiesSync);
+    window.removeEventListener('brief01-extension-meta-sync',handleMetaSync);
       window.removeEventListener('brief01-extension-offer-sync',handleOfferSync);
       window.removeEventListener('brief01-extension-supplier-sync',handleSupplierSync);
     };
@@ -21163,6 +21243,7 @@ function Brief01Module() {
         </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
       </div>
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-[#12386B]">Actividad publicitaria y posibles señales de escalamiento</p><p className="text-[9px] text-slate-600 mt-1">{diag.adActivity?.interpretation}</p></div><span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${diag.adActivity?.trendTone==='attention'?'bg-amber-100 text-amber-800':diag.adActivity?.trendTone==='good'?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{diag.adActivity?.trendLabel}</span></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Competidores</p><p className="text-lg font-black mt-1">{diag.adActivity?.competitorCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Anuncios registrados</p><p className="text-lg font-black mt-1">{diag.adActivity?.totalAds||0}{diag.adActivity?.totalIsPartial?<span className="text-[7px] text-amber-600 ml-1">PARCIAL</span>:null}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Sin medición</p><p className="text-lg font-black mt-1">{diag.adActivity?.unknownCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Fecha de corte</p><p className="text-xs font-black mt-2">{diag.adActivity?.cutoff||'—'}</p></div></div><div className="overflow-x-auto mt-3"><table className="min-w-[760px] w-full text-left"><thead className="text-[7px] uppercase text-slate-400"><tr><th className="p-2">Tienda</th><th className="p-2">Actual</th><th className="p-2">Tipo</th><th className="p-2">Anterior</th><th className="p-2">Cambio</th><th className="p-2">Última revisión</th></tr></thead><tbody>{(diag.adActivity?.rows||[]).map(r=><tr key={r.id} className="border-t border-blue-100 text-[8px]"><td className="p-2 font-black">{r.name}</td><td className="p-2">{r.currentCount===null?'—':r.currentCount}</td><td className="p-2">{r.measurementType==='exact'?'Exacta':r.measurementType==='estimated'?'Aprox.':'No determinada'}</td><td className="p-2">{r.previousCount===null?'—':r.previousCount}</td><td className="p-2 font-black">{r.delta===null?'—':`${r.delta>=0?'+':''}${r.delta}${r.deltaPct!==null?` · ${r.deltaPct>=0?'+':''}${fmtDec(r.deltaPct,1)}%`:''}`}</td><td className="p-2">{r.lastReviewedAt||'—'}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1">{(diag.adActivity?.limitations||[]).map((x,i)=><p key={i} className="text-[8px] text-slate-500">• {x}</p>)}</div></div>
+      <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/30 p-4 sm:p-5"><p className="text-[10px] font-black uppercase text-[#12386B]">Inteligencia competitiva · Ángulos y promesas</p><p className="text-xs text-slate-500 mt-1">Frecuencia observada, no prueba de eficacia publicitaria.</p>{brief01CopyGroups(current.adCopies).length?brief01CopyGroups(current.adCopies).map(g=><div key={g.angle} className="mt-3 rounded-xl border bg-white p-3"><p className="text-sm font-bold">{g.angle}</p><p className="text-xs text-slate-500">{g.advertisers.size} anunciantes · {g.records.length} anuncios</p><p className="text-xs mt-1">Promesas: {[...g.promises.values()].slice(0,4).join(' · ')||'Sin identificar'}</p></div>):<p className="mt-3 text-xs text-slate-500">Sin copys capturados todavía.</p>}</div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">{[['Alertas',diag.alerts,'rose'],['Fortalezas',diag.strengths,'emerald'],['Acciones recomendadas',diag.actions,'blue']].map(([title,arr,tone])=><div key={title} className={`rounded-2xl border p-4 ${tone==='rose'?'border-rose-200 bg-rose-50/50':tone==='emerald'?'border-emerald-200 bg-emerald-50/50':'border-blue-200 bg-blue-50/50'}`}><p className="text-[9px] font-black uppercase">{title}</p><div className="mt-2 space-y-2">{arr.length?arr.map((x,i)=><p key={i} className="text-[9px] leading-relaxed text-slate-700">• {x}</p>):<p className="text-[9px] text-slate-400">Sin registros.</p>}</div></div>)}</div>
       <div className="mt-5 flex flex-wrap gap-2"><button onClick={()=>setOperationalState('approve')} disabled={current.manualApproved} className="rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><CheckCircle2 size={12} className="inline mr-1"/>Aprobar manualmente</button><button onClick={()=>setOperationalState('testing')} disabled={current.inTesting} className="rounded-xl bg-purple-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><FlaskConical size={12} className="inline mr-1"/>Marcar en testeo</button></div>
     </div>
@@ -21176,6 +21257,14 @@ function Brief01Module() {
 
       {step==='competitors'&&<div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">3. Competidores · máximo 5 prioritarios</p><p className="text-xs text-slate-500 mt-1">Compara únicamente presentaciones equivalentes.</p></div><button onClick={addCompetitor} disabled={(current.competitors||[]).length>=5} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase disabled:opacity-40"><Plus size={11} className="inline mr-1"/>Agregar</button></div><div className="space-y-3">{(current.competitors||[]).map((c,i)=><div key={c.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-3"><p className="text-[9px] font-black uppercase text-slate-500">Competidor {i+1}</p><button onClick={()=>removeCompetitor(c.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre / tienda</label><input value={c.name||''} onChange={e=>updateCompetitor(c.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Meta Ads Library</label><input value={c.metaUrl||''} onChange={e=>updateCompetitor(c.id,'metaUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace página de venta</label><input value={c.salesUrl||''} onChange={e=>updateCompetitor(c.id,'salesUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Antigüedad publicitaria · días</label><input type="number" min="0" value={c.adAgeDays||''} onChange={e=>updateCompetitor(c.id,'adAgeDays',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio 1 unidad</label><input type="number" min="0" value={c.singlePrice||''} onChange={e=>updateCompetitor(c.id,'singlePrice',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Condiciones de envío</label><input value={c.shipping||''} onChange={e=>updateCompetitor(c.id,'shipping',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Promociones</label><input value={c.promotions||''} onChange={e=>updateCompetitor(c.id,'promotions',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo principal</label><input value={c.primaryAngle||''} onChange={e=>updateCompetitor(c.id,'primaryAngle',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 1</label><input value={c.secondaryAngle1||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle1',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 2</label><input value={c.secondaryAngle2||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle2',e.target.value)} className={fieldClass}/></div><label className="flex items-center gap-2 text-[8px] font-black text-slate-600"><input type="checkbox" checked={!!c.cod} onChange={e=>updateCompetitor(c.id,'cod',e.target.checked)}/> Pago contraentrega</label><div className="lg:col-span-2"><label className={labelClass}>Observaciones</label><input value={c.notes||''} onChange={e=>updateCompetitor(c.id,'notes',e.target.value)} className={fieldClass}/></div></div><div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><p className="text-[8px] font-black uppercase text-[#12386B]">Actividad publicitaria observada</p><p className="text-[7px] text-slate-500 mt-0.5">Captura manual · también sincronizable desde la extensión Chrome.</p></div><span className="text-[7px] font-black uppercase text-slate-500">{(c.activeAdsHistory||[]).length} revisión(es)</span></div><div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3"><div><label className={labelClass}>Anuncios activos</label><input type="number" min="0" value={c.activeAdsCount??''} onChange={e=>updateCompetitor(c.id,'activeAdsCount',e.target.value===''?null:Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>Tipo de medición</label><select value={c.activeAdsMeasurement||'unknown'} onChange={e=>updateCompetitor(c.id,'activeAdsMeasurement',e.target.value)} className={fieldClass}><option value="exact">Exacta</option><option value="estimated">Aproximada</option><option value="unknown">No determinada</option></select></div><div><label className={labelClass}>Última revisión</label><input value={c.activeAdsLastReviewedAt||''} disabled className={`${fieldClass} bg-slate-50`}/></div></div></div><div className="mt-3"><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Combos</p><button onClick={()=>addCombo(c.id)} className="text-[8px] font-black text-[#12386B]">+ Agregar combo</button></div><div className="space-y-2 mt-2">{(c.combos||[]).map(b=><div key={b.id} className="grid grid-cols-[1fr_90px_1fr_32px] gap-2"><input placeholder="Nombre" value={b.name||''} onChange={e=>updateCombo(c.id,b.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="1" placeholder="Cant." value={b.quantity||''} onChange={e=>updateCombo(c.id,b.id,'quantity',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Precio" value={b.price||''} onChange={e=>updateCombo(c.id,b.id,'price',e.target.value)} className={fieldClass}/><button onClick={()=>removeCombo(c.id,b.id)} className="text-rose-500"><X size={13}/></button></div>)}</div></div></div>)}</div></div>}
 
+      {step==='angles'&&<div className="space-y-4">
+        <div><p className="text-[10px] font-black uppercase tracking-wider text-[#12386B]">Ángulos detectados y promesas de valor</p><p className="text-xs text-slate-500 mt-2">Copys observados en Meta Ads Library. Clasificación automática orientativa y corregible; las promesas no están verificadas.</p></div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[['Copys documentados',(current.adCopies||[]).length],['Ángulos diferentes',brief01CopyGroups(current.adCopies).length],['Anunciantes',new Set((current.adCopies||[]).map(x=>x.advertiser)).size]].map(([label,value])=><div key={label} className="p-3 rounded-xl border bg-slate-50"><p className="text-xs text-slate-500">{label}</p><p className="text-xl font-black">{value}</p></div>)}</div>
+        {brief01CopyGroups(current.adCopies).map(group=><div key={group.angle} className="rounded-2xl border border-blue-100 bg-white p-4"><div className="font-black text-[#12386B]">{group.angle}</div><p className="text-xs text-slate-500">{group.records.length} anuncios · {group.advertisers.size} anunciantes distintos · {group.promises.size} promesas textuales diferenciadas</p></div>)}
+        {(current.adCopies||[]).length===0&&<p className="text-sm text-slate-500">Todavía no hay copys sincronizados. Abre la extensión Companion, analiza Meta y pulsa «Guardar copys en BRIEF 01».</p>}
+        {(current.adCopies||[]).map((record,i)=><div key={record.libraryId||i} className="rounded-2xl border p-4 bg-white space-y-3"><p className="text-xs font-bold">{record.advertiser} · Biblioteca ID {record.libraryId}</p><p className="whitespace-pre-wrap text-xs text-slate-600">{record.copy}</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="text-xs text-slate-500">Ángulo (editable)<input className={fieldClass} value={record.angle||''} onChange={e=>setCurrent(p=>({...p,adCopies:p.adCopies.map((v,j)=>i===j?{...v,angle:e.target.value,method:'revisión manual'}:v)}))}/></label><label className="text-xs text-slate-500">Promesa de valor (editable)<textarea className={fieldClass} rows={2} value={record.promise||''} onChange={e=>setCurrent(p=>({...p,adCopies:p.adCopies.map((v,j)=>i===j?{...v,promise:e.target.value,method:'revisión manual'}:v)}))}/></label></div><p className="text-[10px] text-slate-400">{record.method||'heurística revisable'} · {record.startedAt||'Fecha de inicio no determinada'}</p></div>)}
+        <button onClick={()=>saveDraft()} disabled={saving} className="rounded-xl bg-[#12386B] px-5 py-3 text-xs font-bold text-white">Guardar revisión de ángulos y promesas</button>
+      </div>}
       {step==='suppliers'&&<div className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">4. Proveedores Dropi</p><p className="text-xs text-slate-500 mt-1">Registra todos los proveedores del producto exacto. Sin límite.</p></div><button onClick={addSupplier} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Plus size={11} className="inline mr-1"/>Proveedor</button></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4"><label className={labelClass}>Cantidad total de proveedores en Dropi</label><input type="number" min="0" value={current.dropiSummary?.supplierCount??''} onChange={e=>updateCurrent('dropiSummary.supplierCount',e.target.value===''?'':Math.max(0,Math.floor(Number(e.target.value)||0)))} placeholder="0" className={fieldClass}/><p className="text-[8px] text-slate-500 mt-1">Valor manual e independiente de las fichas documentadas.</p></div><div className={`rounded-2xl border p-4 ${brief01DropiSupplierCount(current)>5?'border-amber-200 bg-amber-50':'border-emerald-200 bg-emerald-50'}`}><p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Lectura de saturación</p><p className={`text-sm font-black mt-1 ${brief01DropiSupplierCount(current)>5?'text-amber-800':'text-emerald-700'}`}>{brief01DropiSupplierCount(current)>5?'Posible saturación':'Sin alerta por cantidad'}</p><p className="text-[8px] text-slate-500 mt-1">La alerta se activa únicamente cuando hay más de 5 proveedores.</p></div></div>{brief01DropiSupplierCount(current)>5&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Alerta de posible saturación: se declararon {brief01DropiSupplierCount(current)} proveedores independientes en Dropi. No implica descarte automático.</div>}{current.dropiSummary?.supplierCount!==''&&brief01DropiSupplierCount(current)!==(current.suppliers||[]).length&&<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[9px] text-slate-600">Cantidad declarada: <b>{brief01DropiSupplierCount(current)}</b> · Proveedores documentados: <b>{(current.suppliers||[]).length}</b>. Es válido que sean diferentes.</div>}<div className="space-y-3">{(current.suppliers||[]).map((s,i)=><div key={s.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><p className="text-[9px] font-black uppercase text-slate-500">Proveedor {i+1}</p><button onClick={()=>removeSupplier(s.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre</label><input value={s.name||''} onChange={e=>updateSupplier(s.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace</label><input value={s.url||''} onChange={e=>updateSupplier(s.id,'url',e.target.value)} placeholder="https://..." className={fieldClass}/></div><div><label className={labelClass}>ID Dropi</label><input inputMode="numeric" value={s.dropiId||''} onChange={e=>updateSupplier(s.id,'dropiId',e.target.value.replace(/\D/g,''))} placeholder="Ej: 1986284" className={fieldClass}/></div><div><label className={labelClass}>Costo unitario</label><input type="number" min="0" value={s.unitCost||''} onChange={e=>updateSupplier(s.id,'unitCost',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Inventario disponible</label><input type="number" min="0" value={s.inventory||''} onChange={e=>updateSupplier(s.id,'inventory',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Variantes</label><input value={s.variants||''} onChange={e=>updateSupplier(s.id,'variants',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Observaciones</label><input value={s.notes||''} onChange={e=>updateSupplier(s.id,'notes',e.target.value)} className={fieldClass}/></div></div></div>)}</div></div>}
 
       {step==='offer'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">5. Oferta comercial</p><p className="text-xs text-slate-500 mt-1">La selección del proveedor es manual. Winner no elige automáticamente el más barato.</p></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Presentación elegida</label><input value={current.offer?.presentation||''} onChange={e=>updateCurrent('offer.presentation',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Cantidad de unidades</label><input type="number" min="1" value={current.offer?.quantity||''} onChange={e=>updateCurrent('offer.quantity',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio de venta total</label><input type="number" min="0" value={current.offer?.price||''} onChange={e=>updateCurrent('offer.price',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Proveedor seleccionado</label><select value={current.offer?.selectedSupplierId||''} onChange={e=>updateCurrent('offer.selectedSupplierId',e.target.value)} className={fieldClass}><option value="">Seleccionar proveedor...</option>{(current.suppliers||[]).map(s=><option key={s.id} value={s.id}>{s.name||'Proveedor'} · {fmt(Number(s.unitCost)||0)} · stock {s.inventory||0}</option>)}</select></div><div className="md:col-span-2"><label className={labelClass}>Observaciones comerciales</label><textarea rows={3} value={current.offer?.notes||''} onChange={e=>updateCurrent('offer.notes',e.target.value)} className={fieldClass}/></div></div><div className={`rounded-2xl border p-4 ${currentFinancial.freightLookup.status==='ok'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><p className="text-[8px] font-black uppercase">Flete ponderado integrado</p>{currentFinancial.freightLookup.status==='ok'?<p className="text-lg font-black mt-1">{fmt(currentFinancial.freightPerShipment)} <span className="text-[8px] font-bold text-slate-500">· tramo hasta {fmt(currentFinancial.freightLookup.rate.ticketMax)}</span></p>:<p className="text-[9px] font-bold text-amber-800 mt-1">Validar costo de flete y adicionar dato a la Tabla de Fletes.</p>}</div></div>}
