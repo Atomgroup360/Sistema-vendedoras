@@ -2068,6 +2068,26 @@ function VistaDashboard({ configs, months }) {
     if (metric) setMetricHelp(metric);
   };
 
+  // V37: cobertura calendario del producto dentro del rango seleccionado.
+  // Indicador visual independiente de los días con actividad comercial ya calculados.
+  const getProductRangeCoverage = (configId) => {
+    const config = configs.find(c => c.id === configId);
+    const start = filter.startDate;
+    const end = filter.endDate;
+    const validIso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+    if (!validIso(start) || !validIso(end) || end < start) return null;
+    const diffDays = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1;
+    const rangeDays = diffDays(start, end);
+    const creation = config?.fechaCreacion;
+    if (!validIso(creation)) return { creationLabel: 'Sin fecha', rangeDays, coverageDays: null };
+    const activeFrom = creation > start ? creation : start;
+    const deactivation = config?.fechaDesactivacion;
+    const activeTo = validIso(deactivation) && deactivation < end ? deactivation : end;
+    const coverageDays = activeFrom <= activeTo ? diffDays(activeFrom, activeTo) : 0;
+    const [year, month, day] = creation.split('-');
+    return { creationLabel: `${day}/${month}/${year}`, rangeDays, coverageDays };
+  };
+
   // PRODUCTOS EN REVISIÓN (con días activos corregidos)
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
@@ -2418,6 +2438,7 @@ function VistaDashboard({ configs, months }) {
                     <tbody className="divide-y divide-slate-100">
                       {productosDecisionVisible.map(p => {
                         const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
+                        const cobertura = getProductRangeCoverage(p.configId);
                         const isReview = p.estado?.texto === 'REVISIÓN';
                         const isScale = p.scaleCandidate === true;
                         const lectura = !p.isActive ? 'Histórico · inactivo' : isScale ? 'Candidato a escala' : isReview ? 'Revisar rendimiento' : p.estado?.texto === 'EXCELENTE' ? 'Rendimiento excelente' : 'Rendimiento favorable';
@@ -2425,7 +2446,16 @@ function VistaDashboard({ configs, months }) {
                           <tr key={p.configId} className={`transition ${!p.isActive ? 'opacity-70 bg-slate-50' : isScale ? 'bg-emerald-50/45 hover:bg-emerald-50' : isReview ? 'bg-rose-50/25 hover:bg-rose-50/55' : 'hover:bg-blue-50/40'}`}>
                             <td className="p-2 md:p-3"><span className={`inline-flex items-center gap-1 text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full ${isReview ? 'bg-rose-100 text-rose-700' : p.estado?.texto === 'EXCELENTE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{p.estado?.emoji || (isReview ? '🔴' : '🔵')} {p.estado?.texto || (isReview ? 'REVISIÓN' : 'BIEN')}</span></td>
                             <td className={`p-2 md:p-3 font-black uppercase text-[9px] md:text-xs ${isReview ? 'text-rose-700' : 'text-[#032A78]'}`}>{p.vendedora}</td>
-                            <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-slate-400' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[7px] font-black bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">INACTIVO</span>}</td>
+                            <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-slate-400' : ''}`}>
+                              <div className="flex flex-col items-start gap-1 min-w-[185px]">
+                                <div>{p.productName}{!p.isActive && <span className="ml-2 text-[7px] font-black bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">INACTIVO</span>}</div>
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8px] md:text-[9px] font-semibold text-slate-500 normal-case no-underline">
+                                  <span title="Fecha de creación configurada para el producto">📅 Creación: {cobertura?.creationLabel || '—'}</span>
+                                  <span className="rounded-md bg-blue-50 text-[#032A78] px-1.5 py-0.5" title="Días calendario desde la creación, limitados al período seleccionado; no son días con ventas">{cobertura?.coverageDays == null ? 'Cobertura: —' : `En rango: ${cobertura.coverageDays}/${cobertura.rangeDays} días`}</span>
+                                  <span title="Días con pedidos o actividad de publicidad, según el cálculo preexistente">Actividad: {p.diasActivos} días</span>
+                                </div>
+                              </div>
+                            </td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(p.utilidadPeriodo)}</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${isReview ? 'text-rose-600' : 'text-[#032A78]'}`}>{fmt(p.proyeccion30)}</td>
                             <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
