@@ -2088,6 +2088,25 @@ function VistaDashboard({ configs, months }) {
     return { creationLabel: `${day}/${month}/${year}`, rangeDays, coverageDays };
   };
 
+  // V38: integridad del registro diario por producto, incluyendo descansos y ceros.
+  // No reemplaza ni modifica el indicador preexistente de días con actividad comercial.
+  const getProductRegisteredDayCoverage = (configId, coverage) => {
+    if (!coverage || coverage.coverageDays == null) return null;
+    const config = configs.find(c => c.id === configId);
+    const from = config?.fechaCreacion > filter.startDate ? config.fechaCreacion : filter.startDate;
+    const until = config?.fechaDesactivacion && config.fechaDesactivacion < filter.endDate
+      ? config.fechaDesactivacion : filter.endDate;
+    const dates = new Set(filteredRecords
+      .filter(r => r.configId === configId && typeof r.date === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.date >= from && r.date <= until)
+      .map(r => r.date));
+    const registeredDays = dates.size;
+    return {
+      registeredDays,
+      missingDays: Math.max(0, coverage.coverageDays - registeredDays)
+    };
+  };
+
   // PRODUCTOS EN REVISIÓN (con días activos corregidos)
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
@@ -2439,6 +2458,7 @@ function VistaDashboard({ configs, months }) {
                       {productosDecisionVisible.map(p => {
                         const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
                         const cobertura = getProductRangeCoverage(p.configId);
+                        const registroDiario = getProductRegisteredDayCoverage(p.configId, cobertura);
                         const isReview = p.estado?.texto === 'REVISIÓN';
                         const isScale = p.scaleCandidate === true;
                         const lectura = !p.isActive ? 'Histórico · inactivo' : isScale ? 'Candidato a escala' : isReview ? 'Revisar rendimiento' : p.estado?.texto === 'EXCELENTE' ? 'Rendimiento excelente' : 'Rendimiento favorable';
@@ -2452,7 +2472,8 @@ function VistaDashboard({ configs, months }) {
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8px] md:text-[9px] font-semibold text-slate-500 normal-case no-underline">
                                   <span title="Fecha de creación configurada para el producto">📅 Creación: {cobertura?.creationLabel || '—'}</span>
                                   <span className="rounded-md bg-blue-50 text-[#032A78] px-1.5 py-0.5" title="Días calendario desde la creación, limitados al período seleccionado; no son días con ventas">{cobertura?.coverageDays == null ? 'Cobertura: —' : `En rango: ${cobertura.coverageDays}/${cobertura.rangeDays} días`}</span>
-                                  <span title="Días con pedidos o actividad de publicidad, según el cálculo preexistente">Actividad: {p.diasActivos} días</span>
+                                  <span className="rounded-md bg-emerald-50 text-emerald-800 px-1.5 py-0.5" title="Fechas únicas con registro guardado para este producto dentro de su cobertura en el rango, incluidos descansos y registros en cero">Registrados: {registroDiario ? `${registroDiario.registeredDays}/${cobertura.coverageDays}` : '—'} días</span>
+                                  <span className={registroDiario?.missingDays > 0 ? 'text-amber-700 font-bold' : 'text-emerald-700'} title="Días de cobertura del producto sin un registro guardado, incluidos días de descanso que aún no se han registrado">Sin registrar: {registroDiario ? registroDiario.missingDays : '—'} días</span>
                                 </div>
                               </div>
                             </td>
