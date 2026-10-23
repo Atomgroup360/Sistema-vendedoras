@@ -6995,9 +6995,6 @@ function CampaignReportCenter({
   const [reportText, setReportText] = useState('');
   const [reportSummary, setReportSummary] = useState(null);
   const [message, setMessage] = useState('');
-  // V40: simulación temporal; no se guarda ni modifica la investigación.
-  const [brief01SimulatorOpen, setBrief01SimulatorOpen] = useState(false);
-  const [brief01SimDailyOrders, setBrief01SimDailyOrders] = useState('');
 
   const availableCampaigns = useMemo(
     () => campaigns
@@ -21000,6 +20997,9 @@ function Brief01ExtensionBridge() {
 
 function Brief01Module() {
   const { user } = useAuth();
+  // V40: simulación temporal; no se guarda ni modifica la investigación.
+  const [brief01SimulatorOpen, setBrief01SimulatorOpen] = useState(false);
+  const [brief01SimDailyOrders, setBrief01SimDailyOrders] = useState('');
   const ownerUid = user?.uid || null;
   const [records, setRecords] = useState([]);
   const [freightRates, setFreightRates] = useState(DEFAULT_PONDERADO_BASE_RATES);
@@ -21249,7 +21249,7 @@ function Brief01Module() {
   const diagMonthlyProjection=currentMonthlyProjection;
   // V40: el presupuesto de pauta diario es fijo en el escenario base.
   // Cambiar los pedidos conseguidos permite medir el CPA efectivo resultante.
-  const brief01Simulation = useMemo(() => {
+  const brief01Simulation = (() => {
     if (currentMonthlyProjection?.status !== 'ok') return null;
     const base = currentMonthlyProjection;
     const dailyBudget = base.requiredDailyOrders * base.planningCPA;
@@ -21269,7 +21269,7 @@ function Brief01Module() {
       cpa, adBudget, revenue, profit, margin: revenue > 0 ? profit / revenue * 100 : null,
       adsShare: revenue > 0 ? adBudget / revenue * 100 : null,
       meetsTarget: profit >= base.monthlyProfitTarget };
-  }, [currentMonthlyProjection, currentFinancial?.price, brief01SimDailyOrders]);
+  })();
 
 
   const StepNav=()=> <div className="overflow-x-auto pb-1"><div className="flex gap-2 min-w-max">{BRIEF01_STEPS.map(s=><button key={s.id} onClick={()=>setStep(s.id)} className={`rounded-xl px-3 py-2 text-[8px] font-black uppercase inline-flex items-center gap-1.5 ${step===s.id?'bg-[#12386B] text-white':'bg-white border border-slate-200 text-slate-500'}`}><s.icon size={11}/>{s.label}</button>)}</div></div>;
