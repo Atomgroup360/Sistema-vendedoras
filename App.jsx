@@ -6995,6 +6995,9 @@ function CampaignReportCenter({
   const [reportText, setReportText] = useState('');
   const [reportSummary, setReportSummary] = useState(null);
   const [message, setMessage] = useState('');
+  // V40: simulación temporal; no se guarda ni modifica la investigación.
+  const [brief01SimulatorOpen, setBrief01SimulatorOpen] = useState(false);
+  const [brief01SimDailyOrders, setBrief01SimDailyOrders] = useState('');
 
   const availableCampaigns = useMemo(
     () => campaigns
@@ -21244,6 +21247,30 @@ function Brief01Module() {
   const currentFinancial=calculateBrief01Financial(current,freightRates);
   const currentMonthlyProjection=calculateBrief01MonthlyProjection(current,currentFinancial);
   const diagMonthlyProjection=currentMonthlyProjection;
+  // V40: el presupuesto de pauta diario es fijo en el escenario base.
+  // Cambiar los pedidos conseguidos permite medir el CPA efectivo resultante.
+  const brief01Simulation = useMemo(() => {
+    if (currentMonthlyProjection?.status !== 'ok') return null;
+    const base = currentMonthlyProjection;
+    const dailyBudget = base.requiredDailyOrders * base.planningCPA;
+    const dailyOrders = brief01SimDailyOrders === '' ? base.requiredDailyOrders : Number(brief01SimDailyOrders);
+    if (!Number.isInteger(dailyOrders) || dailyOrders < 0 || dailyOrders > 100000) return { invalid: true };
+    const registered = dailyOrders * base.sellingDays;
+    const shipped = registered * BRIEF01_DISPATCH_RATE;
+    const cancelled = registered - shipped;
+    const returned = shipped * BRIEF01_RETURN_RATE;
+    const delivered = shipped - returned;
+    const cpa = dailyOrders > 0 ? dailyBudget / dailyOrders : null;
+    const adBudget = dailyBudget * base.sellingDays;
+    const revenue = delivered * (Number(currentFinancial?.price) || 0);
+    // Conserva la convención comercial de la proyección original, sin modificarla.
+    const profit = delivered * base.marginBeforeAds - adBudget * BRIEF01_EFFECTIVE_RATE;
+    return { dailyBudget, dailyOrders, registered, shipped, cancelled, returned, delivered,
+      cpa, adBudget, revenue, profit, margin: revenue > 0 ? profit / revenue * 100 : null,
+      adsShare: revenue > 0 ? adBudget / revenue * 100 : null,
+      meetsTarget: profit >= base.monthlyProfitTarget };
+  }, [currentMonthlyProjection, currentFinancial?.price, brief01SimDailyOrders]);
+
 
   const StepNav=()=> <div className="overflow-x-auto pb-1"><div className="flex gap-2 min-w-max">{BRIEF01_STEPS.map(s=><button key={s.id} onClick={()=>setStep(s.id)} className={`rounded-xl px-3 py-2 text-[8px] font-black uppercase inline-flex items-center gap-1.5 ${step===s.id?'bg-[#12386B] text-white':'bg-white border border-slate-200 text-slate-500'}`}><s.icon size={11}/>{s.label}</button>)}</div></div>;
 
@@ -21293,6 +21320,34 @@ function Brief01Module() {
           </div>
         </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
       </div>
+      {diagMonthlyProjection.status==='ok'&&<div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><p className="text-[10px] font-black uppercase text-indigo-900">Simulador de pedidos diarios · BRIEF 01</p><p className="text-[9px] text-slate-600 mt-1">Escenario temporal: conserva el presupuesto diario de pauta y todos los datos originales.</p></div>
+          <button type="button" onClick={()=>{setBrief01SimulatorOpen(o=>!o);setBrief01SimDailyOrders('');}} className="rounded-xl bg-indigo-900 px-4 py-2 text-[10px] font-black text-white">{brief01SimulatorOpen?'Cerrar simulador':'Simular pedidos diarios'}</button>
+        </div>
+        {brief01SimulatorOpen&&<div className="mt-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white p-3 border border-indigo-100"><p className="text-[9px] font-bold text-slate-500">Presupuesto diario fijo</p><p className="text-xl font-black">{fmt(brief01Simulation?.dailyBudget)}</p><p className="text-[9px] text-slate-500">{diagMonthlyProjection.requiredDailyOrders} pedidos base × {fmt(diagMonthlyProjection.planningCPA)}</p></div>
+            <label className="rounded-xl bg-white border border-indigo-200 p-3"><span className="block text-[9px] font-black uppercase text-indigo-800">Pedidos diarios promedio simulados</span><input type="number" min="0" max="100000" step="1" value={brief01SimDailyOrders===''?String(diagMonthlyProjection.requiredDailyOrders):brief01SimDailyOrders} onChange={e=>setBrief01SimDailyOrders(e.target.value)} className="mt-2 w-full text-xl font-black text-indigo-900 border border-indigo-200 rounded-lg px-2 py-1"/><span className="block text-[8px] text-slate-500 mt-1">Solo cambia este valor; cero pedidos también es válido.</span></label>
+            <div className="rounded-xl bg-white border border-indigo-100 p-3"><p className="text-[9px] font-bold text-slate-500">CPA efectivo simulado</p><p className="text-xl font-black">{brief01Simulation?.invalid?'—':brief01Simulation?.cpa===null?'—':fmt(brief01Simulation.cpa)}</p><p className="text-[9px] text-slate-500">Presupuesto diario ÷ pedidos diarios</p></div>
+          </div>
+          {brief01Simulation?.invalid?<p className="text-xs font-bold text-rose-700">Introduce un número entero de pedidos entre 0 y 100.000.</p>:<>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{[
+              ['Pedidos registrados/mes',brief01Simulation.registered.toLocaleString('es-CO')],
+              ['Entregas esperadas',fmtDec(brief01Simulation.delivered,1)],
+              ['Devoluciones / cancelaciones',`${fmtDec(brief01Simulation.returned,1)} / ${fmtDec(brief01Simulation.cancelled,1)}`],
+              ['Inversión Ads mensual',fmt(brief01Simulation.adBudget)],
+              ['Recaudo proyectado',fmt(brief01Simulation.revenue)],
+              ['Ganancia proyectada',fmt(brief01Simulation.profit)],
+              ['Margen de ganancia',brief01Simulation.margin===null?'—':`${fmtDec(brief01Simulation.margin,2)}%`],
+              ['Peso de Ads',brief01Simulation.adsShare===null?'—':`${fmtDec(brief01Simulation.adsShare,2)}%`]
+            ].map(([label,value])=><div key={label} className="rounded-xl bg-white border border-indigo-100 p-3"><p className="text-[9px] uppercase font-black text-slate-500">{label}</p><p className="text-lg font-black mt-1 text-slate-900">{value}</p></div>)}</div>
+            <p className="text-[10px] font-bold text-indigo-900">{brief01Simulation.meetsTarget?'La simulación alcanza la meta mensual configurada.':'La simulación no alcanza la meta mensual configurada.'} Meta: {fmt(diagMonthlyProjection.monthlyProfitTarget)}.</p>
+          </>}
+          <button type="button" onClick={()=>setBrief01SimDailyOrders('')} className="rounded-xl border border-indigo-200 px-3 py-2 text-[9px] font-black text-indigo-800">Restaurar pedidos base</button>
+          <p className="text-[9px] text-slate-500">Simulación aislada: no modifica Firebase, CPA configurado, diagnóstico original, otros módulos ni el PDF.</p>
+        </div>}
+      </div>}
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-[#12386B]">Actividad publicitaria y posibles señales de escalamiento</p><p className="text-[9px] text-slate-600 mt-1">{diag.adActivity?.interpretation}</p></div><span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${diag.adActivity?.trendTone==='attention'?'bg-amber-100 text-amber-800':diag.adActivity?.trendTone==='good'?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{diag.adActivity?.trendLabel}</span></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Competidores</p><p className="text-lg font-black mt-1">{diag.adActivity?.competitorCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Anuncios registrados</p><p className="text-lg font-black mt-1">{diag.adActivity?.totalAds||0}{diag.adActivity?.totalIsPartial?<span className="text-[7px] text-amber-600 ml-1">PARCIAL</span>:null}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Sin medición</p><p className="text-lg font-black mt-1">{diag.adActivity?.unknownCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Fecha de corte</p><p className="text-xs font-black mt-2">{diag.adActivity?.cutoff||'—'}</p></div></div><div className="overflow-x-auto mt-3"><table className="min-w-[760px] w-full text-left"><thead className="text-[7px] uppercase text-slate-400"><tr><th className="p-2">Tienda</th><th className="p-2">Actual</th><th className="p-2">Tipo</th><th className="p-2">Anterior</th><th className="p-2">Cambio</th><th className="p-2">Última revisión</th></tr></thead><tbody>{(diag.adActivity?.rows||[]).map(r=><tr key={r.id} className="border-t border-blue-100 text-[8px]"><td className="p-2 font-black">{r.name}</td><td className="p-2">{r.currentCount===null?'—':r.currentCount}</td><td className="p-2">{r.measurementType==='exact'?'Exacta':r.measurementType==='estimated'?'Aprox.':'No determinada'}</td><td className="p-2">{r.previousCount===null?'—':r.previousCount}</td><td className="p-2 font-black">{r.delta===null?'—':`${r.delta>=0?'+':''}${r.delta}${r.deltaPct!==null?` · ${r.deltaPct>=0?'+':''}${fmtDec(r.deltaPct,1)}%`:''}`}</td><td className="p-2">{r.lastReviewedAt||'—'}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1">{(diag.adActivity?.limitations||[]).map((x,i)=><p key={i} className="text-[8px] text-slate-500">• {x}</p>)}</div></div>
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/30 p-4 sm:p-5"><p className="text-[10px] font-black uppercase text-[#12386B]">Inteligencia competitiva · Ángulos y promesas</p><p className="text-xs text-slate-500 mt-1">Frecuencia observada, no prueba de eficacia publicitaria.</p>{brief01CopyGroups(current.adCopies).length?brief01CopyGroups(current.adCopies).map(g=><div key={g.angle} className="mt-3 rounded-xl border bg-white p-3"><p className="text-sm font-bold">{g.angle}</p><p className="text-xs text-slate-500">{g.advertisers.size} anunciantes · {g.records.length} anuncios</p><p className="text-xs mt-1">Promesas: {[...g.promises.values()].slice(0,4).join(' · ')||'Sin identificar'}</p></div>):<p className="mt-3 text-xs text-slate-500">Sin copys capturados todavía.</p>}</div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">{[['Alertas',diag.alerts,'rose'],['Fortalezas',diag.strengths,'emerald'],['Acciones recomendadas',diag.actions,'blue']].map(([title,arr,tone])=><div key={title} className={`rounded-2xl border p-4 ${tone==='rose'?'border-rose-200 bg-rose-50/50':tone==='emerald'?'border-emerald-200 bg-emerald-50/50':'border-blue-200 bg-blue-50/50'}`}><p className="text-[9px] font-black uppercase">{title}</p><div className="mt-2 space-y-2">{arr.length?arr.map((x,i)=><p key={i} className="text-[9px] leading-relaxed text-slate-700">• {x}</p>):<p className="text-[9px] text-slate-400">Sin registros.</p>}</div></div>)}</div>
