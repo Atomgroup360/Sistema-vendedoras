@@ -20313,14 +20313,14 @@ function buildBrief01Diagnosis(research, freightRates) {
   // NO el umbral fijo de $25.000 de la calculadora histórica.
   const plannedCPA = hasPlanningCPA ? Number(planningCpaRaw) : null;
   const profitAfterCPA = plannedCPA === null ? null : financial.marginPerGenerated - plannedCPA;
-  const collectedPerGenerated = financial.revenueCollected / financial.generated;
-  const netMarginPct = profitAfterCPA !== null && collectedPerGenerated > 0
-    ? profitAfterCPA / collectedPerGenerated * 100 : null;
+  const commercialTicket = Number(financial.price) || 0;
+  const netMarginPct = profitAfterCPA !== null && commercialTicket > 0
+    ? profitAfterCPA / commercialTicket * 100 : null;
   const financialEvidence = Number.isFinite(netMarginPct);
   if (financialEvidence) {
-    if (netMarginPct < 8) weaknesses.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}% del recaudo (menor al 8%): margen de seguridad reducido.`);
+    if (netMarginPct < 8) weaknesses.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}% del ticket comercial (menor al 8%): margen de seguridad reducido.`);
     else if (netMarginPct < 12) alerts.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}%: zona de atención; revisar CPA, flete y sensibilidad del IER.`);
-    else strengths.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}% del recaudo después del CPA: ${netMarginPct>18?'rango alto (>18%)':'rango favorable (12%–18%)'}.`);
+    else strengths.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}% del ticket comercial después del CPA: ${netMarginPct>18?'rango alto (>18%)':'rango favorable (12%–18%)'}.`);
   }
   if (financial.selectedSupplier && Number(financial.selectedSupplier.inventory) <= 0) {
     alerts.push('Inventario reportado en cero: confirmar reposición, nuevo proveedor o importación. No constituye rechazo automático.');
@@ -20334,11 +20334,11 @@ function buildBrief01Diagnosis(research, freightRates) {
   } else if (profitAfterCPA <= 0 || netMarginPct < 8) {
     classification = 'NO RECOMENDADO POR AHORA';
     classificationReason = profitAfterCPA <= 0
-      ? `El ticket deja ${fmt(profitAfterCPA)} por pedido después del CPA de ${fmt(plannedCPA)} (${fmtDec(netMarginPct,2)}% del recaudo). El escenario proyecta una pérdida o ausencia de utilidad; revisa precio y costos antes de invertir.`
-      : `El margen estimado después del CPA es ${fmtDec(netMarginPct,2)}% del recaudo, por debajo del 8% de referencia. La rentabilidad es frágil ante aumentos de CPA, fletes o devoluciones.`;
+      ? `El ticket deja ${fmt(profitAfterCPA)} por pedido después del CPA de ${fmt(plannedCPA)} (${fmtDec(netMarginPct,2)}% del ticket comercial). El escenario proyecta una pérdida o ausencia de utilidad; revisa precio y costos antes de invertir.`
+      : `El margen estimado después del CPA es ${fmtDec(netMarginPct,2)}% del ticket comercial, por debajo del 8% de referencia. La rentabilidad es frágil ante aumentos de CPA, fletes o devoluciones.`;
   } else if (netMarginPct >= 12 && sustained > 0) {
     classification = 'RECOMENDADO PARA TESTEO';
-    classificationReason = `Margen estimado después del CPA: ${fmtDec(netMarginPct,2)}% del recaudo (${fmt(profitAfterCPA)} por pedido de referencia). Se registran ${sustained} anunciante(s) con publicidad sostenida >15 días. Es una señal para testeo, no garantía de demanda o ventas.`;
+    classificationReason = `Margen estimado después del CPA: ${fmtDec(netMarginPct,2)}% del ticket comercial (${fmt(profitAfterCPA)} por pedido de referencia). Se registran ${sustained} anunciante(s) con publicidad sostenida >15 días. Es una señal para testeo, no garantía de demanda o ventas.`;
   } else {
     classification = 'TESTEO CONDICIONADO';
     const margins = netMarginPct < 12
@@ -20351,7 +20351,7 @@ function buildBrief01Diagnosis(research, freightRates) {
   }
 
   const actions = [];
-  if (financialEvidence && netMarginPct < 12) actions.push('Probar ajustes de ticket, CPA y costos para alcanzar un margen neto estimado de al menos 12% del recaudo; verificar su viabilidad con datos reales.');
+  if (financialEvidence && netMarginPct < 12) actions.push('Probar ajustes de ticket, CPA y costos para alcanzar un margen neto estimado de al menos 12% del ticket comercial; verificar su viabilidad con datos reales.');
   if (cheaper > 0) actions.push('Revisar diferenciación, oferta y percepción de valor porque existen comparables más baratos.');
   if (supplierCount > 0) actions.push('Confirmar inventario real del proveedor seleccionado antes del testeo.');
   if (!actions.length) actions.push('Mantener la oferta propuesta y validar el producto mediante testeo controlado.');
@@ -20411,7 +20411,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(`Fecha del diagnostico: ${todayColombia()} | Clasificacion: ${diagnosis?.classification || 'PENDIENTE'}`, {size:9,gap:10});
   add('1. RESUMEN EJECUTIVO',{bold:true,size:12,gap:6});
   add(`Ticket propuesto: ${fmt(Number(research?.offer?.price)||0)} | Oferta: ${research?.offer?.presentation||'-'} | Unidades: ${research?.offer?.quantity||'-'}`);
-  add(`Margen antes de Ads por pedido generado: ${fmt(diagnosis?.financial?.marginPerGenerated||0)} | Margen neto estimado despues de CPA: ${diagnosis?.netMarginPct==null?'No calculable':`${fmtDec(diagnosis.netMarginPct,2)}% del recaudo`}`);
+  add(`Margen antes de Ads por pedido generado: ${fmt(diagnosis?.financial?.marginPerGenerated||0)} | Margen neto estimado despues de CPA: ${diagnosis?.netMarginPct==null?'No calculable':`${fmtDec(diagnosis.netMarginPct,2)}% del ticket comercial`}`);
   add(`Recomendacion: ${diagnosis?.classificationReason||'Diagnostico pendiente.'}`, {gap:8});
   add('2. INVESTIGACION PUBLICITARIA',{bold:true,size:12,gap:6});
   add(`Anunciantes independientes: ${research?.meta?.advertisers||0} | >15 dias: ${research?.meta?.sustained15d||0} | Saturacion: ${diagnosis?.saturation?.label||'-'}`);
@@ -21322,7 +21322,7 @@ function Brief01Module() {
     <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4"><div><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Diagnóstico BRIEF 01</p><h3 className="text-2xl font-black mt-1 text-slate-900">{diag.classification||'PENDIENTE DE INFORMACIÓN'}</h3><p className="text-sm text-slate-600 mt-2 max-w-3xl">{diag.classificationReason}</p></div><div className="flex gap-2 flex-wrap"><button onClick={()=>{setScreen('edit');setStep('product');}} className="rounded-xl bg-slate-100 text-slate-700 px-3 py-2 text-[8px] font-black uppercase"><Pencil size={11} className="inline mr-1"/>Editar investigación</button><button onClick={downloadPdf} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Download size={11} className="inline mr-1"/>Descargar PDF</button></div></div>
       {diag.missing.length>0&&<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-[9px] font-black uppercase text-amber-800">Información indispensable pendiente</p><div className="mt-2 flex flex-wrap gap-2">{diag.missing.map(x=><span key={x} className="rounded-full bg-white border border-amber-200 px-2.5 py-1 text-[8px] font-bold text-amber-800">{x}</span>)}</div></div>}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5"><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-lg font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Flete ponderado</p><p className="text-lg font-black mt-1">{diag.financial.freightLookup.status==='ok'?fmt(diag.financial.freightPerShipment):'—'}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen / pedido</p><p className={`text-lg font-black mt-1 ${diag.financial.marginPerGenerated>=0?'text-emerald-700':'text-rose-700'}`}>{fmt(diag.financial.marginPerGenerated)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen %</p><p className="text-lg font-black mt-1">{fmtDec(diag.financial.marginPct,1)}%</p></div><div className="rounded-2xl bg-slate-50 p-3 col-span-2 lg:col-span-1"><p className="text-[7px] uppercase font-black text-slate-400">Margen neto después de Ads</p><p className="text-lg font-black mt-1">{Number.isFinite(diag.netMarginPct)?`${fmtDec(diag.netMarginPct,2)}%`:"—"}</p></div></div>
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5"><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-lg font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Flete ponderado</p><p className="text-lg font-black mt-1">{diag.financial.freightLookup.status==='ok'?fmt(diag.financial.freightPerShipment):'—'}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen / pedido</p><p className={`text-lg font-black mt-1 ${diag.financial.marginPerGenerated>=0?'text-emerald-700':'text-rose-700'}`}>{fmt(diag.financial.marginPerGenerated)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen %</p><p className="text-lg font-black mt-1">{fmtDec(diag.financial.marginPct,1)}%</p></div><div className="rounded-2xl bg-slate-50 p-3 col-span-2 lg:col-span-1"><p className="text-[7px] uppercase font-black text-slate-400">Margen neto sobre ticket después de Ads</p><p className="text-lg font-black mt-1">{Number.isFinite(diag.netMarginPct)?`${fmtDec(diag.netMarginPct,2)}%`:"—"}</p></div></div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5"><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Embudo normalizado · 100 pedidos</p><div className="grid grid-cols-4 gap-2 mt-3">{[['Cancelados',diag.financial.cancelled],['Despachados',diag.financial.shipped],['Devueltos',diag.financial.returned],['Efectivos',diag.financial.delivered]].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 p-2 text-center"><p className="text-[7px] uppercase font-black text-slate-400">{l}</p><p className="text-base font-black mt-1">{fmtDec(v,0)}</p></div>)}</div><div className="mt-3 text-[9px] text-slate-600 space-y-1"><p>Ingresos cobrados: <b>{fmt(diag.financial.revenueCollected)}</b></p><p>Costo producto: <b>{fmt(diag.financial.productCostTotal)}</b></p><p>Fletes: <b>{fmt(diag.financial.freightTotal)}</b></p><p>Comisiones + fijos + otros: <b>{fmt(diag.financial.commissionTotal+diag.financial.fixedTotal+diag.financial.additionalTotal)}</b></p><p className="pt-1 border-t">Margen disponible total: <b>{fmt(diag.financial.marginTotal)}</b></p></div></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Escenarios</p><div className="space-y-2 mt-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Situación actual</p><p className="text-xs font-black mt-1">{fmt(diag.financial.price)} · margen {fmt(diag.financial.marginPerGenerated)}</p></div>{diag.targetPrice?.status==='ok'&&<div className="rounded-xl bg-blue-50 p-3"><p className="text-[7px] uppercase font-black text-blue-500">Precio ajustado</p><p className="text-xs font-black text-blue-800 mt-1">{fmt(diag.targetPrice.price)} · margen {fmt(diag.targetPrice.calc.marginPerGenerated)}</p></div>}{diag.targetPrice?.status==='freight_out_of_range'&&<div className="rounded-xl bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Validar costo de flete y adicionar dato a la Tabla de Fletes para calcular el precio objetivo.</div>}{diag.targetCost&&<div className="rounded-xl bg-purple-50 p-3"><p className="text-[7px] uppercase font-black text-purple-500">Costo negociado objetivo</p><p className="text-xs font-black text-purple-800 mt-1">Máximo {fmt(Math.max(0,diag.targetCost.maxUnitCost))} / unidad</p><p className="text-[8px] text-purple-700 mt-1">Reducción requerida: {fmt(Math.max(0,diag.targetCost.reduction))}{diag.targetCost.reductionPct!==null?` · ${fmtDec(Math.max(0,diag.targetCost.reductionPct),1)}%`:''}</p></div>}<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[7px] uppercase font-black text-emerald-600">Proyección mensual · escenario actual</p>{diagMonthlyProjection?.status==='ok'?<><p className="text-2xl font-black text-emerald-800 mt-1">{diagMonthlyProjection.requiredDailyOrders} <span className="text-[9px] font-black uppercase">órdenes/día</span></p><p className="text-[8px] text-emerald-800 mt-1">Meta {fmt(diagMonthlyProjection.monthlyProfitTarget)} · CPA {fmt(diagMonthlyProjection.planningCPA)} · {diagMonthlyProjection.sellingDays} días</p><p className="text-[8px] text-slate-600 mt-1">{diagMonthlyProjection.minimumMonthlyOrders} mínimas generadas/mes → {diagMonthlyProjection.monthlyOrdersAtDailyPace} generadas al ritmo diario (redondeo) · ganancia proyectada {fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p></>:<p className="text-[8px] font-bold text-amber-800 mt-1">{diagMonthlyProjection?.message}</p>}</div></div></div></div>
       <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
         <div className="flex flex-col lg:flex-row justify-between gap-3">
@@ -21440,8 +21440,9 @@ const f=calculateBrief01Financial(current,freightRates,{price});const cpa=Number
 if(!current.offer?.selectedSupplierId)return <div className="space-y-2"><div className={`rounded-xl border p-3 ${f.freightLookup.status==='ok'?'border-sky-200 bg-sky-50':'border-amber-200 bg-amber-50'}`}><p className="text-[10px] font-black uppercase text-sky-900">Flete según ticket probado</p><p className="text-xl font-black text-[#12386B]">{f.freightLookup.status==='ok'?fmt(f.freightPerShipment):'—'}</p><p className="text-xs text-slate-600">{f.freightLookup.status==='ok'?`Tramo hasta ${fmt(f.freightLookup.rate.ticketMax)} · por envío`:'No hay un tramo válido para este precio en la Tabla de Fletes.'}</p></div><p className="text-xs font-bold text-amber-700">Selecciona un proveedor y su costo para calcular el margen completo.</p></div>;
 if(f.freightLookup.status!=='ok')return <p className="text-xs font-bold text-amber-700">Flete para el ticket {fmt(price)}: —. No existe un tramo válido en la Tabla de Fletes; configura uno para evaluar la rentabilidad.</p>;
 const marginAfterCpa=f.marginPerGenerated-cpa;
-const revenuePerGenerated=f.revenueCollected/100;
-const marginAfterCpaPct=revenuePerGenerated>0?(marginAfterCpa/revenuePerGenerated)*100:0;
+const marginAfterCpaPct=price>0?(marginAfterCpa/price)*100:0;
+const collectedPerGenerated=f.generated>0?f.revenueCollected/f.generated:0;
+const collectedMarginPct=collectedPerGenerated>0?marginAfterCpa/collectedPerGenerated*100:null;
 const marginAlertTone=marginAfterCpa<0?'negative':marginAfterCpaPct>=10?'strong-positive':'positive';
 const marginAlertClass=marginAlertTone==='negative'
   ?'border-rose-300 bg-rose-50 text-rose-800'
@@ -21459,7 +21460,7 @@ return <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
   {(marginAlertTone==='negative'||marginAlertTone==='strong-positive')&&<span aria-hidden="true" className={`pointer-events-none absolute inset-[-2px] z-0 rounded-2xl border-[3px] motion-safe:animate-pulse ${marginAlertTone==='negative'?'border-rose-500':'border-emerald-500'}`}/>}
   <div className="relative z-10 flex items-start justify-between gap-3">
     <div>
-      <p className="text-[10px] font-black uppercase tracking-wide">Margen menos CPA planificado</p>
+      <p className="text-[10px] font-black uppercase tracking-wide">Ganancia estimada después de IER y CPA</p>
       <p className="text-[10px] mt-1 opacity-80">{marginAlertLabel}</p>
     </div>
     <span className={`rounded-full px-2.5 py-1 text-[9px] font-black ${marginAfterCpa<0?'bg-rose-100 text-rose-700':marginAfterCpaPct>=10?'bg-emerald-100 text-emerald-700':'bg-emerald-100/80 text-emerald-700'}`}>
@@ -21467,14 +21468,16 @@ return <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
     </span>
   </div>
   <p className="relative z-10 mt-3 text-3xl font-black tracking-tight">{fmt(marginAfterCpa)}</p>
+  <p className="relative z-10 mt-1 text-[10px] font-semibold opacity-80">Por pedido generado · IER aplicado · CPA descontado</p>
+  <p className="relative z-10 mt-2 text-[10px] opacity-80">Base del porcentaje: ticket de venta completo. La ganancia sí incorpora IER, CPA y costos.</p>
   <div className="relative z-10 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
     <div className="rounded-xl bg-white/75 p-3">
-      <p className="text-[9px] uppercase font-black opacity-70">% sobre el recaudo</p>
-      <p className="text-lg font-black mt-1">{fmtDec(marginAfterCpaPct,2)}%</p>
+      <p className="text-[9px] uppercase font-black opacity-70">% de ganancia sobre el ticket</p>
+      <p className="text-lg font-black mt-1">{fmtDec(marginAfterCpaPct,2)}%</p><p className="text-[9px] mt-1 opacity-70">Sobre recaudo esperado: {collectedMarginPct===null?"—":`${fmtDec(collectedMarginPct,2)}%`}</p>
     </div>
     <div className="rounded-xl bg-white/75 p-3">
       <p className="text-[9px] uppercase font-black opacity-70">Lectura rápida</p>
-      <p className="text-[11px] font-bold mt-1">{marginAfterCpa<0?'Estás perdiendo dinero con este ticket después del CPA planificado.':marginAfterCpaPct>=10?'Este ticket deja una ganancia de al menos 10% sobre el recaudo.':'El ticket es rentable, pero la ganancia queda por debajo del 10% del recaudo.'}</p>
+      <p className="text-[11px] font-bold mt-1">{marginAfterCpa<0?'Estás perdiendo dinero con este ticket después del CPA planificado.':marginAfterCpaPct>=10?'Este ticket deja una ganancia de al menos 10% sobre el ticket.':'El ticket es rentable, pero la ganancia queda por debajo del 10% del ticket.'}</p>
     </div>
   </div>
 </div>
