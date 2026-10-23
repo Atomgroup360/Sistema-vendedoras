@@ -20000,7 +20000,7 @@ function calculateBrief01Financial(research, freightRates, override = {}) {
   const suppliers = Array.isArray(research?.suppliers) ? research.suppliers : [];
   const supplierId = override.selectedSupplierId ?? research?.offer?.selectedSupplierId;
   const selectedSupplier = suppliers.find(s => s.id === supplierId) || null;
-  const unitCost = Math.max(0, Number(override.unitCost ?? selectedSupplier?.unitCost) || 0);
+  const unitCost = Math.max(0, Number(override.unitCost ?? selectedSupplier?.unitCost ?? research?.costs?.importEstimatedUnitCost) || 0);
   const revenueCollected = delivered * price;
   const freightLookup = brief01ResolveFreight(freightRates, price);
   const freightPerShipment = freightLookup.status === 'ok' ? Number(freightLookup.rate.freight) : 0;
@@ -20246,13 +20246,17 @@ function buildBrief01AdActivity(research) {
 function buildBrief01Diagnosis(research, freightRates) {
   const financial = calculateBrief01Financial(research, freightRates);
   const missing = [];
-  if (!research?.name?.trim()) missing.push('Nombre del producto');
-  if (!(Number(research?.offer?.price) > 0)) missing.push('Precio de venta total');
-  if (!(Number(research?.offer?.quantity) > 0)) missing.push('Cantidad de unidades');
-  if (!research?.offer?.selectedSupplierId) missing.push('Proveedor seleccionado');
-  if (!financial.selectedSupplier) missing.push('Proveedor seleccionado válido');
-  if (financial.freightLookup.status !== 'ok') missing.push('Flete ponderado válido para el ticket');
-
+  if (!research?.name?.trim()) missing.push('Nombre del producto (Producto)');
+  if (!(Number(research?.offer?.price) > 0)) missing.push('Precio de venta total (Oferta)');
+  if (!(Number(research?.offer?.quantity) > 0)) missing.push('Cantidad de unidades (Oferta)');
+  const hasSupplierCost = Boolean(financial.selectedSupplier) && financial.selectedSupplier.unitCost !== '' && financial.selectedSupplier.unitCost != null && Number.isFinite(Number(financial.selectedSupplier.unitCost)) && Number(financial.selectedSupplier.unitCost) >= 0;
+  const hasEstimatedImportCost = research?.costs?.importEstimatedUnitCost !== '' && research?.costs?.importEstimatedUnitCost != null && Number.isFinite(Number(research.costs.importEstimatedUnitCost)) && Number(research.costs.importEstimatedUnitCost) >= 0;
+  if (!hasSupplierCost && !hasEstimatedImportCost) missing.push('Costo unitario: registra proveedor con costo o estimado de importación (Costos)');
+  if (financial.freightLookup.status !== 'ok') missing.push('Flete válido para el precio de oferta (Tabla de Fletes)');
+  const planningCpaRaw = research?.planning?.planningCPA;
+  const hasPlanningCPA = planningCpaRaw !== '' && planningCpaRaw !== null && planningCpaRaw !== undefined && Number.isFinite(Number(planningCpaRaw)) && Number(planningCpaRaw) >= 0;
+  if (!hasPlanningCPA) missing.push('CPA de planificación (Producto)');
+  if (brief01DeliveryRates(research).effective <= 0) missing.push('IER mayor que 0% (Producto)');
   const saturation = brief01Saturation(research?.meta?.advertisers);
   const supplierCount = brief01DropiSupplierCount(research);
   const sustained = Number(research?.meta?.sustained15d) || 0;
@@ -20305,32 +20309,49 @@ function buildBrief01Diagnosis(research, freightRates) {
   if (clearBalancedSupplier) strengths.push(`Un proveedor domina simultáneamente en costo/inventario frente a las alternativas registradas: ${clearBalancedSupplier.name || 'Sin nombre'}.`);
   else if (paretoSuppliers.length > 1) alerts.push(`No existe un ganador claro entre costo e inventario. Alternativas no dominadas: ${paretoSuppliers.slice(0,4).map(x=>x.name||'Sin nombre').join(', ')}.`);
   if (targetPrice?.status === 'ok' && targetComparables.length && targetCheaperCount > 0) alerts.push(`El precio objetivo de ${fmt(targetPrice.price)} quedaría por encima de ${targetCheaperCount} competidor(es) comparable(s); existe riesgo competitivo que debe evaluarse.`);
-  if (financial.marginPerGenerated < 0) weaknesses.push('El margen de contribución antes de Ads es negativo.');
-  else if (financial.marginPerGenerated < BRIEF01_TARGET_MARGIN) weaknesses.push(`El margen por pedido generado está por debajo del objetivo de ${fmt(BRIEF01_TARGET_MARGIN)}.`);
-  else strengths.push(`El margen por pedido generado cumple el objetivo de ${fmt(BRIEF01_TARGET_MARGIN)} antes de publicidad.`);
+  // La clasificación utiliza ganancia después de CPA sobre recaudo estimado,
+  // NO el umbral fijo de $25.000 de la calculadora histórica.
+  const plannedCPA = hasPlanningCPA ? Number(planningCpaRaw) : null;
+  const profitAfterCPA = plannedCPA === null ? null : financial.marginPerGenerated - plannedCPA;
+  const collectedPerGenerated = financial.revenueCollected / financial.generated;
+  const netMarginPct = profitAfterCPA !== null && collectedPerGenerated > 0
+    ? profitAfterCPA / collectedPerGenerated * 100 : null;
+  const financialEvidence = Number.isFinite(netMarginPct);
+  if (financialEvidence) {
+    if (netMarginPct < 8) weaknesses.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}% del recaudo (menor al 8%): margen de seguridad reducido.`);
+    else if (netMarginPct < 12) alerts.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}%: zona de atención; revisar CPA, flete y sensibilidad del IER.`);
+    else strengths.push(`Rentabilidad neta estimada ${fmtDec(netMarginPct,2)}% del recaudo después del CPA: ${netMarginPct>18?'rango alto (>18%)':'rango favorable (12%–18%)'}.`);
+  }
+  if (financial.selectedSupplier && Number(financial.selectedSupplier.inventory) <= 0) {
+    alerts.push('Inventario reportado en cero: confirmar reposición, nuevo proveedor o importación. No constituye rechazo automático.');
+  }
 
   let classification = '';
   let classificationReason = '';
   if (missing.length) {
     classification = '';
-    classificationReason = 'Faltan datos indispensables para emitir una clasificación financiera definitiva.';
-  } else if (financial.marginPerGenerated < 0 || (financial.selectedSupplier && Number(financial.selectedSupplier.inventory) <= 0)) {
+    classificationReason = `Para completar el diagnóstico falta: ${missing.join('; ')}.`;
+  } else if (profitAfterCPA <= 0 || netMarginPct < 8) {
     classification = 'NO RECOMENDADO POR AHORA';
-    classificationReason = 'Existe una alerta financiera crítica o una limitación operativa relevante. La decisión no es automática y puede revisarse al actualizar datos.';
-  } else if (financial.marginPerGenerated >= BRIEF01_TARGET_MARGIN && sustained > 0) {
+    classificationReason = profitAfterCPA <= 0
+      ? `El ticket deja ${fmt(profitAfterCPA)} por pedido después del CPA de ${fmt(plannedCPA)} (${fmtDec(netMarginPct,2)}% del recaudo). El escenario proyecta una pérdida o ausencia de utilidad; revisa precio y costos antes de invertir.`
+      : `El margen estimado después del CPA es ${fmtDec(netMarginPct,2)}% del recaudo, por debajo del 8% de referencia. La rentabilidad es frágil ante aumentos de CPA, fletes o devoluciones.`;
+  } else if (netMarginPct >= 12 && sustained > 0) {
     classification = 'RECOMENDADO PARA TESTEO';
-    classificationReason = 'El producto cumple el objetivo financiero antes de Ads y presenta evidencia de publicidad sostenida. La aprobación final sigue siendo manual.';
+    classificationReason = `Margen estimado después del CPA: ${fmtDec(netMarginPct,2)}% del recaudo (${fmt(profitAfterCPA)} por pedido de referencia). Se registran ${sustained} anunciante(s) con publicidad sostenida >15 días. Es una señal para testeo, no garantía de demanda o ventas.`;
   } else {
     classification = 'TESTEO CONDICIONADO';
-    classificationReason = 'Hay potencial, pero existe al menos una condición financiera, comercial o de evidencia que conviene resolver antes o durante el testeo.';
+    const margins = netMarginPct < 12
+      ? `Margen neto estimado ${fmtDec(netMarginPct,2)}%: zona de atención (8% a menos de 12%). `
+      : `Margen neto estimado ${fmtDec(netMarginPct,2)}% favorable. `;
+    const demand = sustained === 0
+      ? 'No hay evidencia documentada de anuncios sostenidos >15 días; la demanda no está validada. Probar con presupuesto controlado y medir resultados antes de escalar.'
+      : `Hay ${sustained} anunciante(s) con publicidad sostenida; validar CPA real e IER con testeo controlado.`;
+    classificationReason = margins + demand;
   }
 
   const actions = [];
-  if (financial.marginPerGenerated < BRIEF01_TARGET_MARGIN) {
-    if (targetPrice?.status === 'ok') actions.push(`Evaluar un ticket cercano a ${fmt(targetPrice.price)} para alcanzar el objetivo financiero, contrastándolo con competencia equivalente.`);
-    if (targetPrice?.status === 'freight_out_of_range') actions.push('Validar costo de flete y adicionar dato a la Tabla de Fletes antes de calcular el precio objetivo.');
-    if (targetCost?.mathematicallyPossible) actions.push(`Negociar costo unitario hacia ${fmt(Math.max(0,targetCost.maxUnitCost))} o menos para alcanzar el objetivo con el ticket actual.`);
-  }
+  if (financialEvidence && netMarginPct < 12) actions.push('Probar ajustes de ticket, CPA y costos para alcanzar un margen neto estimado de al menos 12% del recaudo; verificar su viabilidad con datos reales.');
   if (cheaper > 0) actions.push('Revisar diferenciación, oferta y percepción de valor porque existen comparables más baratos.');
   if (supplierCount > 0) actions.push('Confirmar inventario real del proveedor seleccionado antes del testeo.');
   if (!actions.length) actions.push('Mantener la oferta propuesta y validar el producto mediante testeo controlado.');
@@ -20342,7 +20363,7 @@ function buildBrief01Diagnosis(research, freightRates) {
     angleAnalysis: { ranking: angleRanking, repeated: repeatedAngles, lessUsed: lessUsedAngles },
     supplierAnalysis: { cheapestSupplier, highestInventorySupplier, paretoSuppliers, clearBalancedSupplier, documentedSupplierCount },
     monthlyProjection,
-    adActivity,
+    adActivity, netMarginPct, profitAfterCPA, plannedCPA,
     classification, classificationReason
   };
 }
@@ -20390,7 +20411,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(`Fecha del diagnostico: ${todayColombia()} | Clasificacion: ${diagnosis?.classification || 'PENDIENTE'}`, {size:9,gap:10});
   add('1. RESUMEN EJECUTIVO',{bold:true,size:12,gap:6});
   add(`Ticket propuesto: ${fmt(Number(research?.offer?.price)||0)} | Oferta: ${research?.offer?.presentation||'-'} | Unidades: ${research?.offer?.quantity||'-'}`);
-  add(`Margen por pedido generado: ${fmt(diagnosis?.financial?.marginPerGenerated||0)} | Objetivo: ${fmt(BRIEF01_TARGET_MARGIN)} | Margen porcentual: ${fmtDec(diagnosis?.financial?.marginPct||0,1)}%`);
+  add(`Margen antes de Ads por pedido generado: ${fmt(diagnosis?.financial?.marginPerGenerated||0)} | Margen neto estimado despues de CPA: ${diagnosis?.netMarginPct==null?'No calculable':`${fmtDec(diagnosis.netMarginPct,2)}% del recaudo`}`);
   add(`Recomendacion: ${diagnosis?.classificationReason||'Diagnostico pendiente.'}`, {gap:8});
   add('2. INVESTIGACION PUBLICITARIA',{bold:true,size:12,gap:6});
   add(`Anunciantes independientes: ${research?.meta?.advertisers||0} | >15 dias: ${research?.meta?.sustained15d||0} | Saturacion: ${diagnosis?.saturation?.label||'-'}`);
@@ -21301,7 +21322,7 @@ function Brief01Module() {
     <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4"><div><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Diagnóstico BRIEF 01</p><h3 className="text-2xl font-black mt-1 text-slate-900">{diag.classification||'PENDIENTE DE INFORMACIÓN'}</h3><p className="text-sm text-slate-600 mt-2 max-w-3xl">{diag.classificationReason}</p></div><div className="flex gap-2 flex-wrap"><button onClick={()=>{setScreen('edit');setStep('product');}} className="rounded-xl bg-slate-100 text-slate-700 px-3 py-2 text-[8px] font-black uppercase"><Pencil size={11} className="inline mr-1"/>Editar investigación</button><button onClick={downloadPdf} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Download size={11} className="inline mr-1"/>Descargar PDF</button></div></div>
       {diag.missing.length>0&&<div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-[9px] font-black uppercase text-amber-800">Información indispensable pendiente</p><div className="mt-2 flex flex-wrap gap-2">{diag.missing.map(x=><span key={x} className="rounded-full bg-white border border-amber-200 px-2.5 py-1 text-[8px] font-bold text-amber-800">{x}</span>)}</div></div>}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5"><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-lg font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Flete ponderado</p><p className="text-lg font-black mt-1">{diag.financial.freightLookup.status==='ok'?fmt(diag.financial.freightPerShipment):'—'}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen / pedido</p><p className={`text-lg font-black mt-1 ${diag.financial.marginPerGenerated>=25000?'text-emerald-700':diag.financial.marginPerGenerated<0?'text-rose-700':'text-amber-700'}`}>{fmt(diag.financial.marginPerGenerated)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen %</p><p className="text-lg font-black mt-1">{fmtDec(diag.financial.marginPct,1)}%</p></div><div className="rounded-2xl bg-slate-50 p-3 col-span-2 lg:col-span-1"><p className="text-[7px] uppercase font-black text-slate-400">Objetivo</p><p className="text-lg font-black mt-1">{fmt(BRIEF01_TARGET_MARGIN)}</p></div></div>
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5"><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-lg font-black mt-1">{fmt(diag.financial.price)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Flete ponderado</p><p className="text-lg font-black mt-1">{diag.financial.freightLookup.status==='ok'?fmt(diag.financial.freightPerShipment):'—'}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen / pedido</p><p className={`text-lg font-black mt-1 ${diag.financial.marginPerGenerated>=0?'text-emerald-700':'text-rose-700'}`}>{fmt(diag.financial.marginPerGenerated)}</p></div><div className="rounded-2xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Margen %</p><p className="text-lg font-black mt-1">{fmtDec(diag.financial.marginPct,1)}%</p></div><div className="rounded-2xl bg-slate-50 p-3 col-span-2 lg:col-span-1"><p className="text-[7px] uppercase font-black text-slate-400">Margen neto después de Ads</p><p className="text-lg font-black mt-1">{Number.isFinite(diag.netMarginPct)?`${fmtDec(diag.netMarginPct,2)}%`:"—"}</p></div></div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5"><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Embudo normalizado · 100 pedidos</p><div className="grid grid-cols-4 gap-2 mt-3">{[['Cancelados',diag.financial.cancelled],['Despachados',diag.financial.shipped],['Devueltos',diag.financial.returned],['Efectivos',diag.financial.delivered]].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 p-2 text-center"><p className="text-[7px] uppercase font-black text-slate-400">{l}</p><p className="text-base font-black mt-1">{fmtDec(v,0)}</p></div>)}</div><div className="mt-3 text-[9px] text-slate-600 space-y-1"><p>Ingresos cobrados: <b>{fmt(diag.financial.revenueCollected)}</b></p><p>Costo producto: <b>{fmt(diag.financial.productCostTotal)}</b></p><p>Fletes: <b>{fmt(diag.financial.freightTotal)}</b></p><p>Comisiones + fijos + otros: <b>{fmt(diag.financial.commissionTotal+diag.financial.fixedTotal+diag.financial.additionalTotal)}</b></p><p className="pt-1 border-t">Margen disponible total: <b>{fmt(diag.financial.marginTotal)}</b></p></div></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Escenarios</p><div className="space-y-2 mt-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Situación actual</p><p className="text-xs font-black mt-1">{fmt(diag.financial.price)} · margen {fmt(diag.financial.marginPerGenerated)}</p></div>{diag.targetPrice?.status==='ok'&&<div className="rounded-xl bg-blue-50 p-3"><p className="text-[7px] uppercase font-black text-blue-500">Precio ajustado</p><p className="text-xs font-black text-blue-800 mt-1">{fmt(diag.targetPrice.price)} · margen {fmt(diag.targetPrice.calc.marginPerGenerated)}</p></div>}{diag.targetPrice?.status==='freight_out_of_range'&&<div className="rounded-xl bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Validar costo de flete y adicionar dato a la Tabla de Fletes para calcular el precio objetivo.</div>}{diag.targetCost&&<div className="rounded-xl bg-purple-50 p-3"><p className="text-[7px] uppercase font-black text-purple-500">Costo negociado objetivo</p><p className="text-xs font-black text-purple-800 mt-1">Máximo {fmt(Math.max(0,diag.targetCost.maxUnitCost))} / unidad</p><p className="text-[8px] text-purple-700 mt-1">Reducción requerida: {fmt(Math.max(0,diag.targetCost.reduction))}{diag.targetCost.reductionPct!==null?` · ${fmtDec(Math.max(0,diag.targetCost.reductionPct),1)}%`:''}</p></div>}<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[7px] uppercase font-black text-emerald-600">Proyección mensual · escenario actual</p>{diagMonthlyProjection?.status==='ok'?<><p className="text-2xl font-black text-emerald-800 mt-1">{diagMonthlyProjection.requiredDailyOrders} <span className="text-[9px] font-black uppercase">órdenes/día</span></p><p className="text-[8px] text-emerald-800 mt-1">Meta {fmt(diagMonthlyProjection.monthlyProfitTarget)} · CPA {fmt(diagMonthlyProjection.planningCPA)} · {diagMonthlyProjection.sellingDays} días</p><p className="text-[8px] text-slate-600 mt-1">{diagMonthlyProjection.minimumMonthlyOrders} mínimas generadas/mes → {diagMonthlyProjection.monthlyOrdersAtDailyPace} generadas al ritmo diario (redondeo) · ganancia proyectada {fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p></>:<p className="text-[8px] font-bold text-amber-800 mt-1">{diagMonthlyProjection?.message}</p>}</div></div></div></div>
       <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
         <div className="flex flex-col lg:flex-row justify-between gap-3">
@@ -21405,7 +21426,7 @@ function Brief01Module() {
       </div>}
       {step==='suppliers'&&<div className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">4. Proveedores Dropi</p><p className="text-xs text-slate-500 mt-1">Registra todos los proveedores del producto exacto. Sin límite.</p></div><button onClick={addSupplier} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Plus size={11} className="inline mr-1"/>Proveedor</button></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4"><label className={labelClass}>Cantidad total de proveedores en Dropi</label><input type="number" min="0" value={current.dropiSummary?.supplierCount??''} onChange={e=>updateCurrent('dropiSummary.supplierCount',e.target.value===''?'':Math.max(0,Math.floor(Number(e.target.value)||0)))} placeholder="0" className={fieldClass}/><p className="text-[8px] text-slate-500 mt-1">Valor manual e independiente de las fichas documentadas.</p></div><div className={`rounded-2xl border p-4 ${brief01DropiSupplierCount(current)>5?'border-amber-200 bg-amber-50':'border-emerald-200 bg-emerald-50'}`}><p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Lectura de saturación</p><p className={`text-sm font-black mt-1 ${brief01DropiSupplierCount(current)>5?'text-amber-800':'text-emerald-700'}`}>{brief01DropiSupplierCount(current)>5?'Posible saturación':'Sin alerta por cantidad'}</p><p className="text-[8px] text-slate-500 mt-1">La alerta se activa únicamente cuando hay más de 5 proveedores.</p></div></div>{brief01DropiSupplierCount(current)>5&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Alerta de posible saturación: se declararon {brief01DropiSupplierCount(current)} proveedores independientes en Dropi. No implica descarte automático.</div>}{current.dropiSummary?.supplierCount!==''&&brief01DropiSupplierCount(current)!==(current.suppliers||[]).length&&<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[9px] text-slate-600">Cantidad declarada: <b>{brief01DropiSupplierCount(current)}</b> · Proveedores documentados: <b>{(current.suppliers||[]).length}</b>. Es válido que sean diferentes.</div>}<div className="space-y-3">{(current.suppliers||[]).map((s,i)=><div key={s.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><p className="text-[9px] font-black uppercase text-slate-500">Proveedor {i+1}</p><button onClick={()=>removeSupplier(s.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre</label><input value={s.name||''} onChange={e=>updateSupplier(s.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace</label><input value={s.url||''} onChange={e=>updateSupplier(s.id,'url',e.target.value)} placeholder="https://..." className={fieldClass}/></div><div><label className={labelClass}>ID Dropi</label><input inputMode="numeric" value={s.dropiId||''} onChange={e=>updateSupplier(s.id,'dropiId',e.target.value.replace(/\D/g,''))} placeholder="Ej: 1986284" className={fieldClass}/></div><div><label className={labelClass}>Costo unitario</label><input type="number" min="0" value={s.unitCost||''} onChange={e=>updateSupplier(s.id,'unitCost',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Inventario disponible</label><input type="number" min="0" value={s.inventory||''} onChange={e=>updateSupplier(s.id,'inventory',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Variantes</label><input value={s.variants||''} onChange={e=>updateSupplier(s.id,'variants',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Observaciones</label><input value={s.notes||''} onChange={e=>updateSupplier(s.id,'notes',e.target.value)} className={fieldClass}/></div></div></div>)}</div></div>}
 
-      {step==='costs'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">5. Costos financieros</p><p className="text-xs text-slate-500 mt-1">Cada costo identifica su base de aplicación. El CPA de planificación se configura aparte y no entra en este margen.</p></div><div className="rounded-2xl bg-slate-50 border border-slate-200 p-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Comisión · valor o %</label><input type="number" min="0" value={current.costs?.commissionAmount||''} onChange={e=>updateCurrent('costs.commissionAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base comisión</label><select value={current.costs?.commissionBase||'per_delivered'} onChange={e=>updateCurrent('costs.commissionBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div><div><label className={labelClass}>Costos fijos asignados · valor o %</label><input type="number" min="0" value={current.costs?.fixedAmount||''} onChange={e=>updateCurrent('costs.fixedAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base costos fijos</label><select value={current.costs?.fixedBase||'per_delivered'} onChange={e=>updateCurrent('costs.fixedBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div></div><div><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Otros costos operativos</p><button onClick={addAdditionalCost} className="text-[8px] font-black text-[#12386B]">+ Agregar costo</button></div><div className="space-y-2 mt-2">{(current.costs?.additional||[]).map(x=><div key={x.id} className="grid grid-cols-1 sm:grid-cols-[1fr_130px_1fr_34px] gap-2 items-center"><input placeholder="Nombre" value={x.name||''} onChange={e=>updateAdditionalCost(x.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Valor" value={x.amount||''} onChange={e=>updateAdditionalCost(x.id,'amount',e.target.value)} className={fieldClass}/><select value={x.base||'per_delivered'} onChange={e=>updateAdditionalCost(x.id,'base',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><button onClick={()=>removeAdditionalCost(x.id)} className="text-rose-500"><Trash2 size={13}/></button></div>)}</div></div></div>}
+      {step==='costs'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">5. Costos financieros</p><p className="text-xs text-slate-500 mt-1">Cada costo identifica su base de aplicación. El CPA de planificación se configura aparte y no entra en este margen.</p></div><div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4"><label className={labelClass}>Costo unitario estimado de importación (COP) · opcional</label><input type="number" min="0" value={current.costs?.importEstimatedUnitCost??''} onChange={e=>updateCurrent('costs.importEstimatedUnitCost',e.target.value)} placeholder="Usar si aún no tienes proveedor seleccionado" className={fieldClass}/><p className="mt-1 text-[10px] text-slate-600">Solo se utiliza cuando no hay un proveedor con costo registrado. Incluye en los costos adicionales los gastos aplicables a la importación, nacionalización y entrega que el modelo no cubra.</p></div><div className="rounded-2xl bg-slate-50 border border-slate-200 p-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Comisión · valor o %</label><input type="number" min="0" value={current.costs?.commissionAmount||''} onChange={e=>updateCurrent('costs.commissionAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base comisión</label><select value={current.costs?.commissionBase||'per_delivered'} onChange={e=>updateCurrent('costs.commissionBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div><div><label className={labelClass}>Costos fijos asignados · valor o %</label><input type="number" min="0" value={current.costs?.fixedAmount||''} onChange={e=>updateCurrent('costs.fixedAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base costos fijos</label><select value={current.costs?.fixedBase||'per_delivered'} onChange={e=>updateCurrent('costs.fixedBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div></div><div><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Otros costos operativos</p><button onClick={addAdditionalCost} className="text-[8px] font-black text-[#12386B]">+ Agregar costo</button></div><div className="space-y-2 mt-2">{(current.costs?.additional||[]).map(x=><div key={x.id} className="grid grid-cols-1 sm:grid-cols-[1fr_130px_1fr_34px] gap-2 items-center"><input placeholder="Nombre" value={x.name||''} onChange={e=>updateAdditionalCost(x.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Valor" value={x.amount||''} onChange={e=>updateAdditionalCost(x.id,'amount',e.target.value)} className={fieldClass}/><select value={x.base||'per_delivered'} onChange={e=>updateAdditionalCost(x.id,'base',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><button onClick={()=>removeAdditionalCost(x.id)} className="text-rose-500"><Trash2 size={13}/></button></div>)}</div></div></div>}
 
       {step==='offer'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">6. Oferta comercial</p><p className="text-xs text-slate-500 mt-1">La selección del proveedor es manual. Winner no elige automáticamente el más barato.</p></div>
 <div className={`relative overflow-hidden rounded-2xl border-2 p-4 sm:p-5 shadow-md transition-all duration-300 ${brief01TicketOpen?'border-blue-400 bg-gradient-to-br from-blue-50 via-white to-cyan-50 shadow-blue-100':'border-[#60A5FA] bg-gradient-to-r from-blue-50 via-white to-sky-50 shadow-blue-100/80'}`}>
@@ -21423,9 +21444,9 @@ const revenuePerGenerated=f.revenueCollected/100;
 const marginAfterCpaPct=revenuePerGenerated>0?(marginAfterCpa/revenuePerGenerated)*100:0;
 const marginAlertTone=marginAfterCpa<0?'negative':marginAfterCpaPct>=10?'strong-positive':'positive';
 const marginAlertClass=marginAlertTone==='negative'
-  ?'border-rose-300 bg-rose-50 text-rose-800 motion-safe:animate-pulse'
+  ?'border-rose-300 bg-rose-50 text-rose-800'
   :marginAlertTone==='strong-positive'
-    ?'border-emerald-300 bg-emerald-50 text-emerald-800 motion-safe:animate-pulse'
+    ?'border-emerald-300 bg-emerald-50 text-emerald-800'
     :'border-emerald-200 bg-emerald-50/70 text-emerald-800';
 const marginAlertLabel=marginAfterCpa<0
   ?'Pérdida estimada después del CPA'
@@ -21434,8 +21455,9 @@ const marginAlertLabel=marginAfterCpa<0
     :'Ganancia positiva pero por debajo del 10%';
 return <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 {[['Precio probado',fmt(price)],['Flete por envío',fmt(f.freightPerShipment)],['Margen antes de Ads / pedido generado',fmt(f.marginPerGenerated)],['Margen sobre recaudo',`${fmtDec(f.marginPct,2)}%`],['IER estimado',`${fmtDec(brief01DeliveryRates(current).effective*100,2)}%`],['Precio frente al objetivo',f.marginPerGenerated>=BRIEF01_TARGET_MARGIN?'Cumple objetivo':'Bajo objetivo']].map(([k,v])=><div key={k} className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[9px] text-slate-500">{k}</p><p className="text-sm font-black mt-1">{v}</p></div>)}
-<div className={`col-span-2 md:col-span-2 rounded-2xl border-2 p-4 shadow-sm transition-all duration-300 ${marginAlertClass}`}>
-  <div className="flex items-start justify-between gap-3">
+<div className={`relative isolate col-span-2 md:col-span-2 rounded-2xl border-2 p-4 shadow-sm transition-colors duration-300 ${marginAlertClass}`}>
+  {(marginAlertTone==='negative'||marginAlertTone==='strong-positive')&&<span aria-hidden="true" className={`pointer-events-none absolute inset-[-2px] z-0 rounded-2xl border-[3px] motion-safe:animate-pulse ${marginAlertTone==='negative'?'border-rose-500':'border-emerald-500'}`}/>}
+  <div className="relative z-10 flex items-start justify-between gap-3">
     <div>
       <p className="text-[10px] font-black uppercase tracking-wide">Margen menos CPA planificado</p>
       <p className="text-[10px] mt-1 opacity-80">{marginAlertLabel}</p>
@@ -21444,8 +21466,8 @@ return <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
       {marginAfterCpa<0?'NEGATIVO':marginAfterCpaPct>=10?'POSITIVO >10%':'POSITIVO <10%'}
     </span>
   </div>
-  <p className="mt-3 text-3xl font-black tracking-tight">{fmt(marginAfterCpa)}</p>
-  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+  <p className="relative z-10 mt-3 text-3xl font-black tracking-tight">{fmt(marginAfterCpa)}</p>
+  <div className="relative z-10 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
     <div className="rounded-xl bg-white/75 p-3">
       <p className="text-[9px] uppercase font-black opacity-70">% sobre el recaudo</p>
       <p className="text-lg font-black mt-1">{fmtDec(marginAfterCpaPct,2)}%</p>
