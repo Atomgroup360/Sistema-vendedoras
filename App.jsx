@@ -20105,6 +20105,78 @@ function calculateBrief01MonthlyProjection(research, financial) {
   return result;
 }
 
+
+// V53 · Capa estratégica BRIEF 01. No modifica el motor financiero V52.
+function Brief01ChannelStrategyV53({ financial, research }) {
+  const [humanAdvisors, setHumanAdvisors] = useState('1');
+  const [humanDailyCap, setHumanDailyCap] = useState('30000');
+  const [humanExtra, setHumanExtra] = useState('');
+  const [iaDailyCap, setIaDailyCap] = useState('60000');
+  const [iaExtra, setIaExtra] = useState('');
+  const [webCPA, setWebCPA] = useState(20000);
+  const [webExtra, setWebExtra] = useState('');
+  const [webEnabled, setWebEnabled] = useState(true);
+  const [iaEnabled, setIaEnabled] = useState(true);
+  const [humanEnabled, setHumanEnabled] = useState(true);
+  const planning = research?.planning || {};
+  const target = Number(planning.monthlyProfitTarget);
+  const days = Number(planning.sellingDays);
+  const priorMargin = Number(financial?.marginPerGenerated);
+  const price = Number(financial?.price);
+  const effectiveRate = Number(brief01DeliveryRates(research).effective);
+  const valid = planning.monthlyProfitTarget !== '' && planning.monthlyProfitTarget != null &&
+    Number.isFinite(target) && target > 0 && Number.isInteger(days) && days >= 1 && days <= 31 &&
+    Number.isFinite(priorMargin) && Number.isFinite(price) && price > 0 && effectiveRate > 0;
+  const asNonnegative = (value, fallback = 0) => value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback;
+  const numAdvisors = Math.max(0, Math.min(100, Math.floor(asNonnegative(humanAdvisors))));
+  const capHuman = asNonnegative(humanDailyCap);
+  const capIA = asNonnegative(iaDailyCap);
+  const configuredExtras = [humanExtra, iaExtra, webExtra].every(v => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0);
+  const configs = [
+    { key:'human', name:'Vendedoras humanas', cpa:15000, extra:asNonnegative(humanExtra), enabled:humanEnabled,
+      capacity:Math.floor(capHuman/15000)*numAdvisors*days, note:`${numAdvisors} asesora(s), tope de pauta de ${fmt(capHuman)} diarios por asesora (supuesto editable).` },
+    { key:'ia', name:'WhatsApp IA', cpa:15000, extra:asNonnegative(iaExtra), enabled:iaEnabled,
+      capacity:Math.floor(capIA/15000)*days, note:'Tope diario de pauta IA editable; no representa un límite técnico del agente.' },
+    { key:'web', name:'Página web', cpa:webCPA, extra:asNonnegative(webExtra), enabled:webEnabled,
+      capacity:Infinity, note:'Tres escenarios propios: $15.000 excepcional, $20.000 normal y $25.000 exigente.' }
+  ];
+  const revenuePerRegistered = price*effectiveRate;
+  const rows = configs.map(x=>{
+    const profitPerOrder = priorMargin-x.cpa-x.extra;
+    const marginPct = revenuePerRegistered>0 ? profitPerOrder/revenuePerRegistered*100 : null;
+    const maxCpaAt10Pct = priorMargin-x.extra-revenuePerRegistered*0.1;
+    const status = profitPerOrder <= 0 ? 'No rentable' : marginPct<10 ? 'Margen estrecho' : 'Rentable';
+    return {...x,profitPerOrder,marginPct,maxCpaAt10Pct,status,orders:0};
+  });
+  // Asignación operativa: priorizar contribución unitaria, respetar topes de volumen.
+  // La meta se cumple conjuntamente, sin duplicar pedidos ni aplicar IER por segunda vez.
+  let remaining = target;
+  const ranked = [...rows].filter(x=>x.enabled && x.profitPerOrder>0).sort((a,b)=>b.profitPerOrder-a.profitPerOrder);
+  for(const row of ranked){
+    if(remaining<=0) break;
+    const units = Math.min(Math.ceil(remaining/row.profitPerOrder),row.capacity);
+    row.orders = Number.isFinite(units)? Math.max(0,units):0;
+    remaining -= row.orders*row.profitPerOrder;
+  }
+  const totalProfit=rows.reduce((s,r)=>s+r.orders*r.profitPerOrder,0);
+  const totalAdBudget=rows.reduce((s,r)=>s+r.orders*r.cpa,0);
+  const totalOrders=rows.reduce((s,r)=>s+r.orders,0);
+  const inputCls='w-full mt-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-900';
+  if(!valid) return <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-black text-[#12386B]">Estrategia comercial unificada · BRIEF 01</h3><p className="text-xs mt-2 text-amber-700">Completa ticket, costos, meta mensual positiva y días de venta para calcular los canales.</p></section>;
+  return <section className="mt-4 rounded-2xl border border-blue-200 bg-white p-4 sm:p-5" aria-label="Estrategia comercial unificada BRIEF 01">
+    <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-[10px] font-black uppercase tracking-wider text-[#12386B]">V53 · Estrategia comercial unificada</p><h3 className="mt-1 text-lg font-black text-slate-900">Un producto · Una meta · Hasta tres canales</h3></div><span className="rounded-full bg-blue-50 border border-blue-200 px-3 py-1 text-[10px] font-black text-blue-800">Simulación aislada</span></div>
+    <p className="mt-2 text-xs text-slate-600">Meta del proyecto: <b>{fmt(target)}</b> · {days} días de venta · IER {fmtDec(effectiveRate*100,2)}%. Se utiliza el margen por pedido registrado del motor existente, que ya contempla IER. No se guardan cambios ni se altera el diagnóstico original.</p>
+    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="rounded-xl border border-slate-200 p-3"><label className="text-xs font-black"><input type="checkbox" checked={humanEnabled} onChange={e=>setHumanEnabled(e.target.checked)} className="mr-2"/>Vendedoras humanas</label><p className="mt-1 text-[10px] text-slate-500">CPA supuesto $15.000</p><label className="block mt-2 text-[10px] text-slate-600">Número de asesoras<input type="number" min="0" step="1" value={humanAdvisors} onChange={e=>setHumanAdvisors(e.target.value)} className={inputCls}/></label><label className="block mt-2 text-[10px] text-slate-600">Pauta máxima diaria por asesora (COP)<input type="number" min="0" step="1000" value={humanDailyCap} onChange={e=>setHumanDailyCap(e.target.value)} className={inputCls}/></label><label className="block mt-2 text-[10px] text-slate-600">Costo adicional de atención por pedido (COP)<input type="number" min="0" value={humanExtra} placeholder="Introducir costo" onChange={e=>setHumanExtra(e.target.value)} className={inputCls}/></label></div>
+      <div className="rounded-xl border border-slate-200 p-3"><label className="text-xs font-black"><input type="checkbox" checked={iaEnabled} onChange={e=>setIaEnabled(e.target.checked)} className="mr-2"/>Vendedora IA</label><p className="mt-1 text-[10px] text-slate-500">CPA supuesto $15.000</p><label className="block mt-2 text-[10px] text-slate-600">Límite diario de pauta IA (COP)<input type="number" min="0" step="1000" value={iaDailyCap} onChange={e=>setIaDailyCap(e.target.value)} className={inputCls}/></label><label className="block mt-2 text-[10px] text-slate-600">Mensajes + plataforma + apoyo humano por pedido (COP)<input type="number" min="0" value={iaExtra} placeholder="Introducir costo" onChange={e=>setIaExtra(e.target.value)} className={inputCls}/></label><p className="mt-2 text-[10px] text-slate-500">El costo aumenta con el volumen de mensajes; actualízalo según tu proveedor.</p></div>
+      <div className="rounded-xl border border-slate-200 p-3"><label className="text-xs font-black"><input type="checkbox" checked={webEnabled} onChange={e=>setWebEnabled(e.target.checked)} className="mr-2"/>Página web</label><p className="mt-1 text-[10px] text-slate-500">CPA de simulación (sin escenario $30.000)</p><div className="mt-2 flex flex-wrap gap-2">{[15000,20000,25000].map(c=><button key={c} type="button" onClick={()=>setWebCPA(c)} className={`rounded-lg border px-2 py-1.5 text-xs font-black ${webCPA===c?'border-blue-700 bg-blue-700 text-white':'border-slate-200 bg-white text-slate-700'}`}>{fmt(c)}</button>)}</div><label className="block mt-3 text-[10px] text-slate-600">Costo adicional web por pedido (COP)<input type="number" min="0" value={webExtra} placeholder="Introducir costo" onChange={e=>setWebExtra(e.target.value)} className={inputCls}/></label><p className="mt-2 text-[10px] text-slate-500">CPA no es límite de exclusión: manda la utilidad real.</p></div>
+    </div>
+    {!configuredExtras&&<p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">Costos de canal sin completar: los importes pendientes se simulan temporalmente como $0. Las ganancias no son netas definitivas; completa los tres costos antes de decidir inversión.</p>}
+    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">{rows.map(row=><div key={row.key} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-black">{row.name}</p><p className="text-[10px] mt-1 text-slate-500">{row.enabled?'Habilitado':'Desactivado'} · CPA {fmt(row.cpa)}</p><p className={`text-base font-black mt-2 ${row.profitPerOrder<=0?'text-rose-700':row.marginPct<10?'text-amber-700':'text-emerald-700'}`}>{row.status}</p><p className="text-xs mt-2">Contribución/pedido: <b>{fmt(row.profitPerOrder)}</b></p><p className="text-xs">Margen sobre recaudo esperado: <b>{fmtDec(row.marginPct,2)}%</b></p><p className="text-xs">CPA máximo para margen 10%: <b>{fmt(row.maxCpaAt10Pct)}</b></p><p className="text-xs mt-2">Pedidos asignados: <b>{row.orders}</b> · Ads: <b>{fmt(row.orders*row.cpa)}</b></p><p className="mt-2 text-[10px] text-slate-500">{row.note}</p></div>)}</div>
+    <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-4"><p className="text-[10px] font-black uppercase text-[#12386B]">Propuesta de distribución del proyecto</p><div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3">{[['Pedidos registrados',String(totalOrders)],['Presupuesto Ads mensual',fmt(totalAdBudget)],['Contribución mensual estimada',fmt(totalProfit)],['Meta cubierta',`${fmtDec(Math.min(totalProfit/target*100,100),1)}%`]].map(([name,value])=><div key={name}><p className="text-[10px] text-slate-600">{name}</p><p className="text-lg font-black text-slate-900">{value}</p></div>)}</div><p className={`text-xs font-bold mt-3 ${remaining>0?'text-amber-800':'text-emerald-800'}`}>{remaining>0?`Con los canales y topes actuales faltan ${fmt(remaining)} de contribución para la meta. Ajusta capacidades o costos sin forzar cifras.`:'La asignación matemática alcanza la meta bajo estos supuestos; validar CPA real, tasa de conversión, saturación y costos antes de escalar.'}</p><p className="mt-2 text-[10px] text-slate-600">La distribución prioriza mayor contribución por pedido y respeta los topes de pauta introducidos. Los topes son supuestos operativos, no mediciones de chats ni garantía de desempeño. Una vendedora no requiere una campaña independiente. La web no tiene un límite de capacidad supuesto.</p></div>
+  </section>;
+}
+
 function solveBrief01TargetPrice(research, freightRates) {
   const hasSupplier = !!(research?.offer?.selectedSupplierId && (research?.suppliers || []).some(s => s.id === research.offer.selectedSupplierId && Number(s.unitCost) >= 0));
   if (!hasSupplier) return null;
@@ -21391,6 +21463,7 @@ function Brief01Module() {
           </div>
         </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
       </div>
+      <Brief01ChannelStrategyV53 key={current?.id || "brief01"} financial={currentFinancial} research={current} />
       {diagMonthlyProjection.status==='ok'&&<div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><p className="text-[10px] font-black uppercase text-indigo-900">Simulador de pedidos diarios · BRIEF 01</p><p className="text-[9px] text-slate-600 mt-1">Escenario temporal: conserva el presupuesto diario de pauta y todos los datos originales.</p></div>
