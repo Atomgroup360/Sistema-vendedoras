@@ -20243,6 +20243,23 @@ function buildBrief01AdActivity(research) {
   };
 }
 
+// V52 — Diagnóstico complementario de presión publicitaria (no sustituye margen neto).
+function brief01AdWeightDiagnosis(pct) {
+  if (pct === null || pct === undefined || !Number.isFinite(Number(pct)) || Number(pct) < 0) return {
+    status:'pending', label:'PENDIENTE', verdict:'Sin datos suficientes', tone:'neutral',
+    detail:'Completa la proyección mensual para comparar la inversión Ads con el recaudo esperado después del IER.'
+  };
+  const value=Number(pct);
+  if (value < 20) return {status:'excellent',label:'EXCELENTE',verdict:'Ticket muy fuerte',tone:'good',
+    detail:'La pauta consume menos del 20% del recaudo esperado con IER aplicado. Queda más del 80% para producto, fletes y demás costos; confirma la utilidad neta por separado.'};
+  if (value <= 30) return {status:'healthy',label:'SANO',verdict:'Ticket saludable',tone:'good',
+    detail:'La pauta representa entre el 20% y el 30% del recaudo esperado. Presión publicitaria moderada; valida que producto, logística y costos mantengan utilidad neta.'};
+  if (value <= 38) return {status:'risky',label:'RIESGOSO',verdict:'Ticket débil / vulnerable',tone:'attention',
+    detail:'La pauta supera el 30% y alcanza hasta el 38% del recaudo esperado. Queda menos espacio para mercancía, fletes y costos; revisar ticket, CPA e IER.'};
+  return {status:'unviable',label:'INVIABLE POR PRESIÓN ADS',verdict:'Ticket con presión publicitaria crítica',tone:'critical',
+    detail:'La pauta supera el 38% del recaudo esperado. Requiere revisar ticket, CPA e IER antes de escalar. Este indicador aislado no demuestra pérdida contable: confirma la ganancia neta.'};
+}
+
 function buildBrief01Diagnosis(research, freightRates) {
   const financial = calculateBrief01Financial(research, freightRates);
   const missing = [];
@@ -20363,6 +20380,7 @@ function buildBrief01Diagnosis(research, freightRates) {
     angleAnalysis: { ranking: angleRanking, repeated: repeatedAngles, lessUsed: lessUsedAngles },
     supplierAnalysis: { cheapestSupplier, highestInventorySupplier, paretoSuppliers, clearBalancedSupplier, documentedSupplierCount },
     monthlyProjection,
+    adWeightHealth: brief01AdWeightDiagnosis(monthlyProjection.adSpendShareOfRevenuePct),
     adActivity, netMarginPct, profitAfterCPA, plannedCPA,
     classification, classificationReason
   };
@@ -20480,6 +20498,9 @@ function buildBrief01PdfBlob(research, diagnosis) {
     add(`PAUTA OPERATIVA MENSUAL: ${mp.monthlyOrdersAtDailyPace} pedidos registrados x CPA ${fmt(mp.planningCPA)} = ${fmt(mp.operatingAdBudget)}.`);
     add(`Recaudo bruto estimado: ${fmtDec(mp.expectedDelivered,2)} entregas x ${fmt(f.price||0)} = ${fmt(mp.projectedGrossRevenue)}.`);
     add(`PESO DE PAUTA SOBRE RECAUDO ENTREGADO: ${mp.adSpendShareOfRevenuePct===null?'No calculable (sin recaudo)':fmtDec(mp.adSpendShareOfRevenuePct,2)+'%'} = presupuesto operativo / recaudo bruto proyectado.`);
+    const adWeightHealth=brief01AdWeightDiagnosis(mp.adSpendShareOfRevenuePct);
+    add(`DIAGNOSTICO PRESION ADS: ${adWeightHealth.label} — ${adWeightHealth.verdict}. ${adWeightHealth.detail}`);
+    add('Bandas orientativas: Excelente <20%; Sano 20–30%; Riesgoso >30–38%; Crítico >38%. Independiente de utilidad neta.');
     add(`GANANCIA MENSUAL DEL ESCENARIO: ${fmtDec(mp.expectedDelivered,2)} entregas x $${fmtDec(mp.operatingProfitPerDelivered,2)} = ${fmt(mp.projectedMonthlyOperatingProfit)}.`,{bold:true});
     add(`MARGEN DE GANANCIA ESTIMADA: ${Number.isFinite(mp.projectedGrossRevenue) && mp.projectedGrossRevenue > 0 && Number.isFinite(mp.projectedMonthlyOperatingProfit) ? fmtDec(mp.projectedMonthlyOperatingProfit / mp.projectedGrossRevenue * 100,2)+'%' : '—'}. Porcentaje del recaudo proyectado que queda como ganancia despues de los costos contemplados.`);
     add('PLANIFICACION CONTRAENTREGA: los pedidos registrados se ajustan por el IER para estimar entregas efectivas. La pauta se presupuestra sobre pedidos registrados y su peso se compara con el recaudo de entregas. El CPA no modifica la viabilidad ni el diagnostico financiero base.');
@@ -21359,6 +21380,13 @@ function Brief01Module() {
               <div className="rounded-xl bg-white border border-emerald-200 p-3"><p className="text-[9px] font-black uppercase text-emerald-800">Inversión diaria Ads</p><p className="text-xl font-black text-emerald-800 mt-1">{fmt(diagMonthlyProjection.requiredDailyOrders * diagMonthlyProjection.planningCPA)}</p><p className="text-[9px] text-slate-500 mt-1">{diagMonthlyProjection.requiredDailyOrders} pedidos diarios × CPA {fmt(diagMonthlyProjection.planningCPA)}. Inversión diaria estimada para cumplir la meta con el CPA definido en la estrategia.</p></div>
               <div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[9px] font-black uppercase text-slate-600">Peso de Ads sobre recaudo</p><p className="text-xl font-black mt-1">{diagMonthlyProjection.adSpendShareOfRevenuePct===null?'—':`${fmtDec(diagMonthlyProjection.adSpendShareOfRevenuePct,2)}%`}</p><p className="text-[9px] text-slate-500 mt-1">Presupuesto operativo ÷ recaudo de entregas efectivas.</p></div>
             </div>
+            {(()=>{const weight=brief01AdWeightDiagnosis(diagMonthlyProjection.adSpendShareOfRevenuePct);return <div className={`mt-3 rounded-2xl border p-4 ${brief01ToneClasses(weight.tone)}`} aria-live="polite">
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] font-black uppercase tracking-wider">Diagnóstico del ticket · Presión publicitaria</p><span className="rounded-full border border-current/20 bg-white/70 px-3 py-1 text-[10px] font-black">{weight.label}</span></div>
+              <p className="mt-2 text-lg font-black">{weight.verdict}</p>
+              <p className="mt-1 text-[11px] leading-relaxed">{weight.detail}</p>
+              <p className="mt-2 text-[10px] font-semibold">{diagMonthlyProjection.adSpendShareOfRevenuePct===null?'Sin porcentaje calculable':`${fmtDec(diagMonthlyProjection.adSpendShareOfRevenuePct,2)}% = ${fmt(diagMonthlyProjection.operatingAdBudget)} de Ads ÷ ${fmt(diagMonthlyProjection.projectedGrossRevenue)} de recaudo esperado`}</p>
+              <p className="mt-1 text-[9px] opacity-80">Reglas: excelente &lt;20%; sano 20–30%; riesgoso &gt;30–38%; presión crítica &gt;38%. Semáforo complementario: no reemplaza el diagnóstico de utilidad neta.</p>
+            </div>;})()}
             <p className="text-[9px] text-slate-600 mt-3">Planificación contraentrega: se presupuesta pauta por pedidos registrados y se compara con el recaudo esperado de las entregas. Sin ROI adicional.</p>
           </div>
         </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
