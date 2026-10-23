@@ -2068,45 +2068,6 @@ function VistaDashboard({ configs, months }) {
     if (metric) setMetricHelp(metric);
   };
 
-  // V37: cobertura calendario del producto dentro del rango seleccionado.
-  // Indicador visual independiente de los días con actividad comercial ya calculados.
-  const getProductRangeCoverage = (configId) => {
-    const config = configs.find(c => c.id === configId);
-    const start = filter.startDate;
-    const end = filter.endDate;
-    const validIso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
-    if (!validIso(start) || !validIso(end) || end < start) return null;
-    const diffDays = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1;
-    const rangeDays = diffDays(start, end);
-    const creation = config?.fechaCreacion;
-    if (!validIso(creation)) return { creationLabel: 'Sin fecha', rangeDays, coverageDays: null };
-    const activeFrom = creation > start ? creation : start;
-    const deactivation = config?.fechaDesactivacion;
-    const activeTo = validIso(deactivation) && deactivation < end ? deactivation : end;
-    const coverageDays = activeFrom <= activeTo ? diffDays(activeFrom, activeTo) : 0;
-    const [year, month, day] = creation.split('-');
-    return { creationLabel: `${day}/${month}/${year}`, rangeDays, coverageDays };
-  };
-
-  // V38: integridad del registro diario por producto, incluyendo descansos y ceros.
-  // No reemplaza ni modifica el indicador preexistente de días con actividad comercial.
-  const getProductRegisteredDayCoverage = (configId, coverage) => {
-    if (!coverage || coverage.coverageDays == null) return null;
-    const config = configs.find(c => c.id === configId);
-    const from = config?.fechaCreacion > filter.startDate ? config.fechaCreacion : filter.startDate;
-    const until = config?.fechaDesactivacion && config.fechaDesactivacion < filter.endDate
-      ? config.fechaDesactivacion : filter.endDate;
-    const dates = new Set(filteredRecords
-      .filter(r => r.configId === configId && typeof r.date === 'string' &&
-        /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.date >= from && r.date <= until)
-      .map(r => r.date));
-    const registeredDays = dates.size;
-    return {
-      registeredDays,
-      missingDays: Math.max(0, coverage.coverageDays - registeredDays)
-    };
-  };
-
   // PRODUCTOS EN REVISIÓN (con días activos corregidos)
   const productosEnRevision = useMemo(() => {
     if (filteredRecords.length === 0) return [];
@@ -2457,8 +2418,6 @@ function VistaDashboard({ configs, months }) {
                     <tbody className="divide-y divide-slate-100">
                       {productosDecisionVisible.map(p => {
                         const porcentajeMeta = p.targetProfit > 0 ? (p.proyeccion30 / p.targetProfit) * 100 : 0;
-                        const cobertura = getProductRangeCoverage(p.configId);
-                        const registroDiario = getProductRegisteredDayCoverage(p.configId, cobertura);
                         const isReview = p.estado?.texto === 'REVISIÓN';
                         const isScale = p.scaleCandidate === true;
                         const lectura = !p.isActive ? 'Histórico · inactivo' : isScale ? 'Candidato a escala' : isReview ? 'Revisar rendimiento' : p.estado?.texto === 'EXCELENTE' ? 'Rendimiento excelente' : 'Rendimiento favorable';
@@ -2466,17 +2425,7 @@ function VistaDashboard({ configs, months }) {
                           <tr key={p.configId} className={`transition ${!p.isActive ? 'opacity-70 bg-slate-50' : isScale ? 'bg-emerald-50/45 hover:bg-emerald-50' : isReview ? 'bg-rose-50/25 hover:bg-rose-50/55' : 'hover:bg-blue-50/40'}`}>
                             <td className="p-2 md:p-3"><span className={`inline-flex items-center gap-1 text-[7px] md:text-[8px] font-black px-2 py-1 rounded-full ${isReview ? 'bg-rose-100 text-rose-700' : p.estado?.texto === 'EXCELENTE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{p.estado?.emoji || (isReview ? '🔴' : '🔵')} {p.estado?.texto || (isReview ? 'REVISIÓN' : 'BIEN')}</span></td>
                             <td className={`p-2 md:p-3 font-black uppercase text-[9px] md:text-xs ${isReview ? 'text-rose-700' : 'text-[#032A78]'}`}>{p.vendedora}</td>
-                            <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-slate-400' : ''}`}>
-                              <div className="flex flex-col items-start gap-1 min-w-[185px]">
-                                <div>{p.productName}{!p.isActive && <span className="ml-2 text-[7px] font-black bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">INACTIVO</span>}</div>
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8px] md:text-[9px] font-semibold text-slate-500 normal-case no-underline">
-                                  <span title="Fecha de creación configurada para el producto">📅 Creación: {cobertura?.creationLabel || '—'}</span>
-                                  <span className="rounded-md bg-blue-50 text-[#032A78] px-1.5 py-0.5" title="Días calendario desde la creación, limitados al período seleccionado; no son días con ventas">{cobertura?.coverageDays == null ? 'Cobertura: —' : `En rango: ${cobertura.coverageDays}/${cobertura.rangeDays} días`}</span>
-                                  <span className="rounded-md bg-emerald-50 text-emerald-800 px-1.5 py-0.5" title="Fechas únicas con registro guardado para este producto dentro de su cobertura en el rango, incluidos descansos y registros en cero">Registrados: {registroDiario ? `${registroDiario.registeredDays}/${cobertura.coverageDays}` : '—'} días</span>
-                                  <span className={registroDiario?.missingDays > 0 ? 'text-amber-700 font-bold' : 'text-emerald-700'} title="Días de cobertura del producto sin un registro guardado, incluidos días de descanso que aún no se han registrado">Sin registrar: {registroDiario ? registroDiario.missingDays : '—'} días</span>
-                                </div>
-                              </div>
-                            </td>
+                            <td className={`p-2 md:p-3 font-semibold text-[9px] md:text-xs ${!p.isActive ? 'line-through text-slate-400' : ''}`}>{p.productName}{!p.isActive && <span className="ml-2 text-[7px] font-black bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">INACTIVO</span>}</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${p.utilidadPeriodo < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(p.utilidadPeriodo)}</td>
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${isReview ? 'text-rose-600' : 'text-[#032A78]'}`}>{fmt(p.proyeccion30)}</td>
                             <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
@@ -19834,43 +19783,13 @@ const BRIEF01_DISPATCH_RATE = 0.95;
 const BRIEF01_RETURN_RATE = 0.20;
 const BRIEF01_EFFECTIVE_RATE = BRIEF01_DISPATCH_RATE * (1 - BRIEF01_RETURN_RATE); // 0.76
 
-
-// BRIEF 01 V36: lectura comercial asistida; todo juicio conserva la evidencia original.
-const BRIEF01_ANGLE_RULES = [
-  {label:'Facilidad y menor esfuerzo',pattern:/sin esfuerzo|fácil de usar|facil de usar|sin complicaciones|olvida.*(esfuerzo|batir)|cansad[oa] de|más fácil|mas facil/i},
-  {label:'Rapidez y ahorro de tiempo',pattern:/rápid[oa]|rapid[oa]|en segundos|ahorra tiempo|menos tiempo|instantáne/i},
-  {label:'Ahorro y precio',pattern:/descuento|ahorra dinero|oferta|promoci[oó]n|precio especial|2x1|gratis/i},
-  {label:'Practicidad y uso diario',pattern:/práctic[oa]|practic[oa]|todos los días|uso diario|lleva contigo|portátil|portatil/i},
-  {label:'Durabilidad y resistencia',pattern:/resistente|durader[oa]|reforzad[oa]|larga duraci[oó]n|calidad premium/i},
-  {label:'Independencia de energía',pattern:/sin pilas|sin bater[ií]as|sin electricidad|no necesita pilas/i}
-];
-function brief01CopyClassification(copy) {
-  const value=String(copy||'').trim();
-  const matches=BRIEF01_ANGLE_RULES.filter(r=>r.pattern.test(value)).map(r=>r.label);
-  const promise=value.split(/[\n.!?]+/).map(x=>x.trim()).find(x=>x.length>=10&&x.length<=220)||value.slice(0,180);
-  return { angle:matches[0]||'Sin clasificar (revisión requerida)', secondaryAngles:matches.slice(1), promise:promise||'', method:'heurística revisable' };
-}
-function brief01CopyGroups(copies) {
-  const groups=new Map();
-  for(const item of Array.isArray(copies)?copies:[]) {
-    const angle=String(item.angle||'Sin clasificar (revisión requerida)').trim();
-    const key=angle.toLocaleLowerCase('es');
-    if(!groups.has(key)) groups.set(key,{angle,records:[],advertisers:new Set(),promises:new Map()});
-    const g=groups.get(key);g.records.push(item);g.advertisers.add(String(item.advertiser||'No identificado'));
-    const normalized=String(item.promise||'').toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-    if(normalized&&!g.promises.has(normalized))g.promises.set(normalized,item.promise);
-  }
-  return [...groups.values()].sort((a,b)=>b.advertisers.size-a.advertisers.size||b.records.length-a.records.length);
-}
-
 const BRIEF01_STEPS = [
   { id: 'product', label: 'Producto', icon: Package },
   { id: 'meta', label: 'Meta Ads', icon: BarChart3 },
   { id: 'competitors', label: 'Competidores', icon: Users },
-  { id: 'angles', label: 'Ángulos y promesas', icon: Target },
   { id: 'suppliers', label: 'Dropi', icon: Truck },
-  { id: 'offer', label: 'Oferta', icon: ShoppingBag },
   { id: 'costs', label: 'Costos', icon: Calculator },
+  { id: 'offer', label: 'Oferta', icon: ShoppingBag },
   { id: 'diagnosis', label: 'Diagnóstico', icon: Gauge },
   { id: 'pdf', label: 'PDF', icon: FileText }
 ];
@@ -19896,6 +19815,8 @@ const EMPTY_BRIEF01 = {
   competitors: [],
   suppliers: [],
   dropiSummary: { supplierCount: '', researchDate: '', sourceUrl: '', updatedAtMs: 0 },
+  operatingRates: { fixedCancellation: true, cancellationPct: 5, fixedReturns: true, returnPct: 20 },
+  offerAlternatives: [],
   planning: {
     monthlyProfitTarget: '',
     planningCPA: '',
@@ -19974,10 +19895,21 @@ function brief01ResolveFreight(rates, ticket) {
   return resolveFreightRate(rates || [], Number(ticket) || 0);
 }
 
+function brief01OperatingRates(research) {
+  const rates = research?.operatingRates || {};
+  const clamp = (value, fallback) => Math.min(100, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : fallback));
+  const cancellationPct = rates.fixedCancellation !== false ? 5 : clamp(rates.cancellationPct, 5);
+  const returnPct = rates.fixedReturns !== false ? 20 : clamp(rates.returnPct, 20);
+  const dispatchRate = 1 - cancellationPct / 100;
+  const returnRate = returnPct / 100;
+  return { cancellationPct, returnPct, dispatchRate, returnRate, effectiveRate: dispatchRate * (1 - returnRate) };
+}
+
 function calculateBrief01Financial(research, freightRates, override = {}) {
   const generated = 100;
-  const shipped = generated * BRIEF01_DISPATCH_RATE;
-  const returned = shipped * BRIEF01_RETURN_RATE;
+  const operatingRates = brief01OperatingRates(research);
+  const shipped = generated * operatingRates.dispatchRate;
+  const returned = shipped * operatingRates.returnRate;
   const delivered = shipped - returned;
   const quantity = Math.max(1, Number(override.quantity ?? research?.offer?.quantity) || 1);
   const price = Math.max(0, Number(override.price ?? research?.offer?.price) || 0);
@@ -20000,7 +19932,7 @@ function calculateBrief01Financial(research, freightRates, override = {}) {
   const marginPerGenerated = marginTotal / generated;
   const marginPct = revenueCollected > 0 ? marginTotal / revenueCollected * 100 : 0;
   return {
-    generated, cancelled: generated - shipped, shipped, returned, delivered,
+    generated, cancelled: generated - shipped, shipped, returned, delivered, operatingRates,
     quantity, price, selectedSupplier, unitCost, revenueCollected,
     freightLookup, freightPerShipment, freightTotal, productCostTotal,
     commissionTotal, fixedTotal, additionalTotal, costsWithoutAds,
@@ -20025,11 +19957,12 @@ function calculateBrief01MonthlyProjection(research, financial) {
   const planningCPA = hasCPA ? Number(cpaRaw) : null;
   const sellingDays = hasDays ? Number(daysRaw) : null;
   const marginBeforeAds = Number(financial?.marginPerGenerated) || 0;
+  const operatingRates = brief01OperatingRates(research);
   const result = {
     status: 'pending', monthlyProfitTarget, planningCPA, sellingDays, marginBeforeAds,
     operatingProfitPerDelivered: null, requiredDeliveredOrders: null,
     minimumMonthlyOrders: null, requiredDailyOrders: null, monthlyOrdersAtDailyPace: null,
-    effectiveRate: BRIEF01_EFFECTIVE_RATE, expectedShipped: null,
+    effectiveRate: operatingRates.effectiveRate, expectedShipped: null,
     expectedDelivered: null, expectedReturned: null, expectedCancelled: null,
     projectedGrossRevenue: null, projectedMonthlyOperatingProfit: null,
     minimumAdBudget: null, operatingAdBudget: null, adSpendShareOfRevenuePct: null, message: ''
@@ -20063,16 +19996,16 @@ function calculateBrief01MonthlyProjection(research, financial) {
       : 'El CPA supera el margen disponible: no se puede alcanzar una meta positiva.';
     return result;
   }
-  const requiredDeliveredOrders = Math.ceil(monthlyProfitTarget / operatingProfitPerDelivered);
-  const minimumMonthlyOrders = Math.ceil(requiredDeliveredOrders / BRIEF01_EFFECTIVE_RATE);
+  const minimumMonthlyOrders = Math.ceil(monthlyProfitTarget / operatingProfitPerDelivered);
+  const requiredDeliveredOrders = minimumMonthlyOrders * operatingRates.effectiveRate;
   const requiredDailyOrders = Math.ceil(minimumMonthlyOrders / sellingDays);
   const monthlyOrdersAtDailyPace = requiredDailyOrders * sellingDays;
-  const expectedShipped = monthlyOrdersAtDailyPace * BRIEF01_DISPATCH_RATE;
+  const expectedShipped = monthlyOrdersAtDailyPace * operatingRates.dispatchRate;
   const expectedCancelled = monthlyOrdersAtDailyPace - expectedShipped;
-  const expectedReturned = expectedShipped * BRIEF01_RETURN_RATE;
+  const expectedReturned = expectedShipped * operatingRates.returnRate;
   const expectedDelivered = expectedShipped - expectedReturned;
   const projectedGrossRevenue = expectedDelivered * (Number(financial?.price) || 0);
-  const projectedMonthlyOperatingProfit = expectedDelivered * operatingProfitPerDelivered;
+  const projectedMonthlyOperatingProfit = monthlyOrdersAtDailyPace * operatingProfitPerDelivered;
   // V33: presupuesto de pauta sobre pedidos registrados; peso frente al recaudo entregado.
   const minimumAdBudget = minimumMonthlyOrders * planningCPA;
   const operatingAdBudget = monthlyOrdersAtDailyPace * planningCPA;
@@ -20396,18 +20329,6 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(`Interpretacion: ${activity.interpretation}`);
   activity.limitations.forEach(x=>add(`Limitacion: ${x}`));
   add('',{gap:5});
-  add('4A. ANGULOS DETECTADOS Y PROMESAS DE VALOR',{bold:true,size:12,gap:6});
-  const copyGroups=brief01CopyGroups(research?.adCopies);
-  add(`Copys documentados: ${(research?.adCopies||[]).length} | Angulos detectados: ${copyGroups.length}. La frecuencia observada NO demuestra eficacia.`);
-  if(!copyGroups.length) add('Sin copys publicitarios sincronizados.');
-  for(const g of copyGroups){
-    add(`${g.angle} | Anunciantes diferentes: ${g.advertisers.size} | Anuncios observados: ${g.records.length}`,{bold:true});
-    for(const x of g.records.slice(0,12)){
-      add(`Anunciante: ${x.advertiser} | ID Meta: ${x.libraryId} | Promesa: ${x.promise||'No identificada'}`);
-      add(`Copy original: ${String(x.copy||'').slice(0,2200)}`);
-    }
-  }
-  add('',{gap:5});
   add('5. PROVEEDORES DROPI',{bold:true,size:12,gap:6});
   const pdfDropiSupplierCount=brief01DropiSupplierCount(research);
   add(`Cantidad total declarada de proveedores en Dropi: ${pdfDropiSupplierCount}${pdfDropiSupplierCount>5?' | ALERTA: posible saturación (>5 proveedores)':''}`);
@@ -20417,7 +20338,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add('',{gap:5});
   add('6. ANALISIS FINANCIERO',{bold:true,size:12,gap:6});
   const f=diagnosis?.financial||{};
-  add(`IER operativo del Brief: despacho 95%, devolucion 20% de despachados, efectividad final 76%.`);
+  add(`IER operativo del Brief: cancelacion ${fmtDec(brief01OperatingRates(research).cancellationPct,2)}%, devolucion ${fmtDec(brief01OperatingRates(research).returnPct,2)}% de despachados, efectividad final ${fmtDec(brief01OperatingRates(research).effectiveRate*100,2)}%.`);
   add(`100 pedidos -> Cancelados ${fmtDec(f.cancelled||0,0)} | Despachados ${fmtDec(f.shipped||0,0)} | Devueltos ${fmtDec(f.returned||0,0)} | Efectivos ${fmtDec(f.delivered||0,0)}`);
   add(`Ingresos cobrados: ${fmt(f.revenueCollected||0)} | Producto: ${fmt(f.productCostTotal||0)} | Fletes: ${fmt(f.freightTotal||0)} | Comisiones: ${fmt(f.commissionTotal||0)} | Otros/fijos: ${fmt((f.fixedTotal||0)+(f.additionalTotal||0))}`);
   add(`Margen disponible total: ${fmt(f.marginTotal||0)} | Margen/pedido generado: ${fmt(f.marginPerGenerated||0)} | ${fmtDec(f.marginPct||0,1)}%`, {gap:8});
@@ -20433,7 +20354,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
   if (mp.status==='ok') {
     add(`PASO 1 - GANANCIA POR ENTREGA (criterio comercial): $${fmtDec(mp.operatingProfitPerDelivered,2)} = margen diagnostico $${fmtDec(mp.marginBeforeAds,2)} - CPA ${fmt(mp.planningCPA)}.`);
     add(`PASO 2 - ENTREGAS PARA LA META: ${mp.requiredDeliveredOrders} = redondear arriba (${fmt(mp.monthlyProfitTarget)} / $${fmtDec(mp.operatingProfitPerDelivered,2)}).`);
-    add(`PASO 3 - PEDIDOS REGISTRADOS ANTES DE IER: ${mp.minimumMonthlyOrders} = redondear arriba (${mp.requiredDeliveredOrders} / ${fmtDec(mp.effectiveRate*100,2)}%).`);
+    add(`PASO 3 - PEDIDOS REGISTRADOS (MARGEN POR PEDIDO GENERADO): ${mp.minimumMonthlyOrders} = meta mensual / contribucion despues de CPA, redondeado arriba.`);
     add(`PASO 4 - META DIARIA: ${mp.requiredDailyOrders} pedidos registrados/dia = redondear arriba (${mp.minimumMonthlyOrders} / ${mp.sellingDays} dias).`);
     add(`PLAN AL RITMO DIARIO: ${mp.requiredDailyOrders} x ${mp.sellingDays} = ${mp.monthlyOrdersAtDailyPace} pedidos registrados. Entregas estimadas: ${fmtDec(mp.expectedDelivered,2)}.`);
     add(`Embudo estimado: despachados ${fmtDec(mp.expectedShipped,2)} | entregados ${fmtDec(mp.expectedDelivered,2)} | devueltos ${fmtDec(mp.expectedReturned,2)} | cancelados ${fmtDec(mp.expectedCancelled,2)}.`);
@@ -20645,7 +20566,7 @@ function Brief01ExtensionBridge() {
         if (action === 'getResearch') {
           const r=records.find(x=>x.id===payload.researchId);
           if (!r) throw new Error('Investigación no encontrada o sin permiso.');
-          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], suppliers:r.suppliers||[], adCopies:r.adCopies||[], adActivity:buildBrief01AdActivity(r) });
+          respond(msg.requestId, true, { id:r.id, code:r.code||'', name:r.name||'', status:r.status||'', competitors:r.competitors||[], suppliers:r.suppliers||[], adActivity:buildBrief01AdActivity(r) });
           return;
         }
         if (!payload.researchId) throw new Error('Selecciona una investigación BRIEF 01.');
@@ -20673,41 +20594,6 @@ function Brief01ExtensionBridge() {
             return { duplicate:false, competitor };
           });
           respond(msg.requestId,true,result); return;
-        }
-        if (action === 'syncAdCopies') {
-          const incoming=Array.isArray(payload.records)?payload.records:[];
-          if (!incoming.length||incoming.length>120) throw new Error('Selecciona entre 1 y 120 copys por captura.');
-          const validated=incoming.map(raw=>({
-            libraryId:String(raw.libraryId||'').trim().slice(0,60),
-            advertiser:String(raw.advertiser||'No identificado').trim().slice(0,180),
-            copy:String(raw.copy||'').trim().slice(0,2200),
-            sourceUrl:String(raw.sourceUrl||'').slice(0,1200),
-            startedAt:String(raw.startedAt||'').slice(0,100)
-          })).filter(x=>/^\d{8,30}$/.test(x.libraryId)&&x.copy.length>=12);
-          if (!validated.length) throw new Error('Sin copys con ID verificable.');
-          const result=await runTransaction(db,async tx=>{
-            const snap=await tx.get(researchRef);
-            if(!snap.exists()) throw new Error('Investigación no encontrada.');
-            const data=snap.data();
-            if(data.ownerUid!==ownerUid) throw new Error('No autorizado para esta investigación.');
-            const store=Array.isArray(data.adCopies)?[...data.adCopies]:[];
-            const existing=new Map(store.map((x,i)=>[String(x.libraryId||''),i]));
-            let added=0,refreshed=0;
-            for(const row of validated){
-              const idx=existing.get(row.libraryId);
-              const prior=idx===undefined?null:store[idx];
-              const initial=brief01CopyClassification(row.copy);
-              const entry={...row,angle:prior?.angle||initial.angle,promise:prior?.promise||initial.promise,secondaryAngles:prior?.secondaryAngles||initial.secondaryAngles,method:prior?.method||initial.method,observedAt:todayColombia()};
-              if(idx===undefined){store.push(entry);existing.set(row.libraryId,store.length-1);added++;}
-              else {store[idx]={...prior,...entry};refreshed++;}
-            }
-            // Firestore document safeguard: bounded source records.
-            if(store.length>250) throw new Error('Límite de 250 anuncios documentados alcanzado.');
-            tx.update(researchRef,{adCopies:store,updatedDate:todayColombia(),updatedAtMs:Date.now()});
-            return {adCopies:store,added,refreshed};
-          });
-          window.dispatchEvent(new CustomEvent('brief01-extension-copies-sync',{detail:{researchId:payload.researchId,adCopies:result.adCopies}}));
-          respond(msg.requestId,true,result);return;
         }
         if (action === 'bulkSyncCompetitors') {
           const result=await runTransaction(db, async tx => {
@@ -20997,9 +20883,6 @@ function Brief01ExtensionBridge() {
 
 function Brief01Module() {
   const { user } = useAuth();
-  // V40: simulación temporal; no se guarda ni modifica la investigación.
-  const [brief01SimulatorOpen, setBrief01SimulatorOpen] = useState(false);
-  const [brief01SimDailyOrders, setBrief01SimDailyOrders] = useState('');
   const ownerUid = user?.uid || null;
   const [records, setRecords] = useState([]);
   const [freightRates, setFreightRates] = useState(DEFAULT_PONDERADO_BASE_RATES);
@@ -21064,8 +20947,6 @@ function Brief01Module() {
       });
       setMessage(`Análisis Meta actualizado: ${Number(detail.meta.advertisers)||0} anunciantes · ${Number(detail.meta.sustained15d)||0} con >15 días.`);
     };
-    const handleCopiesSync=(event)=>{const d=event?.detail||{};if(d.researchId&&Array.isArray(d.adCopies))setCurrent(p=>p?.id===d.researchId?{...p,adCopies:d.adCopies}:p);};
-    window.addEventListener('brief01-extension-copies-sync',handleCopiesSync);
     const handleOfferSync=(event)=>{
       const detail=event?.detail||{};
       if(!detail.researchId || !detail.competitor) return;
@@ -21100,8 +20981,7 @@ function Brief01Module() {
     window.addEventListener('brief01-extension-offer-sync',handleOfferSync);
     window.addEventListener('brief01-extension-supplier-sync',handleSupplierSync);
     return ()=>{
-      window.removeEventListener('brief01-extension-copies-sync',handleCopiesSync);
-    window.removeEventListener('brief01-extension-meta-sync',handleMetaSync);
+      window.removeEventListener('brief01-extension-meta-sync',handleMetaSync);
       window.removeEventListener('brief01-extension-offer-sync',handleOfferSync);
       window.removeEventListener('brief01-extension-supplier-sync',handleSupplierSync);
     };
@@ -21182,7 +21062,7 @@ function Brief01Module() {
   const deleteResearch=async(row)=>{
     const ok=window.confirm(`ELIMINACIÓN IRREVERSIBLE\n\n${row.code} · ${row.name||'Sin nombre'}\n\nSe eliminará la investigación y sus datos asociados. El código no se reutilizará.\n\n¿Continuar?`);
     if(!ok)return;
-    try{await deleteDoc(doc(db,BRIEF01_COLLECTION,row.id)); if(current?.id===row.id){setCurrent(null);setScreen('list');}}
+    try{if(!ownerUid || row.ownerUid!==ownerUid) throw new Error('Investigación no autorizada'); await deleteDoc(doc(db,BRIEF01_COLLECTION,row.id)); if(current?.id===row.id){setCurrent(null);setScreen('list');}}
     catch(e){console.error(e);setMessage('No se pudo eliminar la investigación.');}
   };
 
@@ -21247,30 +21127,6 @@ function Brief01Module() {
   const currentFinancial=calculateBrief01Financial(current,freightRates);
   const currentMonthlyProjection=calculateBrief01MonthlyProjection(current,currentFinancial);
   const diagMonthlyProjection=currentMonthlyProjection;
-  // V40: el presupuesto de pauta diario es fijo en el escenario base.
-  // Cambiar los pedidos conseguidos permite medir el CPA efectivo resultante.
-  const brief01Simulation = (() => {
-    if (currentMonthlyProjection?.status !== 'ok') return null;
-    const base = currentMonthlyProjection;
-    const dailyBudget = base.requiredDailyOrders * base.planningCPA;
-    const dailyOrders = brief01SimDailyOrders === '' ? base.requiredDailyOrders : Number(brief01SimDailyOrders);
-    if (!Number.isInteger(dailyOrders) || dailyOrders < 0 || dailyOrders > 100000) return { invalid: true };
-    const registered = dailyOrders * base.sellingDays;
-    const shipped = registered * BRIEF01_DISPATCH_RATE;
-    const cancelled = registered - shipped;
-    const returned = shipped * BRIEF01_RETURN_RATE;
-    const delivered = shipped - returned;
-    const cpa = dailyOrders > 0 ? dailyBudget / dailyOrders : null;
-    const adBudget = dailyBudget * base.sellingDays;
-    const revenue = delivered * (Number(currentFinancial?.price) || 0);
-    // Conserva la convención comercial de la proyección original, sin modificarla.
-    const profit = delivered * base.marginBeforeAds - adBudget * BRIEF01_EFFECTIVE_RATE;
-    return { dailyBudget, dailyOrders, registered, shipped, cancelled, returned, delivered,
-      cpa, adBudget, revenue, profit, margin: revenue > 0 ? profit / revenue * 100 : null,
-      adsShare: revenue > 0 ? adBudget / revenue * 100 : null,
-      meetsTarget: profit >= base.monthlyProfitTarget };
-  })();
-
 
   const StepNav=()=> <div className="overflow-x-auto pb-1"><div className="flex gap-2 min-w-max">{BRIEF01_STEPS.map(s=><button key={s.id} onClick={()=>setStep(s.id)} className={`rounded-xl px-3 py-2 text-[8px] font-black uppercase inline-flex items-center gap-1.5 ${step===s.id?'bg-[#12386B] text-white':'bg-white border border-slate-200 text-slate-500'}`}><s.icon size={11}/>{s.label}</button>)}</div></div>;
 
@@ -21284,7 +21140,7 @@ function Brief01Module() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5"><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Embudo normalizado · 100 pedidos</p><div className="grid grid-cols-4 gap-2 mt-3">{[['Cancelados',diag.financial.cancelled],['Despachados',diag.financial.shipped],['Devueltos',diag.financial.returned],['Efectivos',diag.financial.delivered]].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 p-2 text-center"><p className="text-[7px] uppercase font-black text-slate-400">{l}</p><p className="text-base font-black mt-1">{fmtDec(v,0)}</p></div>)}</div><div className="mt-3 text-[9px] text-slate-600 space-y-1"><p>Ingresos cobrados: <b>{fmt(diag.financial.revenueCollected)}</b></p><p>Costo producto: <b>{fmt(diag.financial.productCostTotal)}</b></p><p>Fletes: <b>{fmt(diag.financial.freightTotal)}</b></p><p>Comisiones + fijos + otros: <b>{fmt(diag.financial.commissionTotal+diag.financial.fixedTotal+diag.financial.additionalTotal)}</b></p><p className="pt-1 border-t">Margen disponible total: <b>{fmt(diag.financial.marginTotal)}</b></p></div></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-700">Escenarios</p><div className="space-y-2 mt-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[7px] uppercase font-black text-slate-400">Situación actual</p><p className="text-xs font-black mt-1">{fmt(diag.financial.price)} · margen {fmt(diag.financial.marginPerGenerated)}</p></div>{diag.targetPrice?.status==='ok'&&<div className="rounded-xl bg-blue-50 p-3"><p className="text-[7px] uppercase font-black text-blue-500">Precio ajustado</p><p className="text-xs font-black text-blue-800 mt-1">{fmt(diag.targetPrice.price)} · margen {fmt(diag.targetPrice.calc.marginPerGenerated)}</p></div>}{diag.targetPrice?.status==='freight_out_of_range'&&<div className="rounded-xl bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Validar costo de flete y adicionar dato a la Tabla de Fletes para calcular el precio objetivo.</div>}{diag.targetCost&&<div className="rounded-xl bg-purple-50 p-3"><p className="text-[7px] uppercase font-black text-purple-500">Costo negociado objetivo</p><p className="text-xs font-black text-purple-800 mt-1">Máximo {fmt(Math.max(0,diag.targetCost.maxUnitCost))} / unidad</p><p className="text-[8px] text-purple-700 mt-1">Reducción requerida: {fmt(Math.max(0,diag.targetCost.reduction))}{diag.targetCost.reductionPct!==null?` · ${fmtDec(Math.max(0,diag.targetCost.reductionPct),1)}%`:''}</p></div>}<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[7px] uppercase font-black text-emerald-600">Proyección mensual · escenario actual</p>{diagMonthlyProjection?.status==='ok'?<><p className="text-2xl font-black text-emerald-800 mt-1">{diagMonthlyProjection.requiredDailyOrders} <span className="text-[9px] font-black uppercase">órdenes/día</span></p><p className="text-[8px] text-emerald-800 mt-1">Meta {fmt(diagMonthlyProjection.monthlyProfitTarget)} · CPA {fmt(diagMonthlyProjection.planningCPA)} · {diagMonthlyProjection.sellingDays} días</p><p className="text-[8px] text-slate-600 mt-1">{diagMonthlyProjection.minimumMonthlyOrders} mínimas generadas/mes → {diagMonthlyProjection.monthlyOrdersAtDailyPace} generadas al ritmo diario (redondeo) · ganancia proyectada {fmt(diagMonthlyProjection.projectedMonthlyOperatingProfit)}</p></>:<p className="text-[8px] font-bold text-amber-800 mt-1">{diagMonthlyProjection?.message}</p>}</div></div></div></div>
       <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
         <div className="flex flex-col lg:flex-row justify-between gap-3">
-          <div><p className="text-[10px] font-black uppercase text-emerald-800">Objetivo económico y proyección mensual</p><p className="text-[10px] text-slate-600 mt-1">Meta calculada primero en entregas reales, luego ampliada por IER para hallar pedidos a registrar.</p></div>
+          <div><p className="text-[10px] font-black uppercase text-emerald-800">Objetivo económico y proyección mensual</p><p className="text-[10px] text-slate-600 mt-1">Meta calculada sobre margen por pedido generado, con IER configurable incluido en el motor.</p></div>
           {diagMonthlyProjection.status==='ok'&&<div className="rounded-2xl bg-emerald-600 text-white px-5 py-3 text-center"><p className="text-[9px] font-black uppercase">Pedidos a registrar cada día</p><p className="text-3xl font-black mt-1">{diagMonthlyProjection.requiredDailyOrders}</p><p className="text-[9px]">durante {diagMonthlyProjection.sellingDays} días</p></div>}
         </div>
         {diagMonthlyProjection.status==='ok'?<>
@@ -21296,7 +21152,7 @@ function Brief01Module() {
           </div>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-600">1 · Entregas necesarias para la meta</p><p className="text-2xl font-black mt-2">{diagMonthlyProjection.requiredDeliveredOrders}</p><p className="text-[9px] text-slate-500 mt-1">Meta ÷ ganancia por entrega, redondeado hacia arriba.</p></div>
-            <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-600">2 · Pedidos a registrar (IER {fmtDec(diagMonthlyProjection.effectiveRate*100,0)}%)</p><p className="text-2xl font-black mt-2">{diagMonthlyProjection.minimumMonthlyOrders}</p><p className="text-[9px] text-slate-500 mt-1">Entregas necesarias ÷ efectividad, redondeado hacia arriba.</p></div>
+            <div className="rounded-xl bg-white border border-slate-200 p-4"><p className="text-[9px] font-black uppercase text-slate-600">2 · Pedidos a registrar (IER {fmtDec(diagMonthlyProjection.effectiveRate*100,0)}%)</p><p className="text-2xl font-black mt-2">{diagMonthlyProjection.minimumMonthlyOrders}</p><p className="text-[9px] text-slate-500 mt-1">Meta mensual ÷ contribución por pedido generado, redondeado hacia arriba.</p></div>
             <div className="rounded-xl bg-white border border-emerald-200 p-4"><p className="text-[9px] font-black uppercase text-emerald-800">3 · Pedidos diarios a registrar</p><p className="text-2xl font-black text-emerald-800 mt-2">{diagMonthlyProjection.requiredDailyOrders}</p><p className="text-[9px] text-slate-500 mt-1">Pedidos mensuales ÷ {diagMonthlyProjection.sellingDays} días, redondeado hacia arriba.</p></div>
           </div>
           <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -21320,36 +21176,7 @@ function Brief01Module() {
           </div>
         </>:<p className="mt-3 text-sm text-amber-700">{diagMonthlyProjection.message}</p>}
       </div>
-      {diagMonthlyProjection.status==='ok'&&<div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><p className="text-[10px] font-black uppercase text-indigo-900">Simulador de pedidos diarios · BRIEF 01</p><p className="text-[9px] text-slate-600 mt-1">Escenario temporal: conserva el presupuesto diario de pauta y todos los datos originales.</p></div>
-          <button type="button" onClick={()=>{setBrief01SimulatorOpen(o=>!o);setBrief01SimDailyOrders('');}} className="rounded-xl bg-indigo-900 px-4 py-2 text-[10px] font-black text-white">{brief01SimulatorOpen?'Cerrar simulador':'Simular pedidos diarios'}</button>
-        </div>
-        {brief01SimulatorOpen&&<div className="mt-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl bg-white p-3 border border-indigo-100"><p className="text-[9px] font-bold text-slate-500">Presupuesto diario fijo</p><p className="text-xl font-black">{fmt(brief01Simulation?.dailyBudget)}</p><p className="text-[9px] text-slate-500">{diagMonthlyProjection.requiredDailyOrders} pedidos base × {fmt(diagMonthlyProjection.planningCPA)}</p></div>
-            <label className="rounded-xl bg-white border border-indigo-200 p-3"><span className="block text-[9px] font-black uppercase text-indigo-800">Pedidos diarios promedio simulados</span><input type="number" min="0" max="100000" step="1" value={brief01SimDailyOrders===''?String(diagMonthlyProjection.requiredDailyOrders):brief01SimDailyOrders} onChange={e=>setBrief01SimDailyOrders(e.target.value)} className="mt-2 w-full text-xl font-black text-indigo-900 border border-indigo-200 rounded-lg px-2 py-1"/><span className="block text-[8px] text-slate-500 mt-1">Solo cambia este valor; cero pedidos también es válido.</span></label>
-            <div className="rounded-xl bg-white border border-indigo-100 p-3"><p className="text-[9px] font-bold text-slate-500">CPA efectivo simulado</p><p className="text-xl font-black">{brief01Simulation?.invalid?'—':brief01Simulation?.cpa===null?'—':fmt(brief01Simulation.cpa)}</p><p className="text-[9px] text-slate-500">Presupuesto diario ÷ pedidos diarios</p></div>
-          </div>
-          {brief01Simulation?.invalid?<p className="text-xs font-bold text-rose-700">Introduce un número entero de pedidos entre 0 y 100.000.</p>:<>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{[
-              ['Pedidos registrados/mes',brief01Simulation.registered.toLocaleString('es-CO')],
-              ['Entregas esperadas',fmtDec(brief01Simulation.delivered,1)],
-              ['Devoluciones / cancelaciones',`${fmtDec(brief01Simulation.returned,1)} / ${fmtDec(brief01Simulation.cancelled,1)}`],
-              ['Inversión Ads mensual',fmt(brief01Simulation.adBudget)],
-              ['Recaudo proyectado',fmt(brief01Simulation.revenue)],
-              ['Ganancia proyectada',fmt(brief01Simulation.profit)],
-              ['Margen de ganancia',brief01Simulation.margin===null?'—':`${fmtDec(brief01Simulation.margin,2)}%`],
-              ['Peso de Ads',brief01Simulation.adsShare===null?'—':`${fmtDec(brief01Simulation.adsShare,2)}%`]
-            ].map(([label,value])=><div key={label} className="rounded-xl bg-white border border-indigo-100 p-3"><p className="text-[9px] uppercase font-black text-slate-500">{label}</p><p className="text-lg font-black mt-1 text-slate-900">{value}</p></div>)}</div>
-            <p className="text-[10px] font-bold text-indigo-900">{brief01Simulation.meetsTarget?'La simulación alcanza la meta mensual configurada.':'La simulación no alcanza la meta mensual configurada.'} Meta: {fmt(diagMonthlyProjection.monthlyProfitTarget)}.</p>
-          </>}
-          <button type="button" onClick={()=>setBrief01SimDailyOrders('')} className="rounded-xl border border-indigo-200 px-3 py-2 text-[9px] font-black text-indigo-800">Restaurar pedidos base</button>
-          <p className="text-[9px] text-slate-500">Simulación aislada: no modifica Firebase, CPA configurado, diagnóstico original, otros módulos ni el PDF.</p>
-        </div>}
-      </div>}
       <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5"><div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3"><div><p className="text-[9px] font-black uppercase text-[#12386B]">Actividad publicitaria y posibles señales de escalamiento</p><p className="text-[9px] text-slate-600 mt-1">{diag.adActivity?.interpretation}</p></div><span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${diag.adActivity?.trendTone==='attention'?'bg-amber-100 text-amber-800':diag.adActivity?.trendTone==='good'?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-600'}`}>{diag.adActivity?.trendLabel}</span></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Competidores</p><p className="text-lg font-black mt-1">{diag.adActivity?.competitorCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Anuncios registrados</p><p className="text-lg font-black mt-1">{diag.adActivity?.totalAds||0}{diag.adActivity?.totalIsPartial?<span className="text-[7px] text-amber-600 ml-1">PARCIAL</span>:null}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Sin medición</p><p className="text-lg font-black mt-1">{diag.adActivity?.unknownCount||0}</p></div><div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-[7px] font-black uppercase text-slate-400">Fecha de corte</p><p className="text-xs font-black mt-2">{diag.adActivity?.cutoff||'—'}</p></div></div><div className="overflow-x-auto mt-3"><table className="min-w-[760px] w-full text-left"><thead className="text-[7px] uppercase text-slate-400"><tr><th className="p-2">Tienda</th><th className="p-2">Actual</th><th className="p-2">Tipo</th><th className="p-2">Anterior</th><th className="p-2">Cambio</th><th className="p-2">Última revisión</th></tr></thead><tbody>{(diag.adActivity?.rows||[]).map(r=><tr key={r.id} className="border-t border-blue-100 text-[8px]"><td className="p-2 font-black">{r.name}</td><td className="p-2">{r.currentCount===null?'—':r.currentCount}</td><td className="p-2">{r.measurementType==='exact'?'Exacta':r.measurementType==='estimated'?'Aprox.':'No determinada'}</td><td className="p-2">{r.previousCount===null?'—':r.previousCount}</td><td className="p-2 font-black">{r.delta===null?'—':`${r.delta>=0?'+':''}${r.delta}${r.deltaPct!==null?` · ${r.deltaPct>=0?'+':''}${fmtDec(r.deltaPct,1)}%`:''}`}</td><td className="p-2">{r.lastReviewedAt||'—'}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1">{(diag.adActivity?.limitations||[]).map((x,i)=><p key={i} className="text-[8px] text-slate-500">• {x}</p>)}</div></div>
-      <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/30 p-4 sm:p-5"><p className="text-[10px] font-black uppercase text-[#12386B]">Inteligencia competitiva · Ángulos y promesas</p><p className="text-xs text-slate-500 mt-1">Frecuencia observada, no prueba de eficacia publicitaria.</p>{brief01CopyGroups(current.adCopies).length?brief01CopyGroups(current.adCopies).map(g=><div key={g.angle} className="mt-3 rounded-xl border bg-white p-3"><p className="text-sm font-bold">{g.angle}</p><p className="text-xs text-slate-500">{g.advertisers.size} anunciantes · {g.records.length} anuncios</p><p className="text-xs mt-1">Promesas: {[...g.promises.values()].slice(0,4).join(' · ')||'Sin identificar'}</p></div>):<p className="mt-3 text-xs text-slate-500">Sin copys capturados todavía.</p>}</div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">{[['Alertas',diag.alerts,'rose'],['Fortalezas',diag.strengths,'emerald'],['Acciones recomendadas',diag.actions,'blue']].map(([title,arr,tone])=><div key={title} className={`rounded-2xl border p-4 ${tone==='rose'?'border-rose-200 bg-rose-50/50':tone==='emerald'?'border-emerald-200 bg-emerald-50/50':'border-blue-200 bg-blue-50/50'}`}><p className="text-[9px] font-black uppercase">{title}</p><div className="mt-2 space-y-2">{arr.length?arr.map((x,i)=><p key={i} className="text-[9px] leading-relaxed text-slate-700">• {x}</p>):<p className="text-[9px] text-slate-400">Sin registros.</p>}</div></div>)}</div>
       <div className="mt-5 flex flex-wrap gap-2"><button onClick={()=>setOperationalState('approve')} disabled={current.manualApproved} className="rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><CheckCircle2 size={12} className="inline mr-1"/>Aprobar manualmente</button><button onClick={()=>setOperationalState('testing')} disabled={current.inTesting} className="rounded-xl bg-purple-600 text-white px-4 py-2.5 text-[8px] font-black uppercase disabled:opacity-40"><FlaskConical size={12} className="inline mr-1"/>Marcar en testeo</button></div>
     </div>
@@ -21359,23 +21186,17 @@ function Brief01Module() {
     <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
       {step==='product'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">1. Información del producto</p><p className="text-xs text-slate-500 mt-1">Puedes guardar aunque la investigación esté incompleta.</p></div>{duplicateMatches.length>0&&<div className="rounded-2xl border border-amber-200 bg-amber-50 p-3"><p className="text-[9px] font-black text-amber-800">Posible duplicado detectado</p><p className="text-[8px] text-amber-700 mt-1">Existe {duplicateMatches.map(x=>`${x.code} · ${x.name}`).join(', ')}. Puedes continuar de todas maneras.</p></div>}<div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Código</label><input value={current.code} disabled className={`${fieldClass} bg-slate-50`}/></div><div><label className={labelClass}>Nombre del producto</label><input value={current.name||''} onChange={e=>updateCurrent('name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Categoría</label><input value={current.category||''} onChange={e=>updateCurrent('category',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Fecha creación</label><input value={current.createdDate||todayColombia()} disabled className={`${fieldClass} bg-slate-50`}/></div><div className="md:col-span-2"><label className={labelClass}>Descripción breve</label><textarea rows={3} value={current.description||''} onChange={e=>updateCurrent('description',e.target.value)} className={fieldClass}/></div></div><div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4"><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">Objetivo económico del producto</p><p className="text-[8px] text-slate-500 mt-1">Planificación comercial separada de la viabilidad. El CPA no modifica el margen antes de Ads.</p><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Meta de ganancia mensual (COP)</label><input type="number" min="0" value={current.planning?.monthlyProfitTarget??''} onChange={e=>updateCurrent('planning.monthlyProfitTarget',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>CPA de planificación por orden generada (COP)</label><input type="number" min="0" value={current.planning?.planningCPA??''} onChange={e=>updateCurrent('planning.planningCPA',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/><p className="text-[7px] text-slate-500 mt-1">Solo para proyección mensual. No afecta el margen antes de Ads.</p></div><div><label className={labelClass}>Días de venta al mes</label><input type="number" min="1" max="31" value={current.planning?.sellingDays??''} onChange={e=>updateCurrent('planning.sellingDays',e.target.value===''?'':Math.min(31,Math.max(1,Number(e.target.value)||1)))} className={fieldClass}/></div></div></div></div>}
 
+      {step==='product'&&      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3"><p className="text-[9px] font-black uppercase text-[#12386B]">Riesgo operativo por producto · IER dinámico</p><p className="text-[8px] text-slate-600">Por defecto: 5% cancelados antes del despacho y 20% devueltos sobre despachados. Desmarca para personalizar.</p>{[['fixedCancellation','cancellationPct','Cancelaciones',5],['fixedReturns','returnPct','Devoluciones',20]].map(([check,key,title,defaultValue])=><div key={key} className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center"><label className="flex items-center gap-2 text-[10px] font-bold"><input type="checkbox" checked={current.operatingRates?.[check]!==false} onChange={e=>setCurrent(prev=>({...prev,operatingRates:{...prev.operatingRates,[check]:e.target.checked,[key]:e.target.checked?defaultValue:(prev.operatingRates?.[key]??defaultValue)}}))}/> {title} fijo {defaultValue}%</label><input aria-label={`${title} porcentaje`} type="number" min="0" max="100" step="0.1" disabled={current.operatingRates?.[check]!==false} value={current.operatingRates?.[check]!==false?defaultValue:(current.operatingRates?.[key]??defaultValue)} onChange={e=>updateCurrent(`operatingRates.${key}`,Math.min(100,Math.max(0,Number(e.target.value)||0)))} className={fieldClass}/></div>)}<p className="text-sm font-black text-[#12386B]">IER resultante: {fmtDec(brief01OperatingRates(current).effectiveRate*100,2)}%</p></div>
       {step==='meta'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">2. Investigación manual · Meta Ads Library</p><p className="text-xs text-slate-500 mt-1">Cuenta anunciantes independientes, no anuncios individuales.</p></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Anunciantes independientes</label><input type="number" min="0" value={current.meta?.advertisers||''} onChange={e=>updateCurrent('meta.advertisers',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Anunciantes activos &gt; 15 días</label><input type="number" min="0" value={current.meta?.sustained15d||''} onChange={e=>updateCurrent('meta.sustained15d',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Fecha investigación</label><input type="date" value={current.meta?.researchDate||''} onChange={e=>updateCurrent('meta.researchDate',e.target.value)} className={fieldClass}/></div>{current.meta?.autoScanAtMs?<div className="md:col-span-2 rounded-xl border border-blue-100 bg-blue-50/60 p-3"><p className="text-[8px] font-black uppercase text-[#12386B]">Datos sincronizados por extensión Meta Ads</p><p className="text-[8px] text-slate-500 mt-1">Anunciantes únicos confirmados: <strong>{Number(current.meta?.advertisers)||0}</strong> · Con evidencia de al menos un anuncio activo por más de 15 días: <strong>{Number(current.meta?.sustained15d)||0}</strong> · Con fecha de inicio reconocida: <strong>{Number(current.meta?.autoScanDatedAdvertisers)||0}</strong>.</p></div>:null}<div className={`rounded-xl border p-3 ${brief01ToneClasses(brief01Saturation(current.meta?.advertisers).tone)}`}><p className="text-[7px] font-black uppercase">Lectura de saturación</p><p className="text-xs font-black mt-1">{brief01Saturation(current.meta?.advertisers).label}</p><p className="text-[8px] mt-1">Es una señal, no una prueba de ventas ni rentabilidad.</p></div><div className="md:col-span-2"><label className={labelClass}>Observaciones</label><textarea rows={4} value={current.meta?.notes||''} onChange={e=>updateCurrent('meta.notes',e.target.value)} className={fieldClass}/></div></div></div>}
 
       {step==='competitors'&&<div className="space-y-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">3. Competidores · máximo 5 prioritarios</p><p className="text-xs text-slate-500 mt-1">Compara únicamente presentaciones equivalentes.</p></div><button onClick={addCompetitor} disabled={(current.competitors||[]).length>=5} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase disabled:opacity-40"><Plus size={11} className="inline mr-1"/>Agregar</button></div><div className="space-y-3">{(current.competitors||[]).map((c,i)=><div key={c.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between gap-3"><p className="text-[9px] font-black uppercase text-slate-500">Competidor {i+1}</p><button onClick={()=>removeCompetitor(c.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre / tienda</label><input value={c.name||''} onChange={e=>updateCompetitor(c.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace Meta Ads Library</label><input value={c.metaUrl||''} onChange={e=>updateCompetitor(c.id,'metaUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace página de venta</label><input value={c.salesUrl||''} onChange={e=>updateCompetitor(c.id,'salesUrl',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Antigüedad publicitaria · días</label><input type="number" min="0" value={c.adAgeDays||''} onChange={e=>updateCompetitor(c.id,'adAgeDays',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio 1 unidad</label><input type="number" min="0" value={c.singlePrice||''} onChange={e=>updateCompetitor(c.id,'singlePrice',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Condiciones de envío</label><input value={c.shipping||''} onChange={e=>updateCompetitor(c.id,'shipping',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Promociones</label><input value={c.promotions||''} onChange={e=>updateCompetitor(c.id,'promotions',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo principal</label><input value={c.primaryAngle||''} onChange={e=>updateCompetitor(c.id,'primaryAngle',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 1</label><input value={c.secondaryAngle1||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle1',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Ángulo secundario 2</label><input value={c.secondaryAngle2||''} onChange={e=>updateCompetitor(c.id,'secondaryAngle2',e.target.value)} className={fieldClass}/></div><label className="flex items-center gap-2 text-[8px] font-black text-slate-600"><input type="checkbox" checked={!!c.cod} onChange={e=>updateCompetitor(c.id,'cod',e.target.checked)}/> Pago contraentrega</label><div className="lg:col-span-2"><label className={labelClass}>Observaciones</label><input value={c.notes||''} onChange={e=>updateCompetitor(c.id,'notes',e.target.value)} className={fieldClass}/></div></div><div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><p className="text-[8px] font-black uppercase text-[#12386B]">Actividad publicitaria observada</p><p className="text-[7px] text-slate-500 mt-0.5">Captura manual · también sincronizable desde la extensión Chrome.</p></div><span className="text-[7px] font-black uppercase text-slate-500">{(c.activeAdsHistory||[]).length} revisión(es)</span></div><div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3"><div><label className={labelClass}>Anuncios activos</label><input type="number" min="0" value={c.activeAdsCount??''} onChange={e=>updateCompetitor(c.id,'activeAdsCount',e.target.value===''?null:Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>Tipo de medición</label><select value={c.activeAdsMeasurement||'unknown'} onChange={e=>updateCompetitor(c.id,'activeAdsMeasurement',e.target.value)} className={fieldClass}><option value="exact">Exacta</option><option value="estimated">Aproximada</option><option value="unknown">No determinada</option></select></div><div><label className={labelClass}>Última revisión</label><input value={c.activeAdsLastReviewedAt||''} disabled className={`${fieldClass} bg-slate-50`}/></div></div></div><div className="mt-3"><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Combos</p><button onClick={()=>addCombo(c.id)} className="text-[8px] font-black text-[#12386B]">+ Agregar combo</button></div><div className="space-y-2 mt-2">{(c.combos||[]).map(b=><div key={b.id} className="grid grid-cols-[1fr_90px_1fr_32px] gap-2"><input placeholder="Nombre" value={b.name||''} onChange={e=>updateCombo(c.id,b.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="1" placeholder="Cant." value={b.quantity||''} onChange={e=>updateCombo(c.id,b.id,'quantity',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Precio" value={b.price||''} onChange={e=>updateCombo(c.id,b.id,'price',e.target.value)} className={fieldClass}/><button onClick={()=>removeCombo(c.id,b.id)} className="text-rose-500"><X size={13}/></button></div>)}</div></div></div>)}</div></div>}
 
-      {step==='angles'&&<div className="space-y-4">
-        <div><p className="text-[10px] font-black uppercase tracking-wider text-[#12386B]">Ángulos detectados y promesas de valor</p><p className="text-xs text-slate-500 mt-2">Copys observados en Meta Ads Library. Clasificación automática orientativa y corregible; las promesas no están verificadas.</p></div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{[['Copys documentados',(current.adCopies||[]).length],['Ángulos diferentes',brief01CopyGroups(current.adCopies).length],['Anunciantes',new Set((current.adCopies||[]).map(x=>x.advertiser)).size]].map(([label,value])=><div key={label} className="p-3 rounded-xl border bg-slate-50"><p className="text-xs text-slate-500">{label}</p><p className="text-xl font-black">{value}</p></div>)}</div>
-        {brief01CopyGroups(current.adCopies).map(group=><div key={group.angle} className="rounded-2xl border border-blue-100 bg-white p-4"><div className="font-black text-[#12386B]">{group.angle}</div><p className="text-xs text-slate-500">{group.records.length} anuncios · {group.advertisers.size} anunciantes distintos · {group.promises.size} promesas textuales diferenciadas</p></div>)}
-        {(current.adCopies||[]).length===0&&<p className="text-sm text-slate-500">Todavía no hay copys sincronizados. Abre la extensión Companion, analiza Meta y pulsa «Guardar copys en BRIEF 01».</p>}
-        {(current.adCopies||[]).map((record,i)=><div key={record.libraryId||i} className="rounded-2xl border p-4 bg-white space-y-3"><p className="text-xs font-bold">{record.advertiser} · Biblioteca ID {record.libraryId}</p><p className="whitespace-pre-wrap text-xs text-slate-600">{record.copy}</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="text-xs text-slate-500">Ángulo (editable)<input className={fieldClass} value={record.angle||''} onChange={e=>setCurrent(p=>({...p,adCopies:p.adCopies.map((v,j)=>i===j?{...v,angle:e.target.value,method:'revisión manual'}:v)}))}/></label><label className="text-xs text-slate-500">Promesa de valor (editable)<textarea className={fieldClass} rows={2} value={record.promise||''} onChange={e=>setCurrent(p=>({...p,adCopies:p.adCopies.map((v,j)=>i===j?{...v,promise:e.target.value,method:'revisión manual'}:v)}))}/></label></div><p className="text-[10px] text-slate-400">{record.method||'heurística revisable'} · {record.startedAt||'Fecha de inicio no determinada'}</p></div>)}
-        <button onClick={()=>saveDraft()} disabled={saving} className="rounded-xl bg-[#12386B] px-5 py-3 text-xs font-bold text-white">Guardar revisión de ángulos y promesas</button>
-      </div>}
       {step==='suppliers'&&<div className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">4. Proveedores Dropi</p><p className="text-xs text-slate-500 mt-1">Registra todos los proveedores del producto exacto. Sin límite.</p></div><button onClick={addSupplier} className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[8px] font-black uppercase"><Plus size={11} className="inline mr-1"/>Proveedor</button></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4"><label className={labelClass}>Cantidad total de proveedores en Dropi</label><input type="number" min="0" value={current.dropiSummary?.supplierCount??''} onChange={e=>updateCurrent('dropiSummary.supplierCount',e.target.value===''?'':Math.max(0,Math.floor(Number(e.target.value)||0)))} placeholder="0" className={fieldClass}/><p className="text-[8px] text-slate-500 mt-1">Valor manual e independiente de las fichas documentadas.</p></div><div className={`rounded-2xl border p-4 ${brief01DropiSupplierCount(current)>5?'border-amber-200 bg-amber-50':'border-emerald-200 bg-emerald-50'}`}><p className="text-[7px] font-black uppercase tracking-widest text-slate-500">Lectura de saturación</p><p className={`text-sm font-black mt-1 ${brief01DropiSupplierCount(current)>5?'text-amber-800':'text-emerald-700'}`}>{brief01DropiSupplierCount(current)>5?'Posible saturación':'Sin alerta por cantidad'}</p><p className="text-[8px] text-slate-500 mt-1">La alerta se activa únicamente cuando hay más de 5 proveedores.</p></div></div>{brief01DropiSupplierCount(current)>5&&<div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[9px] font-bold text-amber-800">Alerta de posible saturación: se declararon {brief01DropiSupplierCount(current)} proveedores independientes en Dropi. No implica descarte automático.</div>}{current.dropiSummary?.supplierCount!==''&&brief01DropiSupplierCount(current)!==(current.suppliers||[]).length&&<div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[9px] text-slate-600">Cantidad declarada: <b>{brief01DropiSupplierCount(current)}</b> · Proveedores documentados: <b>{(current.suppliers||[]).length}</b>. Es válido que sean diferentes.</div>}<div className="space-y-3">{(current.suppliers||[]).map((s,i)=><div key={s.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex justify-between"><p className="text-[9px] font-black uppercase text-slate-500">Proveedor {i+1}</p><button onClick={()=>removeSupplier(s.id)} className="text-rose-500"><Trash2 size={13}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Nombre</label><input value={s.name||''} onChange={e=>updateSupplier(s.id,'name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Enlace</label><input value={s.url||''} onChange={e=>updateSupplier(s.id,'url',e.target.value)} placeholder="https://..." className={fieldClass}/></div><div><label className={labelClass}>ID Dropi</label><input inputMode="numeric" value={s.dropiId||''} onChange={e=>updateSupplier(s.id,'dropiId',e.target.value.replace(/\D/g,''))} placeholder="Ej: 1986284" className={fieldClass}/></div><div><label className={labelClass}>Costo unitario</label><input type="number" min="0" value={s.unitCost||''} onChange={e=>updateSupplier(s.id,'unitCost',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Inventario disponible</label><input type="number" min="0" value={s.inventory||''} onChange={e=>updateSupplier(s.id,'inventory',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Variantes</label><input value={s.variants||''} onChange={e=>updateSupplier(s.id,'variants',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Observaciones</label><input value={s.notes||''} onChange={e=>updateSupplier(s.id,'notes',e.target.value)} className={fieldClass}/></div></div></div>)}</div></div>}
 
-      {step==='offer'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">5. Oferta comercial</p><p className="text-xs text-slate-500 mt-1">La selección del proveedor es manual. Winner no elige automáticamente el más barato.</p></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Presentación elegida</label><input value={current.offer?.presentation||''} onChange={e=>updateCurrent('offer.presentation',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Cantidad de unidades</label><input type="number" min="1" value={current.offer?.quantity||''} onChange={e=>updateCurrent('offer.quantity',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio de venta total</label><input type="number" min="0" value={current.offer?.price||''} onChange={e=>updateCurrent('offer.price',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Proveedor seleccionado</label><select value={current.offer?.selectedSupplierId||''} onChange={e=>updateCurrent('offer.selectedSupplierId',e.target.value)} className={fieldClass}><option value="">Seleccionar proveedor...</option>{(current.suppliers||[]).map(s=><option key={s.id} value={s.id}>{s.name||'Proveedor'} · {fmt(Number(s.unitCost)||0)} · stock {s.inventory||0}</option>)}</select></div><div className="md:col-span-2"><label className={labelClass}>Observaciones comerciales</label><textarea rows={3} value={current.offer?.notes||''} onChange={e=>updateCurrent('offer.notes',e.target.value)} className={fieldClass}/></div></div><div className={`rounded-2xl border p-4 ${currentFinancial.freightLookup.status==='ok'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><p className="text-[8px] font-black uppercase">Flete ponderado integrado</p>{currentFinancial.freightLookup.status==='ok'?<p className="text-lg font-black mt-1">{fmt(currentFinancial.freightPerShipment)} <span className="text-[8px] font-bold text-slate-500">· tramo hasta {fmt(currentFinancial.freightLookup.rate.ticketMax)}</span></p>:<p className="text-[9px] font-bold text-amber-800 mt-1">Validar costo de flete y adicionar dato a la Tabla de Fletes.</p>}</div></div>}
+      {step==='offer'&&<details open className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4 mb-4"><summary className="cursor-pointer text-[10px] font-black uppercase text-[#12386B]">Escoge tu mejor oferta · calculadora financiera</summary><p className="text-[9px] text-slate-600 mt-2">Compara alternativas usando el mismo motor de costos, con IER {fmtDec(brief01OperatingRates(current).effectiveRate*100,2)}%. CPA excluido del margen.</p><div className="flex flex-wrap gap-2 mt-3"><button className="rounded-xl bg-[#12386B] text-white px-3 py-2 text-[9px] font-bold" onClick={()=>setCurrent(prev=>({...prev,offerAlternatives:[...(prev.offerAlternatives||[]),{id:`alt_${Date.now()}`,quantity:String(prev.offer?.quantity||1),price:String(prev.offer?.price||''),selectedSupplierId:prev.offer?.selectedSupplierId||''}]}))}>+ Simular otra oferta</button></div><div className="space-y-3 mt-3">{(current.offerAlternatives||[]).map((alt,i)=>{const simulation=calculateBrief01Financial(current,freightRates,{quantity:alt.quantity,price:alt.price,selectedSupplierId:alt.selectedSupplierId});const valid=Number(alt.price)>0&&!!simulation.selectedSupplier&&simulation.freightLookup.status==='ok';return <div key={alt.id} className="rounded-xl border border-slate-200 bg-white p-3"><div className="grid grid-cols-1 sm:grid-cols-3 gap-2"><div><label className={labelClass}>Unidades</label><input type="number" min="1" value={alt.quantity} onChange={e=>setCurrent(prev=>({...prev,offerAlternatives:prev.offerAlternatives.map(a=>a.id===alt.id?{...a,quantity:e.target.value}:a)}))} className={fieldClass}/></div><div><label className={labelClass}>Precio total COP</label><input type="number" min="0" value={alt.price} onChange={e=>setCurrent(prev=>({...prev,offerAlternatives:prev.offerAlternatives.map(a=>a.id===alt.id?{...a,price:e.target.value}:a)}))} className={fieldClass}/></div><div><label className={labelClass}>Proveedor</label><select value={alt.selectedSupplierId||''} onChange={e=>setCurrent(prev=>({...prev,offerAlternatives:prev.offerAlternatives.map(a=>a.id===alt.id?{...a,selectedSupplierId:e.target.value}:a)}))} className={fieldClass}><option value="">Seleccionar...</option>{(current.suppliers||[]).map(s=><option key={s.id} value={s.id}>{s.name||s.dropiId||s.id}</option>)}</select></div></div><p className={`text-sm font-black mt-2 ${valid&&simulation.marginPerGenerated>=BRIEF01_TARGET_MARGIN?'text-emerald-700':'text-amber-700'}`}>{valid?`Margen antes de Ads por pedido generado: ${fmt(simulation.marginPerGenerated)} · ${simulation.marginPerGenerated>=BRIEF01_TARGET_MARGIN?'Cumple objetivo':'Por debajo de $25.000'}`:'Completa precio, proveedor y tabla de fletes para evaluar.'}</p><div className="flex gap-2 mt-2"><button disabled={!valid} className="rounded-lg bg-emerald-600 text-white disabled:opacity-40 px-3 py-2 text-[8px] font-black" onClick={()=>setCurrent(prev=>({...prev,offer:{...prev.offer,quantity:String(alt.quantity),presentation:`${alt.quantity} unidad(es)`,price:String(alt.price),selectedSupplierId:alt.selectedSupplierId}}))}>Elegir esta oferta</button><button className="rounded-lg bg-rose-50 text-rose-700 px-3 py-2 text-[8px] font-black" onClick={()=>setCurrent(prev=>({...prev,offerAlternatives:prev.offerAlternatives.filter(a=>a.id!==alt.id)}))}>Quitar</button></div></div>})}</div><p className="text-[8px] text-slate-500 mt-3">Las simulaciones no reemplazan la oferta seleccionada hasta pulsar «Elegir esta oferta».</p></details>}
+      {step==='offer'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">6. Oferta comercial</p><p className="text-xs text-slate-500 mt-1">La selección del proveedor es manual. Winner no elige automáticamente el más barato.</p></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Presentación elegida</label><input value={current.offer?.presentation||''} onChange={e=>updateCurrent('offer.presentation',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Cantidad de unidades</label><input type="number" min="1" value={current.offer?.quantity||''} onChange={e=>updateCurrent('offer.quantity',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Precio de venta total</label><input type="number" min="0" value={current.offer?.price||''} onChange={e=>updateCurrent('offer.price',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Proveedor seleccionado</label><select value={current.offer?.selectedSupplierId||''} onChange={e=>updateCurrent('offer.selectedSupplierId',e.target.value)} className={fieldClass}><option value="">Seleccionar proveedor...</option>{(current.suppliers||[]).map(s=><option key={s.id} value={s.id}>{s.name||'Proveedor'} · {fmt(Number(s.unitCost)||0)} · stock {s.inventory||0}</option>)}</select></div><div className="md:col-span-2"><label className={labelClass}>Observaciones comerciales</label><textarea rows={3} value={current.offer?.notes||''} onChange={e=>updateCurrent('offer.notes',e.target.value)} className={fieldClass}/></div></div><div className={`rounded-2xl border p-4 ${currentFinancial.freightLookup.status==='ok'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><p className="text-[8px] font-black uppercase">Flete ponderado integrado</p>{currentFinancial.freightLookup.status==='ok'?<p className="text-lg font-black mt-1">{fmt(currentFinancial.freightPerShipment)} <span className="text-[8px] font-bold text-slate-500">· tramo hasta {fmt(currentFinancial.freightLookup.rate.ticketMax)}</span></p>:<p className="text-[9px] font-bold text-amber-800 mt-1">Validar costo de flete y adicionar dato a la Tabla de Fletes.</p>}</div></div>}
 
-      {step==='costs'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">6. Costos financieros</p><p className="text-xs text-slate-500 mt-1">Cada costo identifica su base de aplicación. El CPA de planificación se configura aparte y no entra en este margen.</p></div><div className="rounded-2xl bg-slate-50 border border-slate-200 p-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Comisión · valor o %</label><input type="number" min="0" value={current.costs?.commissionAmount||''} onChange={e=>updateCurrent('costs.commissionAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base comisión</label><select value={current.costs?.commissionBase||'per_delivered'} onChange={e=>updateCurrent('costs.commissionBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div><div><label className={labelClass}>Costos fijos asignados · valor o %</label><input type="number" min="0" value={current.costs?.fixedAmount||''} onChange={e=>updateCurrent('costs.fixedAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base costos fijos</label><select value={current.costs?.fixedBase||'per_delivered'} onChange={e=>updateCurrent('costs.fixedBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div></div><div><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Otros costos operativos</p><button onClick={addAdditionalCost} className="text-[8px] font-black text-[#12386B]">+ Agregar costo</button></div><div className="space-y-2 mt-2">{(current.costs?.additional||[]).map(x=><div key={x.id} className="grid grid-cols-1 sm:grid-cols-[1fr_130px_1fr_34px] gap-2 items-center"><input placeholder="Nombre" value={x.name||''} onChange={e=>updateAdditionalCost(x.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Valor" value={x.amount||''} onChange={e=>updateAdditionalCost(x.id,'amount',e.target.value)} className={fieldClass}/><select value={x.base||'per_delivered'} onChange={e=>updateAdditionalCost(x.id,'base',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><button onClick={()=>removeAdditionalCost(x.id)} className="text-rose-500"><Trash2 size={13}/></button></div>)}</div></div><div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p className="text-[8px] font-black uppercase text-blue-700">Vista previa financiera · 100 pedidos</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3"><div><p className="text-[7px] text-slate-500">Ingresos cobrados</p><p className="text-sm font-black">{fmt(currentFinancial.revenueCollected)}</p></div><div><p className="text-[7px] text-slate-500">Fletes</p><p className="text-sm font-black">{fmt(currentFinancial.freightTotal)}</p></div><div><p className="text-[7px] text-slate-500">Costo producto</p><p className="text-sm font-black">{fmt(currentFinancial.productCostTotal)}</p></div><div><p className="text-[7px] text-slate-500">Margen / pedido</p><p className="text-sm font-black">{fmt(currentFinancial.marginPerGenerated)}</p></div></div></div></div>}
+      {step==='costs'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">5. Costos financieros</p><p className="text-xs text-slate-500 mt-1">Cada costo identifica su base de aplicación. El CPA de planificación se configura aparte y no entra en este margen.</p></div><div className="rounded-2xl bg-slate-50 border border-slate-200 p-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Comisión · valor o %</label><input type="number" min="0" value={current.costs?.commissionAmount||''} onChange={e=>updateCurrent('costs.commissionAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base comisión</label><select value={current.costs?.commissionBase||'per_delivered'} onChange={e=>updateCurrent('costs.commissionBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div><div><label className={labelClass}>Costos fijos asignados · valor o %</label><input type="number" min="0" value={current.costs?.fixedAmount||''} onChange={e=>updateCurrent('costs.fixedAmount',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Base costos fijos</label><select value={current.costs?.fixedBase||'per_delivered'} onChange={e=>updateCurrent('costs.fixedBase',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div></div></div><div><div className="flex justify-between items-center"><p className="text-[8px] font-black uppercase text-slate-500">Otros costos operativos</p><button onClick={addAdditionalCost} className="text-[8px] font-black text-[#12386B]">+ Agregar costo</button></div><div className="space-y-2 mt-2">{(current.costs?.additional||[]).map(x=><div key={x.id} className="grid grid-cols-1 sm:grid-cols-[1fr_130px_1fr_34px] gap-2 items-center"><input placeholder="Nombre" value={x.name||''} onChange={e=>updateAdditionalCost(x.id,'name',e.target.value)} className={fieldClass}/><input type="number" min="0" placeholder="Valor" value={x.amount||''} onChange={e=>updateAdditionalCost(x.id,'amount',e.target.value)} className={fieldClass}/><select value={x.base||'per_delivered'} onChange={e=>updateAdditionalCost(x.id,'base',e.target.value)} className={fieldClass}>{baseOptions.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><button onClick={()=>removeAdditionalCost(x.id)} className="text-rose-500"><Trash2 size={13}/></button></div>)}</div></div><div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p className="text-[8px] font-black uppercase text-blue-700">Vista previa financiera · 100 pedidos</p><div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3"><div><p className="text-[7px] text-slate-500">Ingresos cobrados</p><p className="text-sm font-black">{fmt(currentFinancial.revenueCollected)}</p></div><div><p className="text-[7px] text-slate-500">Fletes</p><p className="text-sm font-black">{fmt(currentFinancial.freightTotal)}</p></div><div><p className="text-[7px] text-slate-500">Costo producto</p><p className="text-sm font-black">{fmt(currentFinancial.productCostTotal)}</p></div><div><p className="text-[7px] text-slate-500">Margen / pedido</p><p className="text-sm font-black">{fmt(currentFinancial.marginPerGenerated)}</p></div></div></div></div>}
 
       {step==='diagnosis'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">7. Diagnóstico</p><p className="text-xs text-slate-500 mt-1">El motor es determinista y no inventa demanda, ventas, CPA ni rentabilidad de terceros.</p></div><button onClick={runDiagnosis} disabled={saving} className="w-full rounded-2xl bg-[#12386B] text-white py-3 text-[9px] font-black uppercase tracking-widest"><Gauge size={13} className="inline mr-2"/>Calcular y guardar diagnóstico completo</button><div className="rounded-2xl bg-slate-50 border border-slate-200 p-4"><p className="text-[8px] font-black uppercase text-slate-500">Vista previa</p><p className="text-lg font-black mt-2">{diag.classification||'Pendiente de información'}</p><p className="text-[9px] text-slate-600 mt-2">{diag.classificationReason}</p></div><div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4"><p className="text-[8px] font-black uppercase text-emerald-700">Objetivo económico y proyección mensual</p>{currentMonthlyProjection.status==='ok'?<div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3"><div><p className="text-[7px] text-slate-500">Órdenes / día</p><p className="text-xl font-black text-emerald-800">{currentMonthlyProjection.requiredDailyOrders}</p></div><div><p className="text-[7px] text-slate-500">Órdenes / mes</p><p className="text-sm font-black">{currentMonthlyProjection.minimumMonthlyOrders}</p></div><div><p className="text-[7px] text-slate-500">Entregas esperadas</p><p className="text-sm font-black">{fmtDec(currentMonthlyProjection.expectedDelivered,0)}</p></div><div><p className="text-[7px] text-slate-500">Recaudo proyectado</p><p className="text-sm font-black">{fmt(currentMonthlyProjection.projectedGrossRevenue)}</p></div></div>:<p className="text-[9px] font-bold text-amber-800 mt-2">{currentMonthlyProjection.message}</p>}</div></div>}
 
