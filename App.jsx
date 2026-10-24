@@ -19973,6 +19973,8 @@ const EMPTY_BRIEF01 = {
     additional: []
   },
   diagnosis: null,
+  strategicEvidence: {},
+  aiStrategicReports: {},
   history: []
 };
 
@@ -20625,6 +20627,14 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(diagnosis?.classificationReason||'Faltan datos para determinar el dictamen.',{gap:6});
   add('Criterio: clasificacion financiera y evidencia publicitaria son indicadores de testeo, no una garantia de ventas.');
 
+  section('1A. VEREDICTO ESTRATEGICO IA - FASES 1 Y 2');
+  add('Bloque cualitativo: solo analisis aprobados manualmente; no sustituye las reglas de rentabilidad.',{bold:true});
+  for (const [key,label] of [['angles','NIVEL DE SOFISTICACION Y BRECHA'],['suppliers','MECANISMO UNICO DEMOSTRABLE'],['offer','INGENIERIA DE OFERTA Y TICKET'],['diagnosis','VEREDICTO ESTRATEGICO']]) {
+    const item=research?.aiStrategicReports?.[key];
+    add(label+': '+(item?.text?String(item.text).replace(/\s+/g,' ').slice(0,1900):'Pendiente de fuentes y aprobacion humana.'),{gap:5});
+  }
+  add('Reglas: actividad publicitaria no prueba ventas; un ticket premium no queda autorizado solo por comparables externos. Confirmar costos, garantia y mecanismo fisico.');
+
   section('2. VIABILIDAD FINANCIERA');
   add(`Ticket comercial: ${money(f.price)} | Producto/unidad: ${money(f.unitCost)} | Flete por despacho: ${money(f.freightPerShipment)}.`,{bold:true});
   add(`IER: ${pct(ier.effective*100)} | Cancelaciones: ${pct(ier.cancellation*100)} | Devoluciones sobre despachos: ${pct(ier.returnRate*100)}.`);
@@ -21271,26 +21281,57 @@ function Brief01ExtensionBridge() {
 
 
 // WINNER INTELLIGENCE V37: Ayuda contextual IA, no guarda respuestas ni altera cálculos.
-function Brief01IntelligenceAssistant({user,research,step}) {
- const [busy,setBusy]=useState(false),[answer,setAnswer]=useState(''),[error,setError]=useState('');
+// Intelligence F1/F2: análisis cualitativo aprobado explícitamente; nunca modifica cálculos.
+function Brief01IntelligenceAssistant({user,research,step,onApproved}) {
+ const [busy,setBusy]=useState(false),[answer,setAnswer]=useState(''),[error,setError]=useState(''),[saving,setSaving]=useState(false);
  useEffect(()=>{setAnswer('');setError('');},[research?.id,step]);
+ const supported=['meta','competitors','angles','suppliers','offer','diagnosis','pdf'];
+ if(!supported.includes(step))return null;
  const ask=async()=>{
-  if(!user || !research || busy)return;
-  setBusy(true);setError('');
-  try {
+  if(!user||!research||busy)return;
+  setBusy(true);setError('');setAnswer('');
+  try{
    const token=await user.getIdToken();
-   const safeCopies=(research.adCopies||[]).slice(0,150).map(x=>({advertiser:String(x.advertiser||'').slice(0,90),copy:String(x.copy||'').slice(0,360),classification:String(x.productRelation||'sin_clasificar').slice(0,30)}));
-   const safe={name:String(research.name||'').slice(0,160),product:research.product||{},meta:research.meta||{},competitors:(research.competitors||[]).slice(0,15).map(x=>({name:x.name,salesUrl:x.salesUrl,offers:x.offers})),adCopies:safeCopies,offer:research.offer||{},planning:research.planning||{},costs:research.costs||{},suppliers:(research.suppliers||[]).slice(0,12).map(x=>({name:x.name,cost:x.cost})),diagnosis:research.diagnosis||null};
+   // Copys originales para contar promesas; no tomar los resúmenes financieros como evidencia cualitativa.
+   const copies=(research.adCopies||[]).slice(0,160).map(x=>({id:String(x.id||x.adId||'').slice(0,100),advertiser:String(x.advertiser||'').slice(0,100),copy:String(x.copy||'').slice(0,1500),classification:String(x.productRelation||'sin_clasificar').slice(0,30)}));
+   const suppliers=(research.suppliers||[]).slice(0,20).map(x=>({name:x.name,unitCost:x.unitCost,variants:x.variants,notes:x.notes,url:x.url}));
+   const competitors=(research.competitors||[]).slice(0,30).map(x=>({name:x.name,adAgeDays:x.adAgeDays,activeAdsCount:x.activeAdsCount,primaryAngle:x.primaryAngle,secondaryAngle1:x.secondaryAngle1,secondaryAngle2:x.secondaryAngle2,singlePrice:x.singlePrice,combos:x.combos,offers:x.offers,notes:x.notes,salesUrl:x.salesUrl}));
+   const safe={name:String(research.name||'').slice(0,160),description:String(research.description||'').slice(0,1200),product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers,offer:research.offer||{},strategicEvidence:research.strategicEvidence||{},approvedStrategicReports:research.aiStrategicReports||{}};
    const res=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step,research:safe})});
    const data=await res.json();if(!res.ok)throw Error(data.error||`Error ${res.status}`);
-   setAnswer(String(data.analysis||'Sin respuesta').slice(0,7500));
-  }catch(e){setError(String(e.message||'Error de conexión'))}finally{setBusy(false)}
+   const value=String(data.analysis||'').trim();if(!value)throw Error('DeepSeek devolvió un análisis vacío');
+   setAnswer(value.slice(0,7500));
+  }catch(e){setError(String(e?.message||'Error de conexión'))}finally{setBusy(false)}
+ };
+ const approve=async()=>{
+  if(!answer.trim()||!research?.id||saving||!user)return;
+  setSaving(true);setError('');
+  try{
+   const record={text:answer.slice(0,7500),approvedAt:todayColombia(),source:'deepseek-text-only',step};
+   // Firestore: sólo texto aprobado por humano; sin fotos ni capturas.
+   await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),{[`aiStrategicReports.${step}`]:record,updatedDate:todayColombia(),updatedAtMs:Date.now()});
+   onApproved?.(step,record);setAnswer('');
+  }catch(e){setError('No se pudo guardar el análisis aprobado: '+String(e?.message||'comprueba permisos'))}finally{setSaving(false)}
  };
  return <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 my-4" aria-label="Análisis de inteligencia artificial">
-  <div className="flex flex-wrap gap-3 justify-between items-center"><div><p className="text-xs font-black text-indigo-900">Intelligence · DeepSeek · Análisis interno BRIEF 01</p><p className="text-[10px] text-slate-600">Analiza datos y copys aprobados. Sin reconocimiento visual. No altera cálculos ni guarda respuestas automáticamente.</p></div><button type="button" disabled={busy} onClick={ask} className="rounded-xl bg-indigo-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{busy?'Analizando…':'Analizar esta vista con IA'}</button></div>
+  <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black text-indigo-900">DeepSeek · {['meta','competitors','angles','suppliers'].includes(step)?'FASE 1 — Sofisticación y brecha':'FASE 2 — Oferta y decisión'}</p><p className="text-[10px] text-slate-600">Investiga copys, fricciones y mecanismos; no repite el informe financiero. Solo se guarda si lo apruebas.</p></div><button type="button" disabled={busy} onClick={ask} className="rounded-xl bg-indigo-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{busy?'Analizando...':'Investigar esta pestaña con IA'}</button></div>
   {error&&<p role="alert" className="mt-3 text-xs text-rose-700">{error}</p>}
-  {answer&&<div className="mt-3 bg-white rounded-xl p-3 border border-indigo-100"><pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-800">{answer}</pre><div className="flex gap-2 mt-3"><button type="button" onClick={()=>navigator.clipboard?.writeText(answer)} className="border rounded-lg px-3 py-1 text-xs">Copiar propuesta</button><button type="button" onClick={()=>setAnswer('')} className="border rounded-lg px-3 py-1 text-xs">Descartar</button></div></div>}
- </section>
+  {answer&&<div className="mt-3 bg-white rounded-xl p-3 border border-indigo-100"><pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-800">{answer}</pre><div className="flex flex-wrap gap-2 mt-3"><button type="button" disabled={saving} onClick={approve} className="rounded-lg bg-emerald-700 text-white px-3 py-1 text-xs font-bold disabled:opacity-50">{saving?'Guardando...':'Aprobar para diagnóstico y PDF'}</button><button type="button" onClick={()=>navigator.clipboard?.writeText(answer)} className="border rounded-lg px-3 py-1 text-xs">Copiar</button><button type="button" onClick={()=>setAnswer('')} className="border rounded-lg px-3 py-1 text-xs">Descartar</button></div></div>}
+  {research?.aiStrategicReports?.[step]?.text&&<div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[10px] font-black text-emerald-800">Análisis aprobado · {research.aiStrategicReports[step].approvedAt||''}</p><p className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{String(research.aiStrategicReports[step].text).slice(0,1400)}{String(research.aiStrategicReports[step].text).length>1400?'…':''}</p></div>}
+ </section>;
+}
+
+function Brief01StrategicInputs({research,step,onField}) {
+ const values=research?.strategicEvidence||{};
+ const all={
+  meta:{title:'FASE 1 · Indicadores de sofisticación',help:'La duración mayor de 15 días indica persistencia publicitaria, NO ventas comprobadas.',fields:[['marketCoverage','Cobertura de búsqueda y fecha de corte','Describe cómo buscaste anunciantes y qué marcas/productos quedaron fuera.']]},
+  competitors:{title:'FASE 1 · Evidencia de mercado',help:'Distingue competidores directos y alternativas; no equipares número de anuncios a ventas.',fields:[['competitorNotes','Promesas y mecanismos destacados','Observaciones manuales con nombre de tienda y enlace de evidencia.']]},
+  angles:{title:'FASE 1 · Fricciones y brechas',help:'Incorpora reseñas reales 1–3 estrellas con fuente; no inventes fallas ni porcentajes.',fields:[['negativeReviews','Reseñas negativas y enlaces de origen','Una reseña por línea: plataforma | producto equivalente | estrellas | queja literal | URL.'],['ignoredProblems','Hipótesis de problemas ignorados','Ideas por validar; no son hechos confirmados.']]},
+  suppliers:{title:'FASE 1 · Prueba del mecanismo técnico',help:'Una ventaja existe solamente si las especificaciones reales del proveedor demuestran el mecanismo.',fields:[['technicalProof','Ficha técnica y pruebas del mecanismo','Materiales, medidas, componentes, pruebas disponibles y enlace de ficha, distinguiendo hechos de claims.']]},
+  offer:{title:'FASE 2 · Ingeniería de la oferta',help:'Bonos, garantía, anclaje de precio y upsell son propuestas: requieren factibilidad y aprobación.',fields:[['adjacentProblems','Problemas adyacentes y posibles bonos digitales','Fuente y problema del nicho; propone entregable digital, sin asumir costo operativo cero.'],['upsellEvidence','Comprados juntos / evidencia de upsell','Producto complementario, fuente, compatibilidad, precio y logística; si no hay evidencia, indícalo.'],['premiumBenchmarks','Precios premium externos comparables','Tienda / presentación equivalente / precio COP / fecha / URL.'],['guaranteeConditions','Garantías que realmente puedes cumplir','Plazo autorizado, cobertura, exclusiones y costos potenciales.']]}
+ };
+ const config=all[step];if(!config)return null;
+ return <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 my-4"><p className="text-xs font-black text-[#12386B]">{config.title}</p><p className="text-[10px] text-slate-600 mt-1 mb-3">{config.help}</p><div className="grid grid-cols-1 md:grid-cols-2 gap-3">{config.fields.map(([field,label,placeholder])=><label key={field} className="block"><span className="block text-[10px] font-bold text-slate-700 mb-1">{label}</span><textarea rows={3} maxLength={6000} value={values[field]||''} placeholder={placeholder} onChange={e=>onField('strategicEvidence.'+field,e.target.value)} className="w-full rounded-xl border border-slate-200 p-3 text-xs bg-white"/></label>)}</div><p className="text-[10px] text-slate-500 mt-2">Usa el botón Guardar de BRIEF 01 para conservar estas fuentes antes de solicitar el análisis IA.</p></section>;
 }
 
 function Brief01Module() {
@@ -21677,7 +21718,9 @@ function Brief01Module() {
 
   return <div className="space-y-4 anim-fade"><Header/>
     <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
-      <Brief01IntelligenceAssistant user={user} research={current} step={step} />
+      <Brief01StrategicInputs research={current} step={step} onField={updateCurrent}/>
+      <Brief01IntelligenceAssistant user={user} research={current} step={step} onApproved={(approvedStep,record)=>setCurrent(previous=>({...previous,aiStrategicReports:{...(previous.aiStrategicReports||{}),[approvedStep]:record}}))}/>
+      {['diagnosis','pdf'].includes(step)&&<div className="rounded-2xl border border-indigo-200 bg-white p-4 my-4"><p className="text-xs font-black text-[#12386B]">Veredicto estratégico · Fases 1 y 2</p><p className="text-[10px] text-slate-500 mb-3">Se muestran únicamente los análisis aprobados. La aprobación de un ticket premium requiere pruebas técnicas, comerciales y financieras.</p>{[['angles','1. Nivel de sofisticación, promesas y brecha'],['suppliers','2. Mecanismo técnico comprobable'],['offer','3. Bonos, garantía, ticket y upsell'],['diagnosis','4. Veredicto y requisitos para avanzar']].map(([id,label])=><div key={id} className="border-t border-slate-100 py-2"><p className="text-[10px] font-bold text-slate-800">{label}</p><p className="text-xs text-slate-600 whitespace-pre-wrap">{current?.aiStrategicReports?.[id]?.text?String(current.aiStrategicReports[id].text).slice(0,850):'Pendiente de investigación y aprobación'}</p></div>)}</div>}
       {step==='product'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">1. Información del producto</p><p className="text-xs text-slate-500 mt-1">Puedes guardar aunque la investigación esté incompleta.</p></div>{duplicateMatches.length>0&&<div className="rounded-2xl border border-amber-200 bg-amber-50 p-3"><p className="text-[9px] font-black text-amber-800">Posible duplicado detectado</p><p className="text-[8px] text-amber-700 mt-1">Existe {duplicateMatches.map(x=>`${x.code} · ${x.name}`).join(', ')}. Puedes continuar de todas maneras.</p></div>}<div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Código</label><input value={current.code} disabled className={`${fieldClass} bg-slate-50`}/></div><div><label className={labelClass}>Nombre del producto</label><input value={current.name||''} onChange={e=>updateCurrent('name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Categoría</label><input value={current.category||''} onChange={e=>updateCurrent('category',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Fecha creación</label><input value={current.createdDate||todayColombia()} disabled className={`${fieldClass} bg-slate-50`}/></div><div className="md:col-span-2"><label className={labelClass}>Descripción breve</label><textarea rows={3} value={current.description||''} onChange={e=>updateCurrent('description',e.target.value)} className={fieldClass}/></div></div><div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4"><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">Objetivo económico del producto</p><p className="text-[8px] text-slate-500 mt-1">Planificación comercial separada de la viabilidad. El CPA no modifica el margen antes de Ads.</p><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Meta de ganancia mensual (COP)</label><input type="number" min="0" value={current.planning?.monthlyProfitTarget??''} onChange={e=>updateCurrent('planning.monthlyProfitTarget',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>CPA de planificación por orden generada (COP)</label><input type="number" min="0" value={current.planning?.planningCPA??''} onChange={e=>updateCurrent('planning.planningCPA',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/><p className="text-[7px] text-slate-500 mt-1">Solo para proyección mensual. No afecta el margen antes de Ads.</p></div><div><label className={labelClass}>Días de venta al mes</label><input type="number" min="1" max="31" value={current.planning?.sellingDays??''} onChange={e=>updateCurrent('planning.sellingDays',e.target.value===''?'':Math.min(31,Math.max(1,Number(e.target.value)||1)))} className={fieldClass}/></div></div>
 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 mt-4">
   <p className="text-[10px] font-black uppercase text-emerald-900">IER del producto · Contraentrega</p>
