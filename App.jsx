@@ -1141,12 +1141,30 @@ function VistaConfig({ configs, onSaved }) {
   );
 }
 
+// V61 · Señal aislada de costo por mensaje iniciado en Meta Ads, sin cruzar CPA ni ROAS.
+function messageCostHealth(avg) {
+  if (avg === null || !Number.isFinite(avg)) return { label: 'SIN DATOS', tone: 'slate', description: 'Registra el costo por mensaje en los cierres de campañas de WhatsApp para obtener el diagnóstico.' };
+  if (avg < 500) return { label: 'EXCELENTE', tone: 'emerald', description: 'Excelente tracción: costo por mensaje inferior a $500. Mantén la observación del conjunto.' };
+  if (avg <= 1000) return { label: 'SALUDABLE', tone: 'green', description: 'Costo por mensaje dentro del rango saludable de $500 a $1.000.' };
+  if (avg <= 1500) return { label: 'ACEPTABLE', tone: 'amber', description: 'Costo al límite: entre $1.000 y $1.500. Revisa creativos y evolución diaria.' };
+  if (avg <= 2000) return { label: 'ALERTA', tone: 'orange', description: 'Costo entre $1.500 y $2.000: posible desgaste o menor relevancia. Revisa la campaña.' };
+  return { label: 'CRÍTICO', tone: 'rose', description: 'Costo superior a $2.000 por mensaje: revisa anuncios y segmentación antes de aumentar inversión.' };
+}
+function aggregateMessageCost(records) {
+  const valid = (records || []).filter(r => !r.restDay && r.isWebCampaign !== true && r.messageCost !== undefined && r.messageCost !== null && r.messageCost !== '' && Number.isFinite(Number(r.messageCost)) && Number(r.messageCost) >= 0);
+  const average = valid.length ? valid.reduce((sum,r)=>sum+Number(r.messageCost),0)/valid.length : null;
+  return { average, count: valid.length, ...messageCostHealth(average) };
+}
+function messageCostTone(tone) {
+  return ({emerald:'border-emerald-300 bg-emerald-50 text-emerald-800',green:'border-green-300 bg-green-50 text-green-800',amber:'border-amber-300 bg-amber-50 text-amber-800',orange:'border-orange-300 bg-orange-50 text-orange-800',rose:'border-rose-300 bg-rose-50 text-rose-800',slate:'border-slate-200 bg-slate-50 text-slate-600'})[tone] || 'border-slate-200 bg-slate-50 text-slate-600';
+}
+
 // ─── VISTA 2: REGISTRO DIARIO (CIERRES) ──────────────────────────────────────
 function VistaRegistro({ configs, months, activeTab }) {
   const [selectedDate, setSelectedDate] = useState(todayColombia());
   const [selectedVendor, setSelectedVendor] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
-  const [form, setForm] = useState({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+  const [form, setForm] = useState({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false });
   const [editingRec, setEditingRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -1304,12 +1322,12 @@ function VistaRegistro({ configs, months, activeTab }) {
   const handleVendorChange = (vendor) => {
     setSelectedVendor(vendor);
     setSelectedProductId('');
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false });
     setErrorMsg('');
   };
   const handleProductChange = (productId) => {
     setSelectedProductId(productId);
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false });
     setErrorMsg('');
   };
 
@@ -1336,7 +1354,8 @@ function VistaRegistro({ configs, months, activeTab }) {
         return;
       }
     }
-    const rec = { configId: selectedProductId, orders, units, revenue, adSpend, date: selectedDate, id: editingRec?.id || Date.now().toString(), savedAt: Date.now(), restDay: form.restDay };
+    if (!form.restDay && !form.isWebCampaign && form.messageCost !== '' && (!Number.isFinite(Number(form.messageCost)) || Number(form.messageCost) < 0)) { setErrorMsg('Ingresa un costo por mensaje válido (COP) o deja el campo vacío.'); return; }
+    const rec = { configId: selectedProductId, orders, units, revenue, adSpend, messageCost: form.restDay || form.isWebCampaign ? null : (form.messageCost === '' ? null : Number(form.messageCost)), isWebCampaign: !!form.isWebCampaign, date: selectedDate, id: editingRec?.id || Date.now().toString(), savedAt: Date.now(), restDay: form.restDay };
     const ref = doc(db, 'sales_months', monthId);
     const existing = months.find(m => m.id === monthId);
     let records = existing?.records || [];
@@ -1349,7 +1368,7 @@ function VistaRegistro({ configs, months, activeTab }) {
       if (existing) await updateDoc(ref, { records });
       else await setDoc(ref, { records });
     }
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false });
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2500);
   };
@@ -1359,7 +1378,7 @@ function VistaRegistro({ configs, months, activeTab }) {
     if (config) {
       setSelectedVendor(config.vendedora);
       setSelectedProductId(r.configId);
-      setForm({ orders: r.orders, units: r.units, revenue: r.revenue, adSpend: r.adSpend || '', restDay: r.restDay || false });
+      setForm({ orders: r.orders, units: r.units, revenue: r.revenue, adSpend: r.adSpend || '', messageCost: r.messageCost ?? '', isWebCampaign: r.isWebCampaign === true, restDay: r.restDay || false });
       setEditingRec(r);
       setErrorMsg('');
     }
@@ -1377,7 +1396,7 @@ function VistaRegistro({ configs, months, activeTab }) {
   const cancelEdit = () => {
     setEditingRec(null);
     setSelectedVendor(''); setSelectedProductId('');
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false });
     setErrorMsg('');
   };
 
@@ -1393,7 +1412,7 @@ function VistaRegistro({ configs, months, activeTab }) {
     setSelectedDate(`${year}-${month}-${day}`);
     setEditingRec(null);
     setSelectedVendor(''); setSelectedProductId('');
-    setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false });
+    setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false });
     setErrorMsg('');
   };
 
@@ -1420,7 +1439,7 @@ function VistaRegistro({ configs, months, activeTab }) {
 
         <div className="bg-zinc-950 px-4 py-3 rounded-2xl text-white space-y-3">
           <div className="flex items-center gap-2"><Calendar size={16} className="text-emerald-400" /><div><p className="text-[8px] font-black text-zinc-500 uppercase">Fecha del Registro · Selección libre (Hora Colombia)</p><p className="text-[8px] text-zinc-600">Cualquier día pasado, presente o futuro</p></div></div>
-          <div className="space-y-2"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-sm md:text-base rounded-xl px-3 py-2 cursor-pointer border-2 border-emerald-400" /><div className="grid grid-cols-3 gap-1"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día anterior</button><button onClick={() => { setSelectedDate(todayColombia()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-2 py-1.5 rounded-xl text-[9px] font-black">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día siguiente</button></div></div>
+          <div className="space-y-2"><input type="date" value={selectedDate} onChange={(e) => { if (e.target.value) { setSelectedDate(e.target.value); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false }); setErrorMsg(''); } }} className="w-full bg-white text-zinc-950 font-black text-sm md:text-base rounded-xl px-3 py-2 cursor-pointer border-2 border-emerald-400" /><div className="grid grid-cols-3 gap-1"><button onClick={() => moveDate(-1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día anterior</button><button onClick={() => { setSelectedDate(todayColombia()); setEditingRec(null); setSelectedVendor(''); setSelectedProductId(''); setForm({ orders: '', units: '', revenue: '', adSpend: '', messageCost: '', isWebCampaign: false, restDay: false }); setErrorMsg(''); }} className="bg-emerald-500 text-zinc-950 px-2 py-1.5 rounded-xl text-[9px] font-black">Hoy</button><button onClick={() => moveDate(1)} className="bg-white/10 text-emerald-400 px-2 py-1.5 rounded-xl text-[9px] font-black">Día siguiente</button></div></div>
           <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2"><p className="text-[9px] text-zinc-500 font-black uppercase">Registrando en: <span className="text-emerald-400">{parseColombiaDate(selectedDate).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' })}</span></p></div>
         </div>
 
@@ -1434,6 +1453,10 @@ function VistaRegistro({ configs, months, activeTab }) {
 
         <div className="flex items-center gap-2 mt-2 mb-2"><input type="checkbox" id="mostrarInactivos" checked={mostrarInactivos} onChange={(e) => setMostrarInactivos(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" /><label htmlFor="mostrarInactivos" className="text-[10px] font-black uppercase text-slate-500">📦 Mostrar productos inactivos (ventas residuales)</label></div>
 
+        {selectedConfig && <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-black uppercase text-indigo-900">Costo por mensaje iniciado · Meta Ads</p><p className="text-[9px] text-slate-600">Métrica diaria independiente de ventas, CPA e IER.</p></div><label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900"><input type="checkbox" checked={!!form.isWebCampaign} onChange={e=>setFormField('isWebCampaign',e.target.checked)} disabled={form.restDay}/>Campaña página web</label></div>
+          {form.isWebCampaign ? <p className="text-xs font-semibold text-slate-600">Campaña web: costo por mensaje deshabilitado y excluido del diagnóstico.</p> : <div><label className="block text-[10px] font-black text-indigo-800 mb-1">Costo por mensaje del día (COP)</label><input type="number" min="0" step="1" disabled={form.restDay} value={form.messageCost} onChange={e=>setFormField('messageCost',e.target.value)} placeholder="Ej.: 850" className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 font-black text-lg text-indigo-950"/><p className="text-[9px] text-slate-500 mt-1">Campo opcional. Sin registro no se promedia como $0.</p></div>}
+        </div>}
         {selectedConfig && !selectedConfig.fixedAdSpend && (<div className="bg-zinc-950 text-white px-4 py-3 rounded-xl space-y-1"><Label className="text-zinc-500 text-[9px]">Inversión Ads de Hoy (MANUAL)</Label><input type="number" value={form.adSpend} onChange={e => setFormField('adSpend', e.target.value)} placeholder="$ 0" disabled={form.restDay} className={`w-full bg-transparent font-black text-xl outline-none ${form.restDay ? 'text-zinc-500 line-through' : 'text-emerald-400'}`} />{form.restDay && <p className="text-[8px] text-amber-400">Se guardará como 0.</p>}</div>)}
         {selectedConfig?.fixedAdSpend && (<div className="flex items-center gap-2 text-emerald-600 text-[8px] font-black bg-emerald-50 px-3 py-2 rounded-xl uppercase"><ToggleRight size={14} /> Ads fijo: {fmt(selectedConfig.dailyAdSpend)} · Se aplica automático</div>)}
 
@@ -1579,6 +1602,7 @@ function VistaDashboard({ configs, months }) {
   const toggleSection = (section) => setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
 
   const stats = useMemo(() => calcularStats(filteredRecords, configs), [filteredRecords, configs]);
+  const messageHealthRange = useMemo(() => aggregateMessageCost(filteredRecords), [filteredRecords]);
   const ticketEconomy = useMemo(() => buildDashboardTicketEconomy(filteredRecords, configs), [filteredRecords, configs]);
 
   // Días activos corregidos
@@ -2222,6 +2246,12 @@ function VistaDashboard({ configs, months }) {
     return resultados.sort((a, b) => b.proyeccion30 - a.proyeccion30);
   }, [filteredRecords, configs]);
 
+  const messageHealthByProduct = useMemo(() => {
+    const grouped = new Map();
+    filteredRecords.forEach(r=>{ if(!grouped.has(r.configId))grouped.set(r.configId,[]);grouped.get(r.configId).push(r); });
+    return new Map([...grouped].map(([id,rows])=>[id,aggregateMessageCost(rows)]));
+  }, [filteredRecords]);
+
   const productosDecision = useMemo(() => [
     ...productosEnRevision.map(p => ({ ...p, scaleCandidate: false })),
     ...productosBuenRendimiento
@@ -2292,6 +2322,13 @@ function VistaDashboard({ configs, months }) {
           <div className="relative"><Stat label="ROAS" value={`${fmtDec(stats.roas, 4)}x`} /><MetricInfoButton onClick={() => openMetricHelp('roas')} className="absolute top-2 right-2" /></div>
           <div className="relative"><Stat label="Utilidad Neta" value={fmt(stats.net)} sub={`${stats.net >= 0 ? '💰' : '⚠️'}`} /><MetricInfoButton onClick={() => openMetricHelp('netProfit')} className="absolute top-2 right-2" /></div>
           <div className="relative"><Stat label="Profit / Día" value={fmt(avgDiario)} sub={`${activeDays} días`} highlight /><MetricInfoButton onClick={() => openMetricHelp('profitDay')} className="absolute top-2 right-2" /></div>
+        </div>
+
+        {/* V61 · COSTO POR MENSAJE · SOLO REGISTROS FILTRADOS / NO WEB */}
+        <div className={`rounded-2xl border-2 p-4 md:p-5 ${messageCostTone(messageHealthRange.tone)}`}>
+          <div className="flex flex-wrap justify-between items-start gap-3"><div><p className="text-[10px] font-black uppercase tracking-wider">Salud de mensajes · Meta Ads</p><p className="text-2xl font-black mt-1">{messageHealthRange.average===null?'—':fmt(messageHealthRange.average)}</p><p className="text-[9px] mt-1">Promedio simple de {messageHealthRange.count} cierre(s) con dato · según fechas, vendedoras y productos seleccionados · excluye web y descansos.</p></div><span className="bg-white/75 rounded-full px-3 py-1 text-xs font-black">{messageHealthRange.label}</span></div>
+          <p className="text-xs font-medium mt-2">{messageHealthRange.description}</p>
+          <p className="text-[9px] opacity-80 mt-1">Diagnóstico únicamente del costo por mensaje iniciado. No determina por sí solo la rentabilidad.</p>
         </div>
 
         {/* ECONOMÍA DEL TICKET · CAPA PARALELA */}
@@ -2445,13 +2482,13 @@ function VistaDashboard({ configs, months }) {
                     <p className="text-[7px] sm:text-[8px] font-black text-[#12386B] whitespace-nowrap">Desliza horizontalmente →</p>
                   </div>
                   <div className="tpc-decision-scroll w-full overflow-x-auto overflow-y-hidden overscroll-x-contain">
-                  <table className="min-w-[1680px] w-max text-left border-collapse text-[10px] md:text-sm">
+                  <table className="min-w-[1820px] w-max text-left border-collapse text-[10px] md:text-sm">
                     <thead className="bg-[#f4f7fc] text-[7px] md:text-[8px] font-black uppercase text-[#032A78]">
                       <tr>
                         <th className="p-2 md:p-3">Estado</th><th className="p-2 md:p-3">Vendedora</th><th className="p-2 md:p-3">Producto</th>
                         <th className="p-2 md:p-3 text-right">Utilidad <button type="button" onClick={() => openMetricHelp('netProfit')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Proy. 30d <button type="button" onClick={() => openMetricHelp('projection30')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Meta</th>
                         <th className="p-2 md:p-3 text-right">% Meta</th><th className="p-2 md:p-3 text-right">IER <button type="button" onClick={() => openMetricHelp('ier')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">ROAS <button type="button" onClick={() => openMetricHelp('roas')} className="inline-flex ml-1"><Info size={9} /></button></th>
-                        <th className="p-2 md:p-3 text-right">CPA <button type="button" onClick={() => openMetricHelp('cpaReal')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">CPA Eq. <button type="button" onClick={() => openMetricHelp('cpaEquilibrium')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">AOV <button type="button" onClick={() => openMetricHelp('aov')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">U/P <button type="button" onClick={() => openMetricHelp('upo')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">CPA Econ. <button type="button" onClick={() => openMetricHelp('cpaEconomic')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Utilidad / Ent. <button type="button" onClick={() => openMetricHelp('profitPerDelivery')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3">Lectura</th>
+                        <th className="p-2 md:p-3 text-right">Costo / mensaje</th><th className="p-2 md:p-3 text-right">CPA <button type="button" onClick={() => openMetricHelp('cpaReal')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">CPA Eq. <button type="button" onClick={() => openMetricHelp('cpaEquilibrium')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">AOV <button type="button" onClick={() => openMetricHelp('aov')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">U/P <button type="button" onClick={() => openMetricHelp('upo')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">CPA Econ. <button type="button" onClick={() => openMetricHelp('cpaEconomic')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3 text-right">Utilidad / Ent. <button type="button" onClick={() => openMetricHelp('profitPerDelivery')} className="inline-flex ml-1"><Info size={9} /></button></th><th className="p-2 md:p-3">Lectura</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2482,6 +2519,7 @@ function VistaDashboard({ configs, months }) {
                             <td className="p-2 md:p-3 text-right font-mono">{fmt(p.targetProfit)}</td>
                             <td className="p-2 md:p-3 text-right font-mono font-black"><span className={porcentajeMeta >= 100 ? 'text-emerald-600' : porcentajeMeta >= 50 ? 'text-amber-600' : 'text-rose-600'}>{fmtDec(porcentajeMeta, 1)}%</span></td>
                             <td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.ier, 1)}%</td><td className="p-2 md:p-3 text-right font-mono">{fmtDec(p.roas, 2)}x</td>
+                            {(()=>{const m=messageHealthByProduct.get(p.configId) || aggregateMessageCost([]);return <td className="p-2 md:p-3 text-right"><span className={`inline-flex rounded-lg border px-2 py-1 text-[9px] font-black whitespace-nowrap ${messageCostTone(m.tone)}`}>{m.average===null?'Sin datos':`${fmt(m.average)} · ${m.label}`}</span><p className="text-[8px] text-slate-500 mt-1">{m.count} registro(s)</p></td>;})()}
                             <td className={`p-2 md:p-3 text-right font-mono font-black ${p.cpaEquilibrio > 0 && p.cpaReal > p.cpaEquilibrio ? 'text-rose-600' : 'text-emerald-600'}`}>{fmt(p.cpaReal)}</td>
                             <td className="p-2 md:p-3 text-right font-mono text-slate-500">{p.cpaEquilibrio > 0 ? fmt(p.cpaEquilibrio) : '—'}</td>
                             <td className="p-2 md:p-3 text-right font-mono font-black">{p.ticketEconomy?.aov > 0 ? fmt(p.ticketEconomy.aov) : '—'}</td>
