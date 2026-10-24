@@ -20591,7 +20591,34 @@ function buildBrief01PdfBlob(research, diagnosis) {
   section('3. VIABILIDAD DE MARKETING');
   add(`Competidores identificados: ${(research?.competitors||[]).length} | Publicidad sostenida >15 dias: ${diagnosis?.sustained||0} anunciante(s) | Saturacion: ${diagnosis?.saturation?.label||'No determinada'}.`,{bold:true});
   add(`Anuncios activos observados: ${activity.totalAds??'No determinado'}. La actividad visible NO comprueba ventas, CPA ni rentabilidad.`);
-  add(`Precio competidores equivalentes: ${(diagnosis?.comparison?.count||0)} comparables | ${(diagnosis?.comparison?.cheaper||0)} mas baratos | ${(diagnosis?.comparison?.higher||0)} mas caros.`);
+  // V59: comparación de ticket de la MISMA presentación/cantidad; precios ausentes no se sustituyen por cero.
+  const ownTicket=Number(f.price)||0;
+  const ownQty=Number(f.quantity)||Number(research?.offer?.quantity)||1;
+  const pricedComparables=ownTicket>0?comparableCompetitorsBrief01(research,ownQty,ownTicket):[];
+  const priceForQty=c=>{
+    if(ownQty===1&&Number(c.singlePrice)>0)return Number(c.singlePrice);
+    const found=(c.combos||[]).find(o=>Number(o.quantity)===ownQty&&Number(o.price)>0);
+    return found?Number(found.price):null;
+  };
+  const missingComparables=(research?.competitors||[]).filter(c=>priceForQty(c)===null);
+  add(`Nuestro ticket: ${ownTicket>0?money(ownTicket):'Sin registrar'} | Presentacion: ${ownQty} unidad(es).`,{bold:true});
+  if(pricedComparables.length){
+    const sortedPrices=pricedComparables.map(c=>c.competitorPrice).sort((a,b)=>a-b);
+    const medianPrice=sortedPrices.length%2?sortedPrices[(sortedPrices.length-1)/2]:(sortedPrices[sortedPrices.length/2-1]+sortedPrices[sortedPrices.length/2])/2;
+    add(`Ofertas comparables: ${pricedComparables.length} | Precio menor ${money(sortedPrices[0])} | Mediana ${money(medianPrice)} | Mayor ${money(sortedPrices[sortedPrices.length-1])}.`);
+    for(const c of pricedComparables){
+      const difference=ownTicket-c.competitorPrice;
+      const diffPct=c.competitorPrice>0?difference/c.competitorPrice*100:0;
+      const position=difference>0?'Nuestro ticket mas caro':difference<0?'Nuestro ticket mas barato':'Mismo precio';
+      add(`${c.competitor}: ${money(c.competitorPrice)} | Diferencia nuestro ticket: ${difference>0?'+':difference<0?'-':''}${money(Math.abs(difference))} (${difference>0?'+':''}${fmtDec(diffPct,2)}%) | ${position}.`);
+    }
+    const lower=pricedComparables.filter(c=>c.competitorPrice<ownTicket).length;
+    const higher=pricedComparables.filter(c=>c.competitorPrice>ownTicket).length;
+    const tied=pricedComparables.length-lower-higher;
+    add(`Lectura competitiva: ${lower} oferta(s) mas barata(s) que la nuestra, ${higher} mas cara(s) y ${tied} al mismo precio. ${lower>0?'Justificar el diferencial con oferta, beneficios o servicio; no supone que el precio sea inviable.':'No se identifican ofertas comparables registradas a menor precio.'}`,{bold:true});
+  } else add('Comparacion no concluyente: no existen competidores con precio valido para la misma cantidad de unidades.');
+  if(missingComparables.length)add(`Sin precio comparable para ${ownQty} unidad(es): ${missingComparables.map(c=>c.name||'Tienda sin nombre').join(', ')}. Excluidos del calculo; no se interpretan como $0.`);
+  add('Metodo: diferencias relativas al precio registrado por cada competidor; precio observado no confirma ventas ni conversion.');
   const marketingNotes=[...(diagnosis?.alerts||[]).filter(x=>/competidor|saturacion|publicidad|precio|ofertas equivalentes|anunciant/i.test(x)),...(diagnosis?.strengths||[]).filter(x=>/publicidad|competidor/i.test(x))];
   marketingNotes.slice(0,5).forEach(x=>add(`Hallazgo: ${x}`));
   add('Lectura estrategica: validar demanda real, CPA e intencion de compra mediante testeo controlado. Publicidad sostenida solo es evidencia contextual.');
