@@ -22060,7 +22060,7 @@ export default function App() {
           </div>
           <div>
             <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Investigación</p>
-            {renderDesktopNavButton(tabs[5])}
+            <div className="space-y-1">{renderDesktopNavButton(tabs[5])}{renderDesktopNavButton(tabs[6])}</div>
           </div>
           <div>
             <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Gestión</p>
