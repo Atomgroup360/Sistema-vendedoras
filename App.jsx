@@ -20544,101 +20544,110 @@ function brief01WrapPdf(text, max=92) {
 }
 
 function buildBrief01PdfBlob(research, diagnosis) {
+  // V58: informe ejecutivo de viabilidad, organizado para decisiones.
+  // El PDF no utiliza copys publicitarios ni modifica el motor financiero.
   const rows=[];
-  const add=(text,opts={})=> rows.push({ text:String(text??''), bold:!!opts.bold, size:opts.size||10, gap:opts.gap||0 });
-  add('TU PEDIDO COLOMBIA', {bold:true,size:18});
-  add('BRIEF 01 - INVESTIGACION Y VIABILIDAD DE PRODUCTOS', {bold:true,size:13,gap:6});
-  add(`${research.name || 'Producto sin nombre'} | ${research.code || ''}`, {bold:true,size:14,gap:4});
-  add(`Fecha del diagnostico: ${todayColombia()} | Clasificacion: ${diagnosis?.classification || 'PENDIENTE'}`, {size:9,gap:10});
-  add('1. RESUMEN EJECUTIVO',{bold:true,size:12,gap:6});
-  add(`Ticket propuesto: ${fmt(Number(research?.offer?.price)||0)} | Oferta: ${research?.offer?.presentation||'-'} | Unidades: ${research?.offer?.quantity||'-'}`);
-  add(`Margen antes de Ads por pedido generado: ${fmt(diagnosis?.financial?.marginPerGenerated||0)} | Margen neto estimado despues de CPA: ${diagnosis?.netMarginPct==null?'No calculable':`${fmtDec(diagnosis.netMarginPct,2)}% del ticket comercial`}`);
-  add(`Recomendacion: ${diagnosis?.classificationReason||'Diagnostico pendiente.'}`, {gap:8});
-  add('2. INVESTIGACION PUBLICITARIA',{bold:true,size:12,gap:6});
-  add(`Anunciantes independientes: ${research?.meta?.advertisers||0} | >15 dias: ${research?.meta?.sustained15d||0} | Saturacion: ${diagnosis?.saturation?.label||'-'}`);
-  add(`Observaciones: ${research?.meta?.notes||'Sin observaciones.'}`, {gap:8});
-  add('3. COMPETENCIA',{bold:true,size:12,gap:6});
-  (research?.competitors||[]).slice(0,5).forEach((c,i)=> {
-    add(`${i+1}. ${c.name||'Competidor'} | 1 und: ${fmt(Number(c.singlePrice)||0)} | Ads: ${c.adAgeDays||'-'} dias | Angulo: ${c.primaryAngle||'-'}`, {bold:true});
-    add(`Tienda / Landing: ${String(c.salesUrl||'').trim() || 'No registrado'}`);
-    add(`Meta Ads Library: ${String(c.metaUrl||'').trim() || 'No registrado'}`, {gap:4});
-  });
-  if (!(research?.competitors||[]).length) add('Sin competidores registrados.');
-  add('',{gap:5});
-  add('4. ACTIVIDAD PUBLICITARIA DE COMPETIDORES',{bold:true,size:12,gap:6});
-  const activity=diagnosis?.adActivity || buildBrief01AdActivity(research);
-  add(`Fecha de corte: ${activity.cutoff || todayColombia()} | Competidores registrados: ${activity.competitorCount} | Anuncios activos registrados: ${activity.totalAds}${activity.totalIsPartial?' (TOTAL PARCIAL)':''} | Tiendas sin medicion: ${activity.unknownCount}`);
-  for (const row of activity.rows) {
-    const countText=row.currentCount===null?'NO DETERMINADO':`${row.currentCount}${row.measurementType==='estimated'?' aprox.':''}`;
-    const deltaText=row.delta===null?'sin comparacion':`${row.delta>=0?'+':''}${row.delta}${row.deltaPct!==null?` (${row.deltaPct>=0?'+':''}${fmtDec(row.deltaPct,1)}%)`:''}`;
-    add(`${row.name}: ${countText} anuncios | Ultima revision: ${row.lastReviewedAt||'-'} | Cambio: ${deltaText} | ${row.url||''}`);
-  }
-  add(`Interpretacion: ${activity.interpretation}`);
-  activity.limitations.forEach(x=>add(`Limitacion: ${x}`));
-  add('',{gap:5});
-  add('4A. ANGULOS DETECTADOS Y PROMESAS DE VALOR',{bold:true,size:12,gap:6});
-  const copyGroups=brief01CopyGroups(research?.adCopies);
-  add(`Copys documentados: ${(research?.adCopies||[]).length} | Angulos detectados: ${copyGroups.length}. La frecuencia observada NO demuestra eficacia.`);
-  if(!copyGroups.length) add('Sin copys publicitarios sincronizados.');
-  for(const g of copyGroups){
-    add(`${g.angle} | Anunciantes diferentes: ${g.advertisers.size} | Anuncios observados: ${g.records.length}`,{bold:true});
-    for(const x of g.records.slice(0,12)){
-      add(`Anunciante: ${x.advertiser} | ID Meta: ${x.libraryId} | Promesa: ${x.promise||'No identificada'}`);
-      add(`Copy original: ${String(x.copy||'').slice(0,2200)}`);
-    }
-  }
-  add('',{gap:5});
-  add('5. PROVEEDORES DROPI',{bold:true,size:12,gap:6});
-  const pdfDropiSupplierCount=brief01DropiSupplierCount(research);
-  add(`Cantidad total declarada de proveedores en Dropi: ${pdfDropiSupplierCount}${pdfDropiSupplierCount>5?' | ALERTA: posible saturación (>5 proveedores)':''}`);
-  add(`Proveedores documentados detalladamente: ${(research?.suppliers||[]).length}${pdfDropiSupplierCount !== (research?.suppliers||[]).length ? ' | La cantidad declarada y las fichas documentadas son independientes.' : ''}`);
-  (research?.suppliers||[]).forEach((s,i)=> add(`${i+1}. ${s.name||'Proveedor'} | Enlace: ${String(s.url||'').trim()||'No registrado'} | ID Dropi: ${s.dropiId||'—'} | Costo: ${fmt(Number(s.unitCost)||0)} | Inventario: ${s.inventory||0}${s.id===research?.offer?.selectedSupplierId?' | SELECCIONADO':''}`));
-  if (!(research?.suppliers||[]).length) add('Sin proveedores registrados.');
-  add('',{gap:5});
-  add('6. ANALISIS FINANCIERO',{bold:true,size:12,gap:6});
+  const add=(text,opts={})=>rows.push({text:String(text??''),bold:!!opts.bold,size:opts.size||10,gap:opts.gap||0});
+  const section=(title)=>add(title,{bold:true,size:12,gap:8});
   const f=diagnosis?.financial||{};
-  add(`IER operativo del Brief: cancelaciones ${fmtDec(brief01DeliveryRates(research).cancellationPct,2)}%, devoluciones ${fmtDec(brief01DeliveryRates(research).returnPct,2)}% de despachados, efectividad final ${fmtDec(brief01DeliveryRates(research).effective*100,2)}%.`);
-  add(`100 pedidos -> Cancelados ${fmtDec(f.cancelled||0,0)} | Despachados ${fmtDec(f.shipped||0,0)} | Devueltos ${fmtDec(f.returned||0,0)} | Efectivos ${fmtDec(f.delivered||0,0)}`);
-  add(`Ingresos cobrados: ${fmt(f.revenueCollected||0)} | Producto: ${fmt(f.productCostTotal||0)} | Fletes: ${fmt(f.freightTotal||0)} | Comisiones: ${fmt(f.commissionTotal||0)} | Otros/fijos: ${fmt((f.fixedTotal||0)+(f.additionalTotal||0))}`);
-  add(`Margen disponible total: ${fmt(f.marginTotal||0)} | Margen/pedido generado: ${fmt(f.marginPerGenerated||0)} | ${fmtDec(f.marginPct||0,1)}%`, {gap:8});
-  add('7. ESCENARIOS FINANCIEROS',{bold:true,size:12,gap:6});
-  add(`Situacion actual: ticket ${fmt(f.price||0)}, costo unitario ${fmt(f.unitCost||0)}, flete ${fmt(f.freightPerShipment||0)}, margen ${fmt(f.marginPerGenerated||0)}/pedido generado.`);
-  if (diagnosis?.targetPrice?.status==='ok') add(`Precio ajustado: ${fmt(diagnosis.targetPrice.price)} -> margen ${fmt(diagnosis.targetPrice.calc.marginPerGenerated)}/pedido generado.`);
-  if (diagnosis?.targetCost) add(`Costo objetivo maximo: ${fmt(Math.max(0,diagnosis.targetCost.maxUnitCost))} | Reduccion requerida: ${fmt(Math.max(0,diagnosis.targetCost.reduction))}.`);
-  add('',{gap:5});
-  add('8. PROYECCION DE OBJETIVO ECONOMICO MENSUAL',{bold:true,size:12,gap:6});
   const mp=calculateBrief01MonthlyProjection(research,f);
-  add(`Oferta vigente: ${research?.offer?.presentation||'-'} | Precio: ${fmt(f.price||0)} | Margen del diagnostico: ${fmt(f.marginPerGenerated||0)}`);
-  add(`Meta mensual: ${mp.monthlyProfitTarget===null?'No configurada':fmt(mp.monthlyProfitTarget)} | CPA de planificacion: ${mp.planningCPA===null?'No configurado':fmt(mp.planningCPA)} | Dias de venta: ${mp.sellingDays??'No configurados'}`);
-  if (mp.status==='ok') {
-    add(`PASO 1 - GANANCIA POR ENTREGA (criterio comercial): $${fmtDec(mp.operatingProfitPerDelivered,2)} = margen diagnostico $${fmtDec(mp.marginBeforeAds,2)} - CPA ${fmt(mp.planningCPA)}.`);
-    add(`PASO 2 - ENTREGAS PARA LA META: ${mp.requiredDeliveredOrders} = redondear arriba (${fmt(mp.monthlyProfitTarget)} / $${fmtDec(mp.operatingProfitPerDelivered,2)}).`);
-    add(`PASO 3 - PEDIDOS REGISTRADOS ANTES DE IER: ${mp.minimumMonthlyOrders} = redondear arriba (${mp.requiredDeliveredOrders} / ${fmtDec(mp.effectiveRate*100,2)}%).`);
-    add(`PASO 4 - META DIARIA: ${mp.requiredDailyOrders} pedidos registrados/dia = redondear arriba (${mp.minimumMonthlyOrders} / ${mp.sellingDays} dias).`);
-    add(`PLAN AL RITMO DIARIO: ${mp.requiredDailyOrders} x ${mp.sellingDays} = ${mp.monthlyOrdersAtDailyPace} pedidos registrados. Entregas estimadas: ${fmtDec(mp.expectedDelivered,2)}.`);
-    add(`Embudo estimado: despachados ${fmtDec(mp.expectedShipped,2)} | entregados ${fmtDec(mp.expectedDelivered,2)} | devueltos ${fmtDec(mp.expectedReturned,2)} | cancelados ${fmtDec(mp.expectedCancelled,2)}.`);
-    add(`PAUTA MINIMA PARA META: ${mp.minimumMonthlyOrders} pedidos registrados x CPA ${fmt(mp.planningCPA)} = ${fmt(mp.minimumAdBudget)}.`);
-    add(`PAUTA OPERATIVA MENSUAL: ${mp.monthlyOrdersAtDailyPace} pedidos registrados x CPA ${fmt(mp.planningCPA)} = ${fmt(mp.operatingAdBudget)}.`);
-    add(`Recaudo bruto estimado: ${fmtDec(mp.expectedDelivered,2)} entregas x ${fmt(f.price||0)} = ${fmt(mp.projectedGrossRevenue)}.`);
-    add(`PESO DE PAUTA SOBRE RECAUDO ENTREGADO: ${mp.adSpendShareOfRevenuePct===null?'No calculable (sin recaudo)':fmtDec(mp.adSpendShareOfRevenuePct,2)+'%'} = presupuesto operativo / recaudo bruto proyectado.`);
-    const adWeightHealth=brief01AdWeightDiagnosis(mp.adSpendShareOfRevenuePct);
-    add(`DIAGNOSTICO PRESION ADS: ${adWeightHealth.label} — ${adWeightHealth.verdict}. ${adWeightHealth.detail}`);
-    add('Bandas orientativas: Excelente <20%; Sano 20–30%; Riesgoso >30–38%; Crítico >38%. Independiente de utilidad neta.');
-    add(`GANANCIA MENSUAL DEL ESCENARIO: ${fmtDec(mp.expectedDelivered,2)} entregas x $${fmtDec(mp.operatingProfitPerDelivered,2)} = ${fmt(mp.projectedMonthlyOperatingProfit)}.`,{bold:true});
-    add(`MARGEN DE GANANCIA ESTIMADA: ${Number.isFinite(mp.projectedGrossRevenue) && mp.projectedGrossRevenue > 0 && Number.isFinite(mp.projectedMonthlyOperatingProfit) ? fmtDec(mp.projectedMonthlyOperatingProfit / mp.projectedGrossRevenue * 100,2)+'%' : '—'}. Porcentaje del recaudo proyectado que queda como ganancia despues de los costos contemplados.`);
-    add('PLANIFICACION CONTRAENTREGA: los pedidos registrados se ajustan por el IER para estimar entregas efectivas. La pauta se presupuestra sobre pedidos registrados y su peso se compara con el recaudo de entregas. El CPA no modifica la viabilidad ni el diagnostico financiero base.');
-  } else add(`Estado de la proyeccion: ${mp.message}`);
-  add('',{gap:5});
-  add('9. DIAGNOSTICO ESTRATEGICO',{bold:true,size:12,gap:6});
-  for (const x of diagnosis?.alerts||[]) add(`ALERTA: ${x}`);
-  for (const x of diagnosis?.strengths||[]) add(`FORTALEZA: ${x}`);
-  for (const x of diagnosis?.weaknesses||[]) add(`DEBILIDAD: ${x}`);
-  for (const x of diagnosis?.actions||[]) add(`ACCION: ${x}`);
-  add('',{gap:5});
-  add('10. CONCLUSION',{bold:true,size:12,gap:6});
-  add(`Clasificacion: ${diagnosis?.classification||'PENDIENTE'}`,{bold:true});
-  add(diagnosis?.classificationReason||'Faltan datos para clasificar.');
-  add('La aprobacion final corresponde siempre al usuario. Este informe no afirma ventas, CPA ni rentabilidad de competidores.',{gap:8});
+  const activity=diagnosis?.adActivity||buildBrief01AdActivity(research);
+  const ier=brief01DeliveryRates(research);
+  const adsHealth=brief01AdWeightDiagnosis(mp.adSpendShareOfRevenuePct);
+  const money=v=>fmt(Number(v)||0);
+  const pct=v=>v==null||!Number.isFinite(Number(v))?'No calculable':`${fmtDec(Number(v),2)}%`;
+  const cp=Number(research?.planning?.planningCPA)||0;
+  const marginAfter=Number(f.marginPerGenerated||0)-cp;
+  const adsThreshold=Number(f.price)>0?Number(f.marginPerGenerated||0)-(Number(f.price)*0.1):null;
+  const copyGroups=brief01CopyGroups(research?.adCopies);
+  const angles=[...new Map([...(research?.competitors||[]).flatMap(c=>[c.primaryAngle,c.secondaryAngle1,c.secondaryAngle2]).filter(Boolean),...copyGroups.map(g=>g.angle)].filter(x=>x&&x!=='Sin clasificar (revisión requerida)'&&x!=='Sin clasificar').map(x=>[String(x).trim().toLowerCase(),String(x).trim()])).values()];
+  const links=(research?.competitors||[]).map(c=>({name:c.name||'Tienda sin nombre',url:String(c.salesUrl||'').trim()}));
+  const cleanLink=url=>{try {const u=new URL(url);return u.origin+u.pathname;}catch(e){return url||'';}};
+  const reportDate=todayColombia();
+  section('1. DICTAMEN EJECUTIVO');
+  add(`Producto: ${research?.name||'Sin nombre'} | Estudio: ${research?.code||'BRIEF 01'} | Corte: ${reportDate}.`,{bold:true});
+  add(`Dictamen: ${diagnosis?.classification||'PENDIENTE DE INFORMACION'}`,{bold:true,size:11});
+  add(diagnosis?.classificationReason||'Faltan datos para determinar el dictamen.',{gap:6});
+  add('Criterio: clasificacion financiera y evidencia publicitaria son indicadores de testeo, no una garantia de ventas.');
+
+  section('2. VIABILIDAD FINANCIERA');
+  add(`Ticket comercial: ${money(f.price)} | Producto/unidad: ${money(f.unitCost)} | Flete por despacho: ${money(f.freightPerShipment)}.`,{bold:true});
+  add(`IER: ${pct(ier.effective*100)} | Cancelaciones: ${pct(ier.cancellation*100)} | Devoluciones sobre despachos: ${pct(ier.returnRate*100)}.`);
+  add(`Escenario normalizado 100 registrados: ${fmtDec(f.shipped||0,1)} despachados, ${fmtDec(f.delivered||0,1)} entregados, ${fmtDec(f.returned||0,1)} devueltos, ${fmtDec(f.cancelled||0,1)} cancelados.`);
+  add(`Recaudo esperado/100 registros: ${money(f.revenueCollected)} | COGS: ${money(f.productCostTotal)} | Fletes: ${money(f.freightTotal)}.`);
+  add(`Comisiones: ${money(f.commissionTotal)} | Fijos: ${money(f.fixedTotal)} | Adicionales: ${money(f.additionalTotal)}.`);
+  add(`Contribucion antes de Ads por pedido registrado (IER incluido): ${money(f.marginPerGenerated)}.`,{bold:true});
+  add(`CPA planificado: ${money(cp)} | Contribucion despues de CPA por registrado: ${money(marginAfter)} | Margen sobre ticket: ${pct(diagnosis?.netMarginPct)}.`,{bold:true});
+  add(`CPA maximo orientativo para retener 10% sobre ticket: ${adsThreshold===null?'No calculable':money(adsThreshold)}. Es un umbral de escenario, no CPA confirmado.`);
+  if(mp.status==='ok'){
+    add(`Meta de utilidad mensual: ${money(mp.monthlyProfitTarget)} | ${mp.sellingDays} dias de venta | Meta operativa: ${mp.requiredDailyOrders} registrados/dia.`);
+    add(`Pedidos registrados planificados: ${mp.monthlyOrdersAtDailyPace} | Entregas esperadas: ${fmtDec(mp.expectedDelivered,1)} | Recaudo esperado: ${money(mp.projectedGrossRevenue)}.`);
+    add(`Ads diario: ${money(mp.requiredDailyOrders*mp.planningCPA)} | Ads minimo mensual: ${money(mp.minimumAdBudget)} | Ads operativo mensual: ${money(mp.operatingAdBudget)}.`);
+    add(`Peso Ads/recaudo entregado: ${pct(mp.adSpendShareOfRevenuePct)} - ${adsHealth.label}. ${adsHealth.verdict}.`,{bold:true});
+    add(`Proyeccion comercial de referencia: ${money(mp.projectedMonthlyOperatingProfit)}. Confirmar la regla de ganancia por entrega usada en la proyeccion antes de tomar decisiones.`);
+  } else add(`Proyeccion mensual incompleta: ${mp.message||'Completar meta, CPA y datos financieros.'}`);
+  if(diagnosis?.targetPrice?.status==='ok')add(`Sensibilidad del ticket: precio objetivo historico ${money(diagnosis.targetPrice.price)}. No sustituye el umbral porcentual del diagnostico.`);
+
+  section('3. VIABILIDAD DE MARKETING');
+  add(`Competidores identificados: ${(research?.competitors||[]).length} | Publicidad sostenida >15 dias: ${diagnosis?.sustained||0} anunciante(s) | Saturacion: ${diagnosis?.saturation?.label||'No determinada'}.`,{bold:true});
+  add(`Anuncios activos observados: ${activity.totalAds??'No determinado'}. La actividad visible NO comprueba ventas, CPA ni rentabilidad.`);
+  add(`Precio competidores equivalentes: ${(diagnosis?.comparison?.count||0)} comparables | ${(diagnosis?.comparison?.cheaper||0)} mas baratos | ${(diagnosis?.comparison?.higher||0)} mas caros.`);
+  const marketingNotes=[...(diagnosis?.alerts||[]).filter(x=>/competidor|saturacion|publicidad|precio|ofertas equivalentes|anunciant/i.test(x)),...(diagnosis?.strengths||[]).filter(x=>/publicidad|competidor/i.test(x))];
+  marketingNotes.slice(0,5).forEach(x=>add(`Hallazgo: ${x}`));
+  add('Lectura estrategica: validar demanda real, CPA e intencion de compra mediante testeo controlado. Publicidad sostenida solo es evidencia contextual.');
+
+  section('4. ESTRATEGIAS DE DESPLIEGUE COMERCIAL');
+  add('Una meta por producto. Las alternativas son EXCLUYENTES como escenarios; no se suman sus inversiones.',{bold:true});
+  if(mp.status==='ok'){
+    const daily=mp.requiredDailyOrders*mp.planningCPA;
+    const days=mp.sellingDays;
+    const target=mp.monthlyProfitTarget;
+    const base=Number(f.marginPerGenerated)||0;
+    const effective=ier.effective;
+    const evalRoute=(title,parts,description)=>{
+      const orders=parts.reduce((sum,p)=>sum+p.spend/p.cpa,0)*days;
+      const delivered=orders*effective;
+      // Replica el escenario conservador de V57 de manera declarativa; NO reutiliza ganancia contable original.
+      const grossProfit=parts.reduce((sum,p)=>(sum+(p.spend/p.cpa)*days*effective*(base-p.cpa-(p.extra||0))),0);
+      const status=grossProfit>=target?'CUBRE META':grossProfit>0?'POSITIVO, NO CUBRE META':'PERDIDA ESTIMADA';
+      add(`${title} | ${description}`,{bold:true});
+      add(`Ads ${money(daily)}/dia; ${money(daily*days)}/mes | Registros: ${fmtDec(orders,1)} | Entregas: ${fmtDec(delivered,1)} | Ganancia conservadora: ${money(grossProfit)} | ${status}.`);
+    };
+    const advisers=Math.ceil(daily/30000);
+    if(advisers>0&&daily/advisers>=25000&&daily/advisers<=30000)evalRoute('Opcion A - Equipo humano',[{spend:daily,cpa:15000}],`${advisers} asesoras x ${money(daily/advisers)}/dia`);
+    else add(`Opcion A - Equipo humano: presupuesto ${money(daily)} no puede dividirse exactamente en campañas de $25.000 a $30.000 por asesora. Revisar configuracion operativa.`);
+    if(daily>30000)evalRoute('Opcion B - Humana + IA',[{spend:30000,cpa:15000},{spend:daily-30000,cpa:15000}],`1 asesora ${money(30000)}/dia + IA ${money(daily-30000)}/dia`);
+    evalRoute('Opcion C - IA centralizada',[{spend:daily,cpa:15000}],`IA ${money(daily)}/dia (mensajeria adicional no incluida)`);
+    [15000,20000,25000].forEach(cpa=>evalRoute(`Opcion D - Pagina web CPA ${money(cpa)}`,[{spend:daily,cpa}],`Web ${money(daily)}/dia (costos extra web no incluidos)`));
+    add('Cautela: las estrategias usan CPA supuestos y costos adicionales de canal en cero. El comparador interactivo V57 permite cambiar asesores, CPA web y costos operativos; sus ajustes temporales NO se guardan en este PDF.');
+    add('El escenario conservador V57 aplica IER sobre la contribucion que ya considera IER, por lo que NO equivale a utilidad contable. No comparar ambas cifras como si fueran la misma metrica.');
+  }else add('Estrategias pendientes: completa primero la proyeccion mensual y los costos.');
+
+  section('5. ANGULOS DE VENTA DE LA COMPETENCIA');
+  if(angles.length)angles.slice(0,20).forEach((x,i)=>add(`${i+1}. ${x}`));
+  else add('No se identificaron angulos especificos verificables para el producto. Revisar manualmente los anuncios relevantes.');
+  add('Los angulos son observaciones de posicionamiento, no pruebas de conversion. Se excluyen copys, promesas textuales completas e IDs de anuncios.');
+
+  section('6. DIRECTORIO DE TIENDAS COMPETIDORAS');
+  if(links.length)links.forEach((c,i)=>{add(`${i+1}. ${c.name}`,{bold:true});add(`Enlace: ${cleanLink(c.url)||'No registrado'}`);});
+  else add('Sin tiendas competidoras registradas.');
+  add('Solo nombres y enlaces de tienda. Se omiten parametros de rastreo y enlaces de Meta Ads.');
+
+  section('7. RIESGOS Y REQUISITOS PREVIOS AL TESTEO');
+  const risks=[...(diagnosis?.weaknesses||[]),...(diagnosis?.alerts||[])].filter(x=>!/(proveedor con mayor inventario|ganador claro)/i.test(x));
+  risks.slice(0,7).forEach((x,i)=>add(`Riesgo ${i+1}: ${x}`));
+  if(!risks.length)add('No se detectaron alertas registradas; verificar calidad y vigencia de los datos.');
+  (diagnosis?.actions||[]).slice(0,5).forEach((x,i)=>add(`Accion ${i+1}: ${x}`));
+  if((research?.suppliers||[]).some(s=>s.id===research?.offer?.selectedSupplierId&&Number(s.inventory)<=0))add('Abastecimiento: proveedor seleccionado reporta 0 unidades. No descarta producto; validar reposicion, otro proveedor o importacion antes de vender.');
+
+  section('8. DICTAMEN FINAL DE VIABILIDAD');
+  add(`DECISION: ${diagnosis?.classification||'PENDIENTE DE INFORMACION'}`,{bold:true,size:11});
+  add(`Fundamento financiero: ticket ${money(f.price)}; IER ${pct(ier.effective*100)}; CPA ${money(cp)}; contribucion estimada despues de pauta ${money(marginAfter)} por registro; margen ${pct(diagnosis?.netMarginPct)} sobre ticket.`);
+  add(`Fundamento de mercado: ${diagnosis?.sustained||0} anunciantes con publicidad sostenida y ${(research?.competitors||[]).length} competidores investigados. No acredita ventas ni demanda rentable.`);
+  add(`Fundamento operativo: limite diario segun plan ${mp.status==='ok'?money(mp.requiredDailyOrders*mp.planningCPA):'Pendiente'}; se debe confirmar capacidad humana, costos IA, CPA web y abastecimiento.`);
+  add(`Justificacion del dictamen: ${diagnosis?.classificationReason||'Datos insuficientes para clasificar.'}`,{bold:true});
+  add('DECISION DE NEGOCIO: el responsable de producto autoriza o aplaza el testeo. No se recomienda escalar sin validar CPA, entregas reales y rentabilidad realizada.');
+  add('Alcance metodologico: proyecciones, no resultados reales. Los margenes despues de IER tienen bases distintas segun la vista; validar antes de aprobar pauta.');
 
   // V35 — Presentación editorial del PDF BRIEF 01. Sin cambios financieros.
   // Motor PDF vectorial autónomo: no agrega dependencias y mantiene todos los datos originales.
@@ -20646,6 +20655,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
   const NAVY=[0.07,0.19,0.35], BLUE=[0.10,0.31,0.56], INK=[0.13,0.19,0.27];
   const MUTED=[0.39,0.46,0.55], PALE=[0.95,0.97,0.99], LINE=[0.87,0.90,0.94];
   const WHITE=[1,1,1], GREEN=[0.05,0.49,0.37];
+  const sectionColors=[[0.05,0.33,0.53],[0.05,0.48,0.42],[0.12,0.34,0.67],[0.28,0.27,0.56],[0.57,0.31,0.12],[0.17,0.39,0.51],[0.63,0.29,0.17],[0.07,0.39,0.32]];
   const rgb=c=>`${c.map(v=>Number(v).toFixed(3)).join(' ')} rg`;
   const stroke=c=>`${c.map(v=>Number(v).toFixed(3)).join(' ')} RG`;
   const box=(x,y,w,h,c)=>`${rgb(c)} ${x} ${PAGE_H-y-h} ${w} ${h} re f\n`;
@@ -20678,12 +20688,13 @@ function buildBrief01PdfBlob(research, diagnosis) {
   const pageShell=()=>{
     pageIndex++;commands='';
     commands+=box(0,0,PAGE_W,15,NAVY);
-    commands+=pdfText('WINNER OS',LEFT,40,17,true,NAVY);
-    commands+=pdfText('INTELIGENCIA COMERCIAL / BRIEF 01',LEFT,57,8,true,BLUE);
+    commands+=`q 42 0 0 42 ${LEFT} ${PAGE_H-66} cm /LogoV58 Do Q\n`;
+    commands+=pdfText('WINNER OS',LEFT+59,40,17,true,NAVY);
+    commands+=pdfText('COMITE DE VIABILIDAD / BRIEF 01',LEFT+59,57,8,true,BLUE);
     commands+=pdfText(`INFORME ${brief01PdfLatin(research.code||'BRIEF 01')}`,PAGE_W-RIGHT-155,40,8,true,MUTED);
     commands+=rule(LEFT,72,PAGE_W-LEFT-RIGHT);
     commands+=rule(LEFT,PAGE_H-49,PAGE_W-LEFT-RIGHT);
-    commands+=pdfText('TU PEDIDO COLOMBIA  |  INFORME DE INVESTIGACION',LEFT,PAGE_H-33,7,false,MUTED);
+    commands+=pdfText('TU PEDIDO COLOMBIA  |  DIAGNOSTICO EJECUTIVO DE VIABILIDAD',LEFT,PAGE_H-33,7,false,MUTED);
     commands+=pdfText(`PAGINA ${pageIndex}`,PAGE_W-RIGHT-61,PAGE_H-33,7,true,MUTED);
     y=TOP;
   };
@@ -20703,14 +20714,14 @@ function buildBrief01PdfBlob(research, diagnosis) {
   commands+=rule(LEFT,y,PAGE_W-LEFT-RIGHT);y+=21;
   // Secciones y líneas: jerarquía visual sin cambiar fuentes de datos.
   let sectionIndex=0;
-  const skipPreamble=4; // El título, código y fecha iniciales ya están en la cabecera editorial.
+  const skipPreamble=0; // V58: todas las secciones ejecutivas se imprimen, sin omitir la primera.
   for(let i=skipPreamble;i<rows.length;i++){
     const row=rows[i]; const raw=String(row.text||'');
     const isSection=/^\d+\.\s/.test(raw)&&row.bold&&row.size===12;
     if(isSection){
       ensure(65);
       if(sectionIndex>0)y+=8;
-      commands+=box(LEFT,y,PAGE_W-LEFT-RIGHT,28,NAVY);
+      commands+=box(LEFT,y,PAGE_W-LEFT-RIGHT,28,sectionColors[sectionIndex%sectionColors.length]);
       commands+=pdfText(raw,LEFT+12,y+19,10,true,WHITE);
       y+=40;sectionIndex++;
       continue;
@@ -20746,10 +20757,12 @@ function buildBrief01PdfBlob(research, diagnosis) {
   const catalogId=addObj(''),pagesId=addObj('');
   const fontId=addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   const boldFontId=addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+  const logoHexV58='FFD8FFE000104A46494600010100000100010000FFDB00430007050606060507060606080807090B120C0B0A0A0B1710110D121B171C1C1A171A191D212A241D1F2820191A253225282C2D2F302F1D233438342E372A2E2F2EFFDB0043010808080B0A0B160C0C162E1E1A1E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2E2EFFC00011080078007803012200021101031101FFC4001C0000010501010100000000000000000000000203040506010708FFC4003D100001030302020509070304030000000001020304000511062112311322415161071432718191A1B1E12335425272D1F01624C1333653925462F1FFC4001A010002030101000000000000000000000004050001030206FFC4003411000103030105060406030100000000000100020304112131051241517113326181A1B1142291C11523425282D16272E1F0FFDA000C03010002110311003F00FA468A28A8A228A43CF36C36A75D584213CC9ACEBF749B7274C7B5B652DFE274EDFF00CF9D07575D153583B2E3A01927C96B142E934D071E0AEA65C22431F6EF2527F28DC9F65542F50B8F28A204171D3DE47F814EC2B0C76CF492D464BA773C5E8FD7DB57286D0DA425090948EC48C0A1033685465CE110E43E67799381E4B5BC11E8378FD02A0E9B523DBA5A6D91E381F3A3A1D4BCFCE5AF5647ED5A1A2AFF000ABF7A690FF2B7B055F13C98DFA2CEF4BA958DD4D36F0F000FCA948D42E32A089F05C68F78FD8D68292E36871250E212B49EC50C8AAFC3EA23CC33BBF959C3EC55F6F1BBBEC1E584CC39F1260CC7792A3DA9E447B2A5550CDB030B3D2C2598CF0DC60F57E94C45BBCA80F089766CE3F0BA3F9BD46ED0969DC195ADDDBE8E1DDF3E23CD4303641784DFC0EBFF0056968A4B6B43880B6D41492320834AA6E0DF285451451514453521F6A332B79E570A12324D3B596B83AE5E6E620B0A223347AEA1CBC4FF008140D7D67C3463745DEEC34733FD735B411768ECE00D5212995A82515ACA9A84D9D87F3B7E55A48D1DA8CD25A6501081D82BB1D96E3B2865A484A1230053B5CD0D0F6179243BD23B53F61C805734DBFF002B70D1A04514514C1608A81779E20460B4A78DD59E16D3DE6BB71B9C6B796C3FC64AF24048CD505D6ED165C884E3697385973895C49C6D91CBDD49F69ED38A089EC64803F03C45ED9F21945D35339EE04B7E553D11B503A90E2E7B6D13BF001CBE1487D77BB6A7CE5D7DB94C27D34E3703DD4FFF0051DBFF0023FF00F41FBD479D7E82FC37D9425EE25A0A465231923D74BA59285B19747527780C1DF273D345BB5B31700E8C5BA2BE8EF22430DBEDEE85A7885225C562632597D01493EF1E22A82D57C8716DECC7752E95A01CF0A7239FAEAFE14A6A6474C8673C0AC8EB0C1A6D475D4F5B1061707388C8F7C216586485C4D8817C159D6DC93A7E5865E25C82E1EAABBBEBE15A96DC43A84B885052543208A626466A6475B0F272850F683DE2A8AC721DB7CD5DA251D81FB251EDAC61DED9F30809BC4EEEFF0089FDBD0F0FA2D1D69D85E3BC35F11CFF00B5A6A28A29CA0D575F66799DBDC524E1C5F511EB3DB51F4EC311A0A5C50FB57BACAF01D83F9DF50EFD9997887007A23055EDE7F015A24800600C0ECA4F08F88AF7CA748FE51D4E5C7D8229E7B380346AEC9E9C1768A28A708545145151454577DEF76BC8FC47E752EE56F54B7E1B8DA9080CB9C4A04731B7ED516EFF007DDABF51F9D5E52682064F2D432418DE1E8D6945BDE58D8CB791F7293C08FC89F75352E387E2BCCA4252A5A0A41C72C8AECC7C468CE482852C2067853CCD2234C6244412D0AFB3C1273F871CC1A6323E12E30B8E48BDBC344380E037C28F1E21896731DCE052D0DAB240F5D33A63EE86FF0052BE74A8331E9D6C94FBADA5093C6118ED18A4E98FBA1BFD4AF9D2BA7313AAA03177771D6E976D912F0E11BF7B5DE1F756F543AA222951D13D9D9E8E7391F97E86AFA90EA12EB6B6D6329582923C0D33ACA615303A23C74F03C0FD5610C86378726ADB29332135213F893B8EE3DB4552E955A995CBB7B87ACCACE3E47E54571B3EA0D45336476BC7A8C1F55751188E42D1A2228E9B54CA59DFA349C7B80AD10ACF5ABFDC172CF3DFE62B42286D903F29EEE25EEF7B2EEABBCD1C80F64514514D50C8A28A2A28A8EEFF007DDAFF0051F9D5E5536A065E1E6D3D84F12E32B2523B453CCDEEDAEB6959901B279A540E45278678E9EAA664CE0DDE208BE2E2C063CC22DEC73E26160BDB1EA899798115E5B0EA96A713B29294E6A0AD76E810CBA965F5469C7AC9E5C031D82A79B9DA0A8ACC864ABF370EFF002A45E9B44DB3ADC61416120388527C3E99AC6A0BE56C9232463CB412D0002473BE4DEE30BA8C0696B4B48075FF00D64EC25427E018F05C496C20A40CEE9CF78E74AB4445C18288EE292A5824929E5B9A82DDB634F8CC4E8CA54690A483C6D6C33DB91EBA4AAE536D8B4B5746D2EB6AD92F36773EB156CA86C25935436C00B0737BB636D46A341CC78AA2C2FBB2339BE41D6FF757D45712A0B42569E4A1915DA7A0DF28359B6BFB7D5EE246C1E467E03F6A2B9336D5D171FF0018CFC68A57B2F1DB3793DDF63F745557E83FE21391FEC754C841D83A8C8F703FE0D67F55F954D3BA5AF4F59EE316E2B90D252A52D969251D6191B950EFAD05FC18973857003AA0F0ABF9EA26B23E5F820F93796BC2726433D6C6FE956DB15AC1532D33C7EBBF93B23EEB3AC27B36C8DE5ECAF3457943B1EB197262DB1998D2E3B61C519284A42813818C139AD90524AB842871768CEF5F3A6B079BB637E49AED2016A132C32A79D4A7600744A39C73D813573A02F10AF9E5D6FF0071B6C82FC2761ABA35E080AC74492403E20D3D92901697B702C7D0DB54136537DD3AAB999E5AAD91EE73ADEDE9DBAC85C3756D38A642543AAA209F01B56DB45EB1B36B0B5B970B5ADC40655C0F34F0095B4719DF7C60F7D78368C7B5935AEB580D1B1613F21521D0FF009D100253D2AB04648DF354BA874A5FB46BB6B877A94D79A5D9DE965369794DC7E249D92B5A4679289D86D9DB96688751C24EE03638E37E19C2CC4CF193A2FAD8292A4F12540A4EF9076AF33D6BACA359B53316083A61BBA4D9511521A521C09E2500BEAE31BFA1DFDB5E21717AEF6EB25C62DBAF714E9C7A6368931EDD2D6F88F90481C4A00F09DFC09481D94C6A7634C43D4BD1691B8BF32DE2DCE12E38A24A5CE8D7900903C0FAC9ACC6CB85E7F34070CDAE3DD746A5E07CB85F4D690C5DF4EC3B95E2C0D5B263D9E38EB1E8EE403BEE3237C1A8DA0F57C5D56E5E6147B62A1A2D6FF9B9056141CDD43200031E8FC6BE74D2CF41B9CFB45B35BDDA5C1B0B10D6B8A50B294A94544E7383B93C5BE3F08155B67B8C88E87AD8DDCE544D3F3AE4844B98DE42D4819C7163FF0052558EDF6553363C0C2EDC6804F216C5FD7A286ADE6D7375F53C39CFDBD2FDB598CA7DF43AAE8C636E1EF3482FB4A9ACDE1C474B1D5D4712ADCB0BFDABCD3C96486E0794EB95874DDDE45D74D88BD2171C5F1842870F2572E648DB9FB2BD6A7D9DE724B8A88F25A6640C3E923E20578EDA1B26AA958D631DBE1B62D1602DFB75D793AFC32344DE0AA8E42491BA4EA79F3FF8AED2A0A4852482923208EDAE9A662474458CDC76CA8A50300A8E4D2DD5A5B6D4E2CE1290544F80A78D71DC05F83C50440BD82CDA4F4FAC158E4D271EE1F5A28D2A8548992EE0B1BAD471EDDE8A5DB22EE80CA7F5B9CEFA9C7A226AF12067ED002BABCC4F3C80E34075C7593EB15596C10EF16AF31B94566525A202DA7D016938F44E0FF36AD15666E6D3969B926E2C272C3870E247C6B9AEBD2CCDAD6E830EE9C0F91F4550DA46184F51D7979AB69769B54C808B74BB7457E12000861C692A4240E58491818A441B1D9ADF23CE605A61457F83A3E9196128570EDB640E5B0F754C8EF36FB4875A505214320D3B4D9B26F36ED382862DB1C850A1DAAD90643D2615BA2C77DF3975C69A4A54E6F9EB1037DE9771B7C0B9C5544B8C2625C751C969F6C2D39EFC1A95455EF1BDD5582CADF62D874BE92B9BB16C503CD42378A961210F2890121431B8C9159691A420E9D84C5E6E5E672169296DCB7B36C63A374B878434DEC08C95638893DB9AF49B9C08B74B7C8B7CE683B19F414388CE323D7D86B38AD0F09F67A0B85E2F335A400194BD2BFD12082149E1032A18182735CB9CFBE0FAA3E95F035803F9E700DC6302FA71E5E8B0FAC2E1676A146B1DDF4BC3B5BD12432EA1B421B7D288E54A5B85040D89E050231DB53EE173B25B20BD06E3E4FE2466EE484BF1E2A7A3579D2B8D2901400EAAC7480F6F33BD6A4E82B1BCF74F3973273EA4AD2EBB29EE353A148E0C138DB009C6318CD51274B4D128BEEDAA64E910A536623D2EE215C4CA144A472D8642491CCE46FB573BD37345769B3AC01669AEBE99D31C6F8D2C9AB7DE9BD2EC5E23DBB4231045BB81E9BD049401C0A1949E2C654AC67ABD9DFBD3F0B585CE3B974BC4980E48B01B88610F979292C23AA8EAA319238B24EF536559EE32E25E1A76C4B49B9C869D7FFBF412A09C0C03C3B00100637E66AAD8D2325287212ED57131521C7D0CB97342D92F9E4AC0037C9CEFB0C67154EED09B92AA39A8032C596D39E9617B6706F7B786B7522CBAD26C8B7CE996FB549B831194E4994E489494F428249086FABD6C2005636C6719357132F6BB869CB7BC182C3F71692E743C5C45083B819F1DBE359F8FA3C376D9A9B92A5D9A0B8C219722C49817E70529090A57579E060E39F68AD0E9C8065C84CC7518619486D949E4024600F60A575F248FB51C67E67EBE0DE27EC3C56921A4B76D18D0F8F2D35B6BCB805A1B34410ADED358EB632AF5D153E8A6CC636368637418495CE2E249E28A6DF65B90CA9975214850C1069CA2AC80458AA594064D825142829C82E1F77D7E75A38EFB521A4BACAC2D0AE44538FB2D48694D3A80A42B98359A916E9D6A74C8B72CADA3E920EFEF1DB49FB39B679FCA05F172E2DE9CC786A117BCC9FBC6CEE7C0F5F15A7A2A920DFE2BDD493FDBBBC8F17A3EFECF6D5C21695A4290A0A49E441C8A614D59054B6F1381F71D46A161244F8CD9C2C974519A28959A28A334875D6DA415B8B4A123B54702A89005CA9AA5D47992D886C979F702503DE4F70AA89DA85847D9C24190E9D81C757EB51A2DA66DC9E12AE8B3C3D88F0EEF0A5726D1ED498A8C6FBB9FE91D4F1E8114DA7DD1BD31B0F53E4994A656A19816B05B84D9D93FCEDAD630CB6C34969A484A123000AEB2D36C361B6921291C80A5D11474629C1738EF3DDA9E7FD01C02CE698C9600580D0228A28A35628A28A2A288A28A2A28ABE75A214CC95B7C2BFCC9D8D532AC13A32B8A0CC23C325268A282A8D9D4D5077A466798C1FA8CADA39E460B34E1747F52B3B6CE0F100D77CEB51FFE2A3FE83F7A28AC3F0B03BB33C7F2FEC15DFC4F3637E89246A67F6E20D0F00050DE9D95214173A5951F5E4FC68A2A7E114E4DE525FF00EC49F4D3D14F8B90776C3A057506D50E18FB268157E656E6A7D14532631AC6EEB45821C92E3728A28A2BA548A28A2A28BFFFD9>';
+  const logoId=addObj(`<< /Type /XObject /Subtype /Image /Width ${120} /Height ${120} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${logoHexV58.length} >>\nstream\n${logoHexV58}\nendstream`);
   const pageIds=[];
   for(const stream of pages){
     const contentId=addObj(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
-    pageIds.push(addObj(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >>`));
+    pageIds.push(addObj(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> /XObject << /LogoV58 ${logoId} 0 R >> >> /Contents ${contentId} 0 R >>`));
   }
   objects[catalogId-1]=`<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
   objects[pagesId-1]=`<< /Type /Pages /Kids [${pageIds.map(id=>`${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
