@@ -21335,6 +21335,59 @@ function Brief01StrategicInputs({research,step,onField}) {
  return <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 my-4"><p className="text-xs font-black text-[#12386B]">{config.title}</p><p className="text-[10px] text-slate-600 mt-1 mb-3">{config.help}</p><div className="grid grid-cols-1 md:grid-cols-2 gap-3">{config.fields.map(([field,label,placeholder])=><label key={field} className="block"><span className="block text-[10px] font-bold text-slate-700 mb-1">{label}</span><textarea rows={3} maxLength={6000} value={values[field]||''} placeholder={placeholder} onChange={e=>onField('strategicEvidence.'+field,e.target.value)} className="w-full rounded-xl border border-slate-200 p-3 text-xs bg-white"/></label>)}</div><p className="text-[10px] text-slate-500 mt-2">Usa el botón Guardar de BRIEF 01 para conservar estas fuentes antes de solicitar el análisis IA.</p></section>;
 }
 
+
+// WINNER OS BRIEF 02 V5.0 — módulo independiente; no modifica BRIEF 01.
+const BRIEF02_PHASES=[
+ {id:'strategy',label:'Estrategia · 2 audiencias'},
+ {id:'static_a1',label:'3 estáticos · Audiencia 1'},
+ {id:'static_a2',label:'3 estáticos · Audiencia 2'},
+ {id:'video_a1',label:'2 narrativas PAS · Audiencia 1'},
+ {id:'video_a2',label:'2 narrativas PAS · Audiencia 2'}
+];
+function brief02CleanText(value,max=18000){return String(value||'').slice(0,max)}
+function brief02PdfBlob(title,parts){
+ const escape=s=>brief01PdfEscape(brief01PdfLatin(String(s||'')));
+ const lines=[];
+ for(const [heading,text] of parts){lines.push({s:String(heading).toUpperCase(),bold:true});for(const p of String(text||'').split('\n')){if(!p.trim()){lines.push({s:' '});continue;}let row='';for(const w of p.trim().split(/\s+/)){if((row+' '+w).length>94){lines.push({s:row});row=w;}else row=(row?row+' ':'')+w;}if(row)lines.push({s:row});}}
+ const pages=[];let command='',y=775,pageNumber=0;
+ function flush(){if(command){pages.push(command);command='';}}
+ function page(){flush();pageNumber++;y=775;command+=`0.06 0.18 0.33 rg 0 792 595 50 re f\n1 1 1 rg BT /F2 15 Tf 42 813 Td (${escape('WINNER OS · BRIEF 02 V5.0')}) Tj ET\n0.4 0.45 0.5 rg BT /F1 8 Tf 42 34 Td (${escape('Documento operativo · pagina '+pageNumber)}) Tj ET\n`;}
+ page();
+ for(const line of [{s:title,bold:true},...lines]){const fontSize=line.bold?11:9,step=line.bold?24:15;if(y<60)page();const s=line.s;command+=`0.12 0.18 0.27 rg BT /${line.bold?'F2':'F1'} ${fontSize} Tf 42 ${y} Td (${escape(s)}) Tj ET\n`;y-=step;}
+ flush();const objs=[],put=s=>(objs.push(s),objs.length);const catalog=put(''),pagesId=put(''),f1=put('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),f2=put('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'),pageIds=[];
+ for(const c of pages){const content=put(`<< /Length ${c.length} >>\nstream\n${c}endstream`);pageIds.push(put(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${content} 0 R >>`));}
+ objs[catalog-1]=`<< /Type /Catalog /Pages ${pagesId} 0 R >>`;objs[pagesId-1]=`<< /Type /Pages /Kids [${pageIds.map(i=>i+' 0 R').join(' ')}] /Count ${pageIds.length} >>`;
+ let pdf='%PDF-1.4\n';const offsets=[0];objs.forEach((o,i)=>{offsets.push(pdf.length);pdf+=`${i+1} 0 obj\n${o}\nendobj\n`;});const xref=pdf.length;pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`;for(let i=1;i<offsets.length;i++)pdf+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;pdf+=`trailer\n<< /Size ${objs.length+1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+ return new Blob([pdf],{type:'application/pdf'});
+}
+function Brief02Module(){
+ const {user}=useAuth();const [products,setProducts]=useState([]),[selectedId,setSelectedId]=useState(''),[work,setWork]=useState(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ useEffect(()=>{if(!user?.uid)return;return onSnapshot(query(collection(db,BRIEF01_COLLECTION),where('ownerUid','==',user.uid)),snap=>{setProducts(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAtMs||0)-(a.updatedAtMs||0)));setLoading(false);},()=>{setError('No se pudieron leer las investigaciones BRIEF 01.');setLoading(false);});},[user?.uid]);
+ const product=products.find(p=>p.id===selectedId)||null;
+ const sourceVersion=product?JSON.stringify({updated:product.updatedAtMs,diagnosis:product.diagnosis,offers:product.offer,suppliers:product.suppliers,reports:product.aiStrategicReports}):'';
+ const sourceFingerprint=sourceVersion.length+':'+(sourceVersion.slice(0,40));
+ useEffect(()=>{setWork(product?.brief02||null);setError('');setNotice('');},[selectedId,product?.brief02?.updatedAtMs]);
+ const approved=!!(product?.manualApproved&&product?.diagnosis);
+ const phases=work?.phases||{};
+ const completed=BRIEF02_PHASES.every(x=>Boolean(phases[x.id]?.approved));
+ const stale=!!(work?.sourceFingerprint&&work.sourceFingerprint!==sourceFingerprint);
+ const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.offer||{},diagnosis:{classification:product.diagnosis?.classification,classificationReason:product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.diagnosis?.financial?.price,netMarginPct:product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text).map(([k,r])=>[k,brief02CleanText(r.text,2400)]))});
+ const save=async(next)=>{await updateDoc(doc(db,BRIEF01_COLLECTION,selectedId),{brief02:next});setWork(next)};
+ const generate=async(id)=>{if(!approved||busy)return;setBusy(id);setError('');setNotice('');try{
+  const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([,v])=>v.approved).map(([k,v])=>[k,brief02CleanText(v.text,12000)]))};
+  const res=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step:'brief02',phase:id,research:context})});
+  const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02CleanText(data.analysis,18000).trim();if(!text)throw Error('La IA devolvió texto vacío');const keep=id==='strategy'?{}:phases;const next={...work,sourceFingerprint:sourceFingerprint,phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
+ }catch(e){setError(String(e.message||'No se pudo analizar'));}finally{setBusy('')}};
+ const approvePhase=async(id)=>{if(busy||!phases[id]?.text)return;setBusy(id);setError('');try{const next={...work,phases:{...phases,[id]:{...phases[id],approved:true,approvedAt:Date.now()}},updatedAtMs:Date.now()};await save(next);setNotice('Bloque aprobado y guardado.');}catch(e){setError(String(e.message))}finally{setBusy('')}};
+ const approveFinal=async()=>{if(!completed||stale||busy)return;setBusy('final');try{await save({...work,status:'approved',approvedAt:Date.now(),updatedAtMs:Date.now()});setNotice('BRIEF 02 aprobado. Ya puedes descargar el PDF.')}catch(e){setError(String(e.message))}finally{setBusy('')}};
+ const download=()=>{if(!completed||stale||work?.status!=='approved')return;const parts=[['FUENTES Y CONTRATO','Producto: '+product.name+'\nBRIEF 01: '+product.code+'\nAprobado comercialmente: SI\nMaterial visual: entregado al Area Digital por separado. Sin inspeccion visual automatica.'],...BRIEF02_PHASES.map(p=>[p.label,phases[p.id]?.text||''])];const blob=brief02PdfBlob('ESTRATEGIA CREATIVA · '+product.name,parts);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`BRIEF02_${product.code||'PRODUCTO'}_V5.pdf`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)};
+ return <div className="space-y-4"><div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm"><p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">WINNER OS · Motor creativo</p><h2 className="text-2xl font-black text-[#12386B]">BRIEF 02 · V5.0</h2><p className="text-xs text-slate-600 mt-2">2 audiencias · 6 ángulos · 6 estáticos 1:1 · 4 narrativas PAS. Fuentes: diagnóstico BRIEF 01 aprobado y ficha técnica. Materiales originales se entregan al Área Digital por separado.</p><label className="block text-xs font-bold mt-4 mb-1">Producto investigado</label><select className="w-full rounded-xl border p-3 text-sm bg-white" value={selectedId} onChange={e=>setSelectedId(e.target.value)}><option value="">Selecciona un producto BRIEF 01...</option>{products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name||'Sin nombre'} · {p.manualApproved?'Aprobado':'Pendiente de aprobación'}</option>)}</select></div>
+ {loading&&<p className="text-sm">Cargando investigaciones...</p>}{product&&!approved&&<div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-4 text-sm font-semibold">La generación está bloqueada. Debes generar el diagnóstico de BRIEF 01 y aprobar manualmente su viabilidad comercial antes de continuar.</div>}
+ {product&&approved&&<>{stale&&<div className="rounded-xl bg-amber-50 border border-amber-300 p-3 text-amber-900 text-xs font-bold">BRIEF 01 cambió desde esta generación. Regenera la estrategia y los entregables antes de aprobar o exportar.</div>}<div className="rounded-xl border bg-emerald-50 border-emerald-200 p-4 text-xs text-emerald-900"><b>Viabilidad BRIEF 01 aprobada.</b> La IA utilizará análisis aprobados, reseñas negativas y ficha técnica disponibles. Si falta un dato, debe marcarlo como pendiente; no se utilizarán imágenes ni videos como fuente automática.</div>{BRIEF02_PHASES.map((p,i)=>{const block=phases[p.id];const ready=i===0||Boolean(phases[BRIEF02_PHASES[i-1].id]?.approved);return <section key={p.id} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black text-[#12386B]">{i+1}. {p.label}</p><p className="text-[10px] text-slate-500">{block?.approved?'Aprobado':block?.text?'Revisión pendiente':'Pendiente de generación'}</p></div><button disabled={!ready||!!busy} onClick={()=>generate(p.id)} className="rounded-lg bg-indigo-800 text-white px-3 py-2 text-xs font-bold disabled:opacity-40">{busy===p.id?'Procesando...':block?.text?'Regenerar':'Generar con DeepSeek'}</button></div>{block?.text&&<><textarea rows={15} value={block.text} onChange={e=>setWork(w=>({...w,phases:{...w.phases,[p.id]:{...w.phases[p.id],text:e.target.value,approved:false}}}))} className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed"/><div className="flex flex-wrap gap-2"><button disabled={!!busy||block.approved} onClick={()=>approvePhase(p.id)} className="rounded-lg bg-emerald-700 text-white px-3 py-2 text-xs font-bold disabled:opacity-40">{block.approved?'Aprobado':'Aprobar y guardar bloque'}</button><button onClick={()=>navigator.clipboard?.writeText(block.text)} className="border rounded-lg px-3 py-2 text-xs">Copiar texto</button></div></>}</section>})}
+ <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-3"><h3 className="font-black text-indigo-900">Revisión y PDF profesional</h3><p className="text-xs text-slate-600">Se exige aprobar los cinco bloques antes de emitir el informe. Los seis anuncios son instrucciones de producción; no se generan imágenes ni videos aquí.</p><div className="flex flex-wrap gap-2"><button disabled={!completed||stale||!!busy} onClick={approveFinal} className="bg-indigo-900 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Aprobar BRIEF 02 final</button><button disabled={!completed||stale||work?.status!=='approved'} onClick={download} className="bg-emerald-700 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Descargar PDF BRIEF 02</button></div></section></>}
+ {notice&&<div className="rounded-xl bg-blue-50 border border-blue-100 text-blue-900 p-3 text-xs">{notice}</div>}{error&&<p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700 text-xs">{error}</p>}</div>;
+}
+
 function Brief01Module() {
   const { user } = useAuth();
   // V40: simulación temporal; no se guarda ni modifica la investigación.
@@ -21895,7 +21948,8 @@ export default function App() {
     { id: 'config', icon: Settings, label: 'Estrategias' },
     { id: 'agenda', icon: CalendarDays, label: 'Agenda' },
     { id: 'campaignControl', icon: BarChart3, label: 'Campañas', notificationCount: campaignMenuPendingCount },
-    { id: 'brief01', icon: FlaskConical, label: 'BRIEF 01' }
+    { id: 'brief01', icon: FlaskConical, label: 'BRIEF 01' },
+    { id: 'brief02', icon: Target, label: 'BRIEF 02' }
   ];
   const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
   const renderDesktopNavButton = (tab) => {
@@ -22062,13 +22116,14 @@ export default function App() {
           </div>
         </header>
 
-        <main className={`tpc-main-surface mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6 ${activeTab === 'campaignControl' ? 'max-w-[1600px]' : activeTab === 'brief01' ? 'max-w-[1400px]' : 'max-w-[1280px]'}`}>
+        <main className={`tpc-main-surface mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6 ${activeTab === 'campaignControl' ? 'max-w-[1600px]' : (activeTab === 'brief01' || activeTab === 'brief02') ? 'max-w-[1400px]' : 'max-w-[1280px]'}`}>
           {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
           {activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
           {activeTab === 'config' && <VistaConfig configs={configs} />}
           {activeTab === 'agenda' && <AgendaModule />}
           {activeTab === 'campaignControl' && <CampaignControlModule />}
           {activeTab === 'brief01' && <Brief01Module />}
+          {activeTab === 'brief02' && <Brief02Module />}
         </main>
       </div>
 
