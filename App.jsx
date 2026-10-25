@@ -21347,46 +21347,69 @@ function Brief01IntelligenceAssistant({user,research,step,onApproved}) {
 // V5.2 AUDITORIA INTEGRAL — una acción de usuario; fases existentes del Worker.
 // Ninguna recomendación modifica el Diagnóstico Base ni los campos de investigación.
 function Brief01CentralAudit({user,research,onApproved}) {
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[reports,setReports]=useState(null),[progress,setProgress]=useState('');
- const stages=[['meta','Actividad Meta y cobertura'],['competitors','Competencia, copys y landings'],['angles','Sofisticación, brechas y audiencias'],['suppliers','Mecanismo verificable y proveedores'],['offer','Ingeniería de oferta (hipótesis)'],['diagnosis','Conclusiones estratégicas integradas']];
- useEffect(()=>{setReports(null);setError('');setProgress('');},[research?.id]);
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[reports,setReports]=useState({}),[progress,setProgress]=useState(''),[showDetails,setShowDetails]=useState(false);
+ const stages=[['meta','Actividad y cobertura'],['competitors','Competidores y ofertas'],['angles','Audiencias y oportunidades'],['suppliers','Producto y atributos verificables'],['offer','Mejoras de oferta para gerencia'],['diagnosis','Decisiones estratégicas']];
+ const cacheKey=`winner_brief01_audit_v55_${research?.id||'unknown'}`;
+ useEffect(()=>{
+  setError('');setProgress('');setShowDetails(false);
+  try{const saved=JSON.parse(sessionStorage.getItem(cacheKey)||'{}');setReports(saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{});}catch{setReports({});}
+ },[cacheKey]);
+ const saveProgress=(next)=>{setReports({...next});try{sessionStorage.setItem(cacheKey,JSON.stringify(next));}catch{ /* storage may be disabled */ }};
+ const complete=stages.every(([key])=>Boolean(reports?.[key]?.text));
+ const finished=stages.filter(([key])=>Boolean(reports?.[key]?.text)).length;
  const execute=async()=>{
   if(!user||!research?.diagnosis||busy)return;
-  setBusy(true);setError('');setReports(null);
-  const token=await user.getIdToken();
-  const temp={};
-  const copies=(research.adCopies||[]).slice(0,130).map(x=>({id:x.id||x.adId,advertiser:x.advertiser,copy:String(x.copy||'').slice(0,950),classification:x.productRelation||x.classification}));
-  const competitors=(research.competitors||[]).slice(0,25).map(x=>({name:x.name,metaUrl:x.metaUrl,salesUrl:x.salesUrl,activeAdsCount:x.activeAdsCount,primaryAngle:x.primaryAngle,secondaryAngle1:x.secondaryAngle1,secondaryAngle2:x.secondaryAngle2,notes:x.notes,singlePrice:x.singlePrice,combos:x.combos,promotions:x.promotions}));
+  setBusy(true);setError('');
+  const temp={...reports};
   try{
+   const token=await user.getIdToken();
+   const copies=(research.adCopies||[]).slice(0,130).map(x=>({id:x.id||x.adId,advertiser:x.advertiser,copy:String(x.copy||'').slice(0,950),classification:x.productRelation||x.classification}));
+   const competitors=(research.competitors||[]).slice(0,25).map(x=>({name:x.name,metaUrl:x.metaUrl,salesUrl:x.salesUrl,activeAdsCount:x.activeAdsCount,primaryAngle:x.primaryAngle,secondaryAngle1:x.secondaryAngle1,secondaryAngle2:x.secondaryAngle2,notes:x.notes,singlePrice:x.singlePrice,combos:x.combos,promotions:x.promotions}));
    for(let i=0;i<stages.length;i++){
-    const [step,label]=stages[i];setProgress(`${i+1}/${stages.length} · ${label}`);
-    const source={name:research.name,category:research.category,description:research.description,product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers:(research.suppliers||[]).slice(0,20),offer:research.offer||{},costs:research.costs||{},planning:research.planning||{},deliverySettings:research.deliverySettings||{},strategicEvidence:research.strategicEvidence||{},negativeReviews:research.strategicEvidence?.negativeReviews||'',baseFinancialDiagnosis:{classification:research.diagnosis.classification,classificationReason:research.diagnosis.classificationReason,financial:research.diagnosis.financial,netMarginPct:research.diagnosis.netMarginPct,monthlyProjection:research.diagnosis.monthlyProjection,missing:research.diagnosis.missing},approvedStrategicReports:{...(research.aiStrategicReports||{}),...Object.fromEntries(Object.entries(temp).map(([k,v])=>[k,{text:v.text}]))}};
-    const response=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step,research:source})});
-    const data=await response.json();if(!response.ok)throw Error(`${label}: ${data.error||response.status}`);
-    const value=String(data.analysis||'').trim();if(!value)throw Error(`${label}: respuesta IA vacía`);
-    temp[step]={text:value.slice(0,14000),source:'deepseek-integral-v52',generatedAt:Date.now(),approvedAt:null};
-    setReports({...temp});
+    const [step,label]=stages[i];if(temp[step]?.text)continue;
+    setProgress(`Analizando ${i+1} de ${stages.length}: ${label}`);
+    const source={name:research.name,category:research.category,description:research.description,product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers:(research.suppliers||[]).slice(0,20),offer:research.offer||{},costs:research.costs||{},planning:research.planning||{},deliverySettings:research.deliverySettings||{},strategicEvidence:research.strategicEvidence||{},negativeReviews:research.negativeReviews||research.strategicEvidence?.negativeReviews||'',diagnosis:research.diagnosis||{},approvedStrategicReports:research.aiStrategicReports||{}};
+    let value='';let lastError='';
+    for(let attempt=0;attempt<2;attempt++){
+     try{
+      const response=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step,research:source,executiveMode:true})});
+      const data=await response.json();if(!response.ok)throw Error(data.error||`HTTP ${response.status}`);
+      value=String(data.analysis||'').trim();if(!value)throw Error('empty_response');break;
+     }catch(e){lastError=String(e?.message||e);if(!['ai_incomplete_response','ai_empty_response','ai_unavailable','empty_response'].some(x=>lastError.includes(x))||attempt===1)break;}
+    }
+    if(!value)throw Error(`${label}: ${lastError}. Puedes continuar desde este punto.`);
+    temp[step]={text:value.slice(0,12000),source:'deepseek-executive-v55',generatedAt:Date.now(),approvedAt:null};
+    saveProgress(temp);
    }
-   setProgress('Auditoría completa. Revisa los informes y apruébalos.');
-  }catch(e){setError(`Análisis parcial: ${e.message||e}. Los bloques mostrados no reemplazan los aprobados anteriormente.`);}finally{setBusy(false)}
+   setProgress('Auditoría completada. Revisa las conclusiones y aprueba.');
+  }catch(e){setError(`Se conservan ${Object.keys(temp).filter(k=>temp[k]?.text).length} análisis completos. ${e.message||e}`);}
+  finally{setBusy(false)}
  };
  const approve=async()=>{
-  if(busy||!reports||stages.some(([k])=>!reports[k]?.text))return;
+  if(busy||!complete)return;
   setBusy(true);setError('');
   try{
    const result=Object.fromEntries(stages.map(([k])=>[k,{...reports[k],approvedAt:todayColombia()}]));
-   const merged={...(research.aiStrategicReports||{}),...result};
-   await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),{aiStrategicReports:merged,updatedDate:todayColombia(),updatedAtMs:Date.now()});
-   onApproved?.(merged);setProgress('Auditoría integral aprobada y guardada para informe gerencial y BRIEF 01.');
+   // Field-path updates preserve other prior approvals and manual data.
+   const fields={updatedDate:todayColombia(),updatedAtMs:Date.now()};
+   for(const [k,v] of Object.entries(result))fields[`aiStrategicReports.${k}`]=v;
+   await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),fields);
+   onApproved?.({...research.aiStrategicReports,...result});setProgress('Auditoría aprobada y guardada para el informe gerencial.');
   }catch(e){setError(`No se pudo guardar la aprobación: ${e.message||e}`);}finally{setBusy(false)}
  };
+ const summary=text=>{
+  const cleaned=String(text||'').replace(/\\([*#_])/g,'$1').replace(/\*\*/g,'').replace(/^#{1,6}\s*/gm,'').trim();
+  return cleaned.split('\n').map(s=>s.trim()).filter(s=>s&&!s.startsWith('|')&&!s.startsWith('---')&&!s.startsWith('```')).slice(0,12).join('\n').slice(0,1800);
+ };
  return <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
-  <div><p className="font-black text-indigo-900 text-sm">Auditoría integral DeepSeek · Un solo inicio</p><p className="text-xs text-slate-600 mt-1">Ejecuta seis análisis encadenados de la investigación y el Diagnóstico Base. No modifica precios, costos, fletes, cálculos ni canales. Cada bloque requiere revisión y aprobación humana.</p></div>
-  <button onClick={execute} disabled={busy||!research?.diagnosis} className="rounded-xl bg-indigo-900 text-white px-4 py-3 text-xs font-black disabled:opacity-40">{busy?'Procesando auditoría...':'EJECUTAR AUDITORÍA INTEGRAL IA'}</button>
-  {progress&&<p className="text-xs font-semibold text-indigo-900">{progress}</p>}
-  {error&&<p className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 text-xs p-3" role="alert">{error}</p>}
-  {(reports||research.aiStrategicReports)&&stages.map(([k,label])=>{const block=reports?.[k]||research.aiStrategicReports?.[k];return block?.text?<div key={k} className="bg-white rounded-xl border border-indigo-100 p-3"><p className="font-black text-xs text-indigo-900">{label}{block.approvedAt?' · APROBADO':''}</p><div className="whitespace-pre-wrap text-xs text-slate-700 mt-2 max-h-96 overflow-y-auto">{block.text}</div></div>:null;})}
-  {reports&&stages.every(([k])=>reports[k]?.text)&&<button disabled={busy} onClick={approve} className="rounded-xl bg-emerald-700 text-white px-4 py-3 text-xs font-black disabled:opacity-40">APROBAR AUDITORÍA PARA INFORME GERENCIAL</button>}
+  <div><p className="font-black text-indigo-900 text-sm">Auditoría gerencial DeepSeek</p><p className="text-xs text-slate-600 mt-1">Conclusiones claras para decidir. No modifica el diagnóstico base, el simulador ni los canales. Si se interrumpe, continúa desde la etapa pendiente.</p></div>
+  <div className="text-xs font-bold text-indigo-900">{finished} de {stages.length} análisis completados{complete?' · Lista para aprobar':''}</div>
+  <button type="button" onClick={execute} disabled={busy||!research?.diagnosis||complete} className="rounded-xl bg-indigo-900 text-white px-4 py-3 text-xs font-black disabled:opacity-40">{busy?'ANALIZANDO...':finished>0&&!complete?'REANUDAR DESDE LA ETAPA PENDIENTE':complete?'AUDITORÍA COMPLETA':'EJECUTAR AUDITORÍA INTEGRAL IA'}</button>
+  {progress&&<p role="status" className="text-xs font-semibold text-indigo-900">{progress}</p>}
+  {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs p-3">{error}</p>}
+  {stages.map(([k,label],i)=>{const block=reports[k]||research.aiStrategicReports?.[k];return <div key={k} className="bg-white rounded-xl border border-indigo-100 p-3"><p className="font-black text-xs text-indigo-900">{i+1}. {label} {block?.approvedAt?'· APROBADO':block?.text?'· LISTO':'· PENDIENTE'}</p>{block?.text?<p className="whitespace-pre-wrap text-xs text-slate-700 mt-2 leading-relaxed">{summary(block.text)}</p>:<p className="text-xs text-slate-400 mt-1">Se generará en esta auditoría.</p>}{showDetails&&block?.text&&<pre className="whitespace-pre-wrap font-sans text-xs text-slate-600 mt-3 max-h-72 overflow-y-auto border-t pt-2">{block.text}</pre>}</div>})}
+  <button type="button" onClick={()=>setShowDetails(v=>!v)} className="text-xs font-bold text-indigo-800 underline">{showDetails?'Ocultar':'Ver'} evidencia y análisis completos</button>
+  {complete&&<button type="button" disabled={busy} onClick={approve} className="rounded-xl bg-emerald-700 text-white px-4 py-3 text-xs font-black disabled:opacity-40">APROBAR AUDITORÍA PARA INFORME GERENCIAL</button>}
  </section>;
 }
 
