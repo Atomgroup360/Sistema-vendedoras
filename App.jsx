@@ -20585,7 +20585,7 @@ function brief01PdfLatin(s='') {
     .replace(/[óòöô]/gi, m => m === m.toUpperCase() ? 'O' : 'o')
     .replace(/[úùüû]/gi, m => m === m.toUpperCase() ? 'U' : 'u')
     .replace(/ñ/gi, m => m === 'Ñ' ? 'N' : 'n')
-    .replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/–|—/g,'-').replace(/→/g,'->')
+    .replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/×/g,' x ').replace(/≠/g,' != ').replace(/–|—/g,'-').replace(/→/g,'->')
     .replace(/[^\x20-\x7E]/g,'');
 }
 
@@ -20626,8 +20626,10 @@ function Brief01StrategicHandoff({research}){
  const [expanded,setExpanded]=useState({});
  const reports=research?.aiStrategicReports||{};
  const approved=BRIEF01_STRATEGIC_SECTIONS.filter(([key])=>reports[key]?.text&&reports[key]?.approvedAt);
+ const master=brief01StrategicExecutiveData(research);
  return <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-5 my-4 space-y-3">
   <div><h3 className="text-base font-black text-[#12386B]">Veredicto estratégico aprobado · Fuente de BRIEF 02</h3><p className="text-xs text-slate-600 mt-1">Las seis fases se conservan completas, sin copiar ni recortar el contenido. Las hipótesis gerenciales de la fase 5 no son ofertas aprobadas.</p></div>
+  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2"><div className="text-xs font-black text-[#12386B]">FICHA MAESTRA · BRIEF 02</div><div className="grid sm:grid-cols-2 gap-2 text-xs"><div><b>Sofisticación:</b> {master.sophistication||'Sin diagnóstico aprobado'}</div><div><b>Conciencia:</b> {master.awareness||'Sin diagnóstico aprobado'}</div><div><b>Fichas creativas detectadas:</b> {master.fichas.length}/6</div><div><b>Oferta oficial:</b> {master.approvedOffer?'Decisión gerencial aprobada':'Pendiente de aprobación'}</div></div><p className="text-xs text-slate-600">El PDF contiene las fichas creativas detalladas y el anexo íntegro de auditoría.</p></div>
   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{BRIEF01_STRATEGIC_SECTIONS.map(([key,label])=><div key={key} className={`rounded-lg border p-2 text-xs ${reports[key]?.approvedAt?'bg-emerald-50 border-emerald-200 text-emerald-800':'bg-slate-50 border-slate-200 text-slate-500'}`}>{reports[key]?.approvedAt?'✓ Aprobado':'Pendiente'} · {label}</div>)}</div>
   {approved.map(([key,label])=><div key={key} className="rounded-xl border border-slate-200 overflow-hidden"><button type="button" aria-expanded={!!expanded[key]} onClick={()=>setExpanded(v=>({...v,[key]:!v[key]}))} className="w-full flex items-center justify-between text-left p-3 sm:p-4 bg-slate-50 hover:bg-indigo-50"><span className="text-sm font-bold text-[#12386B]">{label}</span><span className="text-xs font-semibold text-indigo-800">{expanded[key]?'Ocultar':'Ver fase completa'}</span></button>{expanded[key]&&<div className="p-4 max-h-[65vh] overflow-y-auto"><Brief01ApprovedPhaseView text={reports[key].text}/></div>}</div>)}
   {!approved.length&&<p className="text-sm text-slate-500">Todavía no existen análisis aprobados.</p>}
@@ -20643,6 +20645,39 @@ function brief01ApprovedResearchView(research) {
     deliverySettings:approved.deliverySettings||research.deliverySettings,
     suppliers:approved.suppliers||research.suppliers,
     originalDiagnosis:research.diagnosis,diagnosis:approved.diagnosis};
+}
+
+// V5.10 — entrega estructurada para ejecución creativa, sin inventar decisiones.
+// Conserva los seis informes originales íntegros; las fichas son insumos, no ofertas aprobadas.
+function brief01StrategicExecutiveData(research){
+ const reports=research?.aiStrategicReports||{};
+ const phase=k=>reports[k]?.approvedAt?String(reports[k]?.text||''):'';
+ const stage3=phase('angles'), stage4=phase('suppliers'), stage6=phase('diagnosis');
+ const plain=t=>String(t||'').replace(/\\([#*_])/g,'$1').replace(/\*\*/g,'').replace(/\*/g,'').replace(/\s+/g,' ').trim();
+ const clip=(t,n=480)=>plain(t).slice(0,n);
+ const first=(t,re)=>{const m=t.match(re);return m?clip(m[1],500):''};
+ const sophistication=first(stage3,/Sofisticaci[oó]n del mercado[:\s]*([^\n]+)/i)||first(stage6,/Sofisticaci[oó]n predominante[:\s]*([^\n]+)/i);
+ const awareness=first(stage6,/Conciencia de mercado[:\s]*([^\n]+)/i)||first(stage3,/Conciencia de mercado[^.]*\.\s*([^\n]+)/i);
+ const fichas=[];
+ // Cada ficha se conserva con todos sus apartados, no un resumen truncado.
+ const matcher=/^\s*#{2,5}\s*FICHA\s+(A[12]\.[123])\s*[-—:]\s*([^\n]+)\n([\s\S]*?)(?=^\s*#{2,5}\s*FICHA\s+A[12]\.[123]\b|(?![\s\S]))/gim;
+ let match;while((match=matcher.exec(stage6))!==null){
+  fichas.push({code:match[1].toUpperCase(),title:plain(match[2]),details:match[3].trim()});
+ }
+ const approvedOffer=research?.managerApprovedScenario;
+ return {phase3:stage3,phase4:stage4,phase6:stage6,sophistication,awareness,fichas,
+   approvedOffer:approvedOffer?.diagnosis?approvedOffer:null,
+   approvalCount:BRIEF01_STRATEGIC_SECTIONS.filter(([key])=>reports[key]?.approvedAt&&reports[key]?.text).length};
+}
+function brief01PdfReadableLine(value){
+ // PDF nativo conserva los textos originales en Firebase, pero elimina sintaxis Markdown al imprimir.
+ return String(value||'').replace(/\\([#*_])/g,'$1')
+   .replace(/^\s{0,3}#{1,6}\s+/,'')
+   .replace(/\*\*/g,'').replace(/(?<!\w)\*(?!\s)|(?<!\s)\*(?!\w)/g,'')
+   .replace(/^\s*[-*]\s+/,'• ')
+   .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')
+   .replace(/^(\s*)---+(\s*)$/,'')
+   .trim();
 }
 
 function buildBrief01PdfBlob(research, diagnosis) {
@@ -20679,16 +20714,27 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(diagnosis?.classificationReason||'Faltan datos para determinar el dictamen.',{gap:6});
   add('Criterio: clasificacion financiera y evidencia publicitaria son indicadores de testeo, no una garantia de ventas.');
 
-  section('1A. INTELIGENCIA ESTRATEGICA APROBADA - FASES 1 A 6');
-  add('Bloque cualitativo: solo analisis aprobados manualmente; no sustituye las reglas de rentabilidad.',{bold:true});
-  for (const [key,label] of BRIEF01_STRATEGIC_SECTIONS) {
-    const item=research?.aiStrategicReports?.[key];
-    if(!item?.text||!item?.approvedAt)continue;
-    section(label);
-    for(const block of String(item.text).replace(/\\([#*_])/g,'$1').split(/\r?\n/))add(block,{gap:1});
-  }
-  add('Reglas: actividad publicitaria no prueba ventas; un ticket premium no queda autorizado solo por comparables externos. Confirmar costos, garantia y mecanismo fisico.');
-
+  // V5.10: primeramente el contrato estratégico; expediente original íntegro al final.
+  const strategic=brief01StrategicExecutiveData(research);
+  section('1A. FICHA MAESTRA - INTELIGENCIA PARA BRIEF 02');
+  add(`Fases aprobadas: ${strategic.approvalCount} de 6. Esta ficha no sustituye los informes de origen ni la decision gerencial.`,{bold:true});
+  add(`Producto / presentacion: ${research?.name||'No definido'} | Oferta comercial oficial: ${strategic.approvedOffer?money(strategic.approvedOffer.offer?.price):'PENDIENTE DE APROBACION'}.`);
+  add(`Condiciones aprobadas: ${strategic.approvedOffer?.notes||'Sin decision gerencial registrada. No publicar precios, bonos ni upsells sugeridos por IA como oferta.'}`);
+  add(`Sofisticacion observada (inferencia): ${strategic.sophistication||'Revisar fase 3.'}`);
+  add(`Conciencia del mercado (inferencia): ${strategic.awareness||'Revisar fase 3.'}`);
+  add('Posicionamiento: explicar material real, composicion del pack, instalacion y mecanismo observables; no heredar del competidor promesas sin comprobacion.');
+  add('Biblioteca de objeciones: deformacion, fijacion, calor, costuras, transferencia de material, contenido real del paquete y condiciones de devolucion. Proceden de resenas de productos analogos y NO demuestran fallas del SKU propio.');
+  add('REGLAS DE PUBLICACION: no prometer gel si es espuma; no prometer curacion, durabilidad, compatibilidad universal o rendimiento termico sin pruebas del SKU. Demostrar solo caracteristicas reales.');
+  add('HORMOZI POR ANGULO: resultado deseado, probabilidad percibida, tiempo hasta valor y esfuerzo del comprador. Complementar con evidencia visual, confianza y conveniencia (ver seis fichas).');
+  add('Canales de venta: conservar los del Diagnostico Base. BRIEF 02 no puede seleccionar bonos, descuentos ni upsells no aprobados.');
+  section('1B. SEIS HIPOTESIS CREATIVAS DOCUMENTADAS');
+  if(strategic.fichas.length){
+    for(const ficha of strategic.fichas){
+      add(`${ficha.code} - ${ficha.title}`,{bold:true});
+      // Ficha completa: avatar, conciencia, brecha, hormozi, prueba y restricciones.
+      for(const ln of ficha.details.split(/\r?\n/))if(ln.trim())add(brief01PdfReadableLine(ln));
+    }
+  }else add('La fase 6 no contiene fichas A1.1-A2.3 extraibles. Consultar el expediente aprobado, sin inventar seis angulos.');
   section('2. VIABILIDAD FINANCIERA');
   add(`Ticket comercial: ${money(f.price)} | Producto/unidad: ${money(f.unitCost)} | Flete por despacho: ${money(f.freightPerShipment)}.`,{bold:true});
   add(`IER: ${pct(ier.effective*100)} | Cancelaciones: ${pct(ier.cancellation*100)} | Devoluciones sobre despachos: ${pct(ier.returnRate*100)}.`);
@@ -20720,7 +20766,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
     return found?Number(found.price):null;
   };
   const missingComparables=(research?.competitors||[]).filter(c=>priceForQty(c)===null);
-  add(`Nuestro ticket: ${ownTicket>0?money(ownTicket):'Sin registrar'} | Presentacion: ${ownQty} unidad(es).`,{bold:true});
+  add(`Nuestro ticket: ${ownTicket>0?money(ownTicket):'Sin registrar'} | Cantidad comercial en el motor: ${ownQty}. Un kit puede contener varias piezas fisicas: verificar equivalencia de packs antes de comparar.`,{bold:true});
   if(pricedComparables.length){
     const sortedPrices=pricedComparables.map(c=>c.competitorPrice).sort((a,b)=>a-b);
     const medianPrice=sortedPrices.length%2?sortedPrices[(sortedPrices.length-1)/2]:(sortedPrices[sortedPrices.length/2-1]+sortedPrices[sortedPrices.length/2])/2;
@@ -20795,6 +20841,18 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add('DECISION DE NEGOCIO: el responsable de producto autoriza o aplaza el testeo. No se recomienda escalar sin validar CPA, entregas reales y rentabilidad realizada.');
   add('Alcance metodologico: proyecciones, no resultados reales. Los margenes despues de IER tienen bases distintas segun la vista; validar antes de aprobar pauta.');
 
+  section('9. ANEXO - AUDITORIA IA INTEGRA APROBADA');
+  add('Registro de evidencia original. Las fases se imprimen completas y se conservan en Firebase. Las sugerencias de la fase 5 NO constituyen oferta aprobada.',{bold:true});
+  for(const [key,label] of BRIEF01_STRATEGIC_SECTIONS){
+    const item=research?.aiStrategicReports?.[key];
+    if(!item?.approvedAt||!item?.text)continue;
+    section(label);
+    for(const line of String(item.text).replace(/\([#*_])/g,'$1').split(/\r?\n/)){
+      const readable=brief01PdfReadableLine(line);
+      if(readable)add(readable,{bold:/^\s*#{1,5}\s+|^\*\*[^*]+\*\*:?\s*$/.test(line),gap:1});
+    }
+  }
+
   // V35 — Presentación editorial del PDF BRIEF 01. Sin cambios financieros.
   // Motor PDF vectorial autónomo: no agrega dependencias y mantiene todos los datos originales.
   const PAGE_W=595, PAGE_H=842, LEFT=43, RIGHT=43, TOP=100, BOTTOM=62;
@@ -20862,8 +20920,8 @@ function buildBrief01PdfBlob(research, diagnosis) {
   let sectionIndex=0;
   const skipPreamble=0; // V58: todas las secciones ejecutivas se imprimen, sin omitir la primera.
   for(let i=skipPreamble;i<rows.length;i++){
-    const row=rows[i]; const raw=String(row.text||'');
-    const isSection=/^\d+\.\s/.test(raw)&&row.bold&&row.size===12;
+    const row=rows[i]; const raw=brief01PdfReadableLine(row.text);
+    const isSection=/^\d+[A-Z]?\.\s/.test(raw)&&row.bold&&row.size===12;
     if(isSection){
       ensure(65);
       if(sectionIndex>0)y+=8;
