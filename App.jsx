@@ -21680,6 +21680,20 @@ const BRIEF02_PHASES=[
  {id:'video_a1',label:'2 narrativas PAS · Audiencia 1'},
  {id:'video_a2',label:'2 narrativas PAS · Audiencia 2'}
 ];
+// V5.13: frontera entre investigación y ejecución publicitaria.
+// NO cambia ni reescribe las fases de BRIEF 01: filtra una COPIA para BRIEF 02.
+const BRIEF02_FINANCE_LINE=/(?:\b(?:IER|CPA|ROAS|MER|COGS|ROI|EBITDA)\b|\b(?:margen(?:es)?|rentabilidad|utilidad(?:es)?|ganancia(?:s)?|recaudo|flete(?:s)?|comisi[oó]n(?:es)?|presupuesto(?:s)?|costo(?:s)?|coste(?:s)?|proyecci[oó]n(?:es)?|inversi[oó]n\s+publicitaria|gasto(?:s)?\s+(?:publicitarios?|de\s+ads)|tasa\s+de\s+entrega|devoluciones\s+sobre\s+despachos)\b|\bescenario\s+financiero\b)/i;
+function brief02StripFinanceEvidence(text){
+ // Se filtra por líneas, no por documentos completos; títulos de oferta y precios de venta siguen permitidos.
+ return String(text||'').split(/\r?\n/).filter(line=>!BRIEF02_FINANCE_LINE.test(line)).join('\n').trim();
+}
+function brief02AuditText(value){
+ const text=String(value||'');
+ const finance=text.split(/\r?\n/).find(line=>BRIEF02_FINANCE_LINE.test(line));
+ if(finance)return 'El resultado contiene indicadores financieros no permitidos en BRIEF 02. Regenera este bloque.';
+ if(/\b(?:gel\s+de\s+nuestro\s+producto|nuestro\s+coj[ií]n\s+de\s+gel)\b/i.test(text))return 'La respuesta atribuye gel al producto sin respaldo. Revisa el resultado.';
+ return '';
+}
 function brief02CleanText(value,max=18000){return String(value||'').slice(0,max)}
 function brief02PdfBlob(title,parts){
  const escape=s=>brief01PdfEscape(brief01PdfLatin(String(s||'')));
@@ -21780,20 +21794,33 @@ function Brief02Module(){
  useEffect(()=>{if(!user?.uid)return;return onSnapshot(query(collection(db,BRIEF01_COLLECTION),where('ownerUid','==',user.uid)),snap=>{setProducts(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAtMs||0)-(a.updatedAtMs||0)));setLoading(false);},()=>{setError('No se pudieron leer las investigaciones BRIEF 01.');setLoading(false);});},[user?.uid]);
  const product=products.find(p=>p.id===selectedId)||null;
  const sourceVersion=product?JSON.stringify({updated:product.updatedAtMs,diagnosis:product.diagnosis,offers:product.offer,suppliers:product.suppliers,managerApprovedScenario:product.managerApprovedScenario,reports:product.aiStrategicReports}):'';
- const sourceFingerprint=sourceVersion.length+':'+(sourceVersion.slice(0,40));
+ const sourceFingerprint='BRIEF02_V513_PUBLICITARIO:'+sourceVersion.length+':'+(sourceVersion.slice(0,40));
  useEffect(()=>{setWork(product?.brief02||null);setError('');setNotice('');},[selectedId,product?.brief02?.updatedAtMs]);
  const approved=!!(product?.manualApproved&&product?.diagnosis);
  const phases=work?.phases||{};
- const completed=BRIEF02_PHASES.every(x=>Boolean(phases[x.id]?.approved));
+ const completed=BRIEF02_PHASES.every(x=>Boolean(phases[x.id]?.approved)&&!brief02AuditText(phases[x.id]?.text));
  const stale=!!(work?.sourceFingerprint&&work.sourceFingerprint!==sourceFingerprint);
- const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.managerApprovedScenario?.offer||product.offer||{},approvedCommercialConditions:product.managerApprovedScenario?.notes||'',diagnosis:{classification:product.managerApprovedScenario?.diagnosis?.classification||product.diagnosis?.classification,classificationReason:product.managerApprovedScenario?.diagnosis?.classificationReason||product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.managerApprovedScenario?.diagnosis?.financial?.price??product.diagnosis?.financial?.price,netMarginPct:product.managerApprovedScenario?.diagnosis?.netMarginPct??product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text&&r?.approvedAt).map(([k,r])=>[k,brief02CleanText(r.text,36000)]))});
+ const sourceSafe=()=>{
+  const original=product.aiStrategicReports||{};
+  // Solo investigación publicitaria APROBADA. Fase 5 (ofertas propuestas) y cualquier
+  // escenario financiero son privados de BRIEF 01. El precio de VENTA aprobado sí viaja.
+  const allowed=['meta','competitors','angles','suppliers','diagnosis'];
+  return {name:product.name,category:product.category,description:product.description,
+   product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',
+   negativeReviews:product.strategicEvidence?.negativeReviews||'',
+   competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),
+   adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),
+   approvedCommercial:{price:product.managerApprovedScenario?.offer?.price??product.offer?.price,
+     offer:product.managerApprovedScenario?.offer||product.offer||{},notes:product.managerApprovedScenario?.notes||''},
+   approvedStrategicReports:Object.fromEntries(allowed.filter(k=>original[k]?.approvedAt&&original[k]?.text).map(k=>[k,brief02StripFinanceEvidence(brief02CleanText(original[k].text,36000))]))};
+ };
  const save=async(next)=>{await updateDoc(doc(db,BRIEF01_COLLECTION,selectedId),{brief02:next});setWork(next)};
  const generate=async(id)=>{if(!approved||busy)return;setBusy(id);setError('');setNotice('');try{
   const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([,v])=>v.approved).map(([k,v])=>[k,brief02CleanText(v.text,18000)]))};
   const res=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step:'brief02',phase:id,research:context})});
-  const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02CleanText(data.analysis,18000).trim();if(!text)throw Error('La IA devolvió texto vacío');const keep=id==='strategy'?{}:phases;const next={...work,sourceFingerprint:sourceFingerprint,phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
+  const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02CleanText(data.analysis,18000).trim();if(!text)throw Error('La IA devolvió texto vacío');const audit=brief02AuditText(text);if(audit)throw Error(audit);const keep=id==='strategy'?{}:phases;const next={...work,sourceFingerprint:sourceFingerprint,phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
  }catch(e){setError(String(e.message||'No se pudo analizar'));}finally{setBusy('')}};
- const approvePhase=async(id)=>{if(busy||!phases[id]?.text)return;setBusy(id);setError('');try{const next={...work,phases:{...phases,[id]:{...phases[id],approved:true,approvedAt:Date.now()}},updatedAtMs:Date.now()};await save(next);setNotice('Bloque aprobado y guardado.');}catch(e){setError(String(e.message))}finally{setBusy('')}};
+ const approvePhase=async(id)=>{if(busy||!phases[id]?.text)return;const audit=brief02AuditText(phases[id].text);if(audit){setError(audit);return;}setBusy(id);setError('');try{const next={...work,phases:{...phases,[id]:{...phases[id],approved:true,approvedAt:Date.now()}},updatedAtMs:Date.now()};await save(next);setNotice('Bloque aprobado y guardado.');}catch(e){setError(String(e.message))}finally{setBusy('')}};
  const approveFinal=async()=>{if(!completed||stale||busy)return;setBusy('final');try{await save({...work,status:'approved',approvedAt:Date.now(),updatedAtMs:Date.now()});setNotice('BRIEF 02 aprobado. Ya puedes descargar PDF humano y BRIEF IA para Work.')}catch(e){setError(String(e.message))}finally{setBusy('')}};
  const download=()=>{if(!completed||stale||work?.status!=='approved')return;const parts=[['FUENTES Y CONTRATO','Producto: '+product.name+'\nBRIEF 01: '+product.code+'\nTicket gerencial aprobado: '+(product.managerApprovedScenario?.offer?.price??product.offer?.price??'Pendiente')+' COP\nOferta gerencial: '+(product.managerApprovedScenario?.notes||'Sin ajustes adicionales')+'\nAprobación comercial registrada. Material visual y ficha técnica se entregan al Área Digital por separado.'],...BRIEF02_PHASES.map(p=>[p.label,phases[p.id]?.text||''])];const blob=brief02PdfBlob('BRIEF 02 HUMANO · ESTRATEGIA CREATIVA · '+product.name,parts);brief02DownloadFile(`BRIEF_02_HUMANO_${String(product.code||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_')}_V5_1.pdf`,blob,'application/pdf')};
  const downloadWork=()=>{if(!completed||stale||work?.status!=='approved')return;brief02DownloadFile('BRIEF_IA_WORK.md',brief02WorkMarkdown(brief01ApprovedResearchView(product),phases,sourceFingerprint),'text/markdown;charset=utf-8')};
