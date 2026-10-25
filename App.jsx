@@ -20684,12 +20684,19 @@ function brief01CreativeHandoff(research,includeResearch=true){
  const clean=t=>String(t||'').replace(/\\([#*_])/g,'$1').replace(/\*\*/g,'').replace(/\*/g,'').replace(/\s+/g,' ').trim();
  const avatarSection=stage3.match(/(?:Biblioteca de avatares[^\n]*|AVATARES[^\n]*)[\s\S]*?(?=^\s*#{1,4}\s*VERIFICACIONES|^\s*---\s*$)/im);
  const candidates=[];
- const avatarRegex=/\bA([1-9])\s*[-—:]\s*([^\n.]{5,95})\.?\s*([^\n]*)(?:\n|$)/gim;
- let av;
  const avatarText=avatarSection?avatarSection[0]:stage3;
- while((av=avatarRegex.exec(avatarText))!==null){
+ // Los encabezados reales de DeepSeek pueden ser: **A1 — Nombre.** Contexto...
+ // Se trabaja sobre la línea entera, sin asumir que el texto carece de Markdown.
+ for(const rawLine of avatarText.split(/\r?\n/)){
+   const av=rawLine.match(/^\s*(?:[-*]\s+)?(?:\*\*)?A([1-9])\s*[-—–:]\s*(.+)$/i);
+   if(!av)continue;
    const id='A'+av[1];
-   if(!candidates.some(x=>x.id===id))candidates.push({id,name:clean(av[2]),details:clean(av[3]),origin:'Fase 3 · '+id});
+   if(candidates.some(x=>x.id===id))continue;
+   const body=String(av[2]||'');
+   const contextPos=body.search(/\bContexto\s*:/i);
+   const name=clean((contextPos>=0?body.slice(0,contextPos):body).replace(/[.*\s]+$/g,''));
+   const details=clean(contextPos>=0?body.slice(contextPos):body);
+   if(name.length>=4)candidates.push({id,name,details,origin:'Fase 3 · '+id});
  }
  const sourceFichas=master.fichas.map(f=>{
   const content=clean(f.details);
@@ -20712,23 +20719,28 @@ function brief01CreativeHandoff(research,includeResearch=true){
  });
  // Solo se eligen avatares reales de la fase 3; nunca insertar nombres universales.
  // Si la fase 3 no tiene 2 avatares claros, entregar un bloqueo documental en vez de inventar.
+ const usedSourceCodes=new Set();
  const audienceBlueprint=candidates.slice(0,2).map((candidate,idx)=>{
    const id='A'+(idx+1);
    const tokens=(candidate.name+' '+candidate.details).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').match(/[a-z]{5,}/g)||[];
    const uniq=[...new Set(tokens.filter(t=>!['contexto','problema','comprador','cliente','quiere','tiene','desea','cojin','producto','solucion'].includes(t)))];
-   const scored=sourceFichas.map(f=>({f,score:uniq.reduce((n,t)=>n+(f.searchText.normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(t)?1:0),0)})).sort((a,b)=>b.score-a.score);
-   const chosen=scored.slice(0,3).map(({f,score},i)=>({id:id+'.'+(i+1),name:f.title.replace(/^["“”]|["“”]$/g,''),origin:'Fase 6: '+f.code+' · Avatar de Fase 3: '+candidate.id,proof:f.fields.demonstration||'Consultar ficha original; demostración no extraíble',sourceCode:f.code,confidence:score>=2?'ALINEACIÓN TEXTUAL':'REVISAR COHERENCIA',...f.fields}));
+   const scored=sourceFichas.filter(f=>!usedSourceCodes.has(f.code)).map(f=>({f,score:uniq.reduce((n,t)=>n+(f.searchText.normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(t)?1:0),0)})).sort((a,b)=>b.score-a.score);
+   const chosen=scored.slice(0,3).map(({f,score},i)=>{
+     usedSourceCodes.add(f.code);
+     return {id:id+'.'+(i+1),name:f.title.replace(/^["“”]|["“”]$/g,''),origin:'Fase 6: '+f.code+' · Avatar de Fase 3: '+candidate.id,proof:f.fields.demonstration||'Consultar ficha original; demostración no extraíble',sourceCode:f.code,confidence:score>=2?'ALINEACIÓN TEXTUAL':'REVISAR COHERENCIA',...f.fields};
+   });
    return {id,name:candidate.name,avatar:candidate.details||candidate.name,awareness:'Ver conciencia inferida en Fase 3 y ficha individual; no atribuir sin evidencia',status:'CANDIDATA EXTRAÍDA DE FASE 3; REQUIERE VALIDACIÓN',origin:candidate.origin,angles:chosen};
  });
- const structurallyReady=candidates.length>=2&&sourceFichas.length===6&&master.approvalCount===6;
+ const structurallyReady=candidates.length>=2&&sourceFichas.length===6&&master.approvalCount===6&&audienceBlueprint.every(a=>a.angles.length===3);
  const handoffWarnings=[];
  if(candidates.length<2)handoffWarnings.push('Fase 3 no contiene dos avatares extraíbles; no asignar audiencias automáticamente.');
  if(sourceFichas.length!==6)handoffWarnings.push('Fase 6 no contiene seis fichas completas extraíbles.');
+ if(audienceBlueprint.some(a=>a.angles.length!==3))handoffWarnings.push('No se obtuvieron tres ángulos distintos por audiencia; revisar antes de producción.');
  if(master.approvalCount!==6)handoffWarnings.push('La auditoría no tiene las seis fases aprobadas.');
  if(audienceBlueprint.some(a=>a.angles.some(x=>x.confidence==='REVISAR COHERENCIA')))handoffWarnings.push('Hay correspondencias débiles entre avatares y ángulos: revisar antes de producción.');
  if(audienceBlueprint.length===2&&audienceBlueprint[0].angles.some(x=>audienceBlueprint[1].angles.some(y=>y.sourceCode===x.sourceCode)))handoffWarnings.push('Los grupos reutilizan fichas de origen: es obligatorio diferenciar y validar seis ángulos antes de producir anuncios.');
  return {
-  schema:'WINNER_OS_BRIEF02_STRATEGIC_HANDOFF_V512',approvedPhases:master.approvalCount,
+  schema:'WINNER_OS_BRIEF02_STRATEGIC_HANDOFF_V5121',approvedPhases:master.approvalCount,
   researchId:research?.code||'',productName:research?.name||'',
   productReality:{description:research?.description||'',technicalProof:research?.strategicEvidence?.technicalProof||'',productData:pack,packUnitsPhysical:'VERIFICAR EN FICHA; no inferir de cantidad comercial',materialRestriction:'No atribuir materiales, funciones ni medidas ajenas a ficha técnica del SKU; prevalece fuente del producto real'},
   sophistication:{observed:master.sophistication,communicationTarget:'Definir exclusivamente según recomendación de las fases 3 y 6 aprobadas; no fijar N3 universalmente'},
