@@ -20630,6 +20630,7 @@ function Brief01StrategicHandoff({research}){
  return <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-5 my-4 space-y-3">
   <div><h3 className="text-base font-black text-[#12386B]">Veredicto estratégico aprobado · Fuente de BRIEF 02</h3><p className="text-xs text-slate-600 mt-1">Las seis fases se conservan completas, sin copiar ni recortar el contenido. Las hipótesis gerenciales de la fase 5 no son ofertas aprobadas.</p></div>
   <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2"><div className="text-xs font-black text-[#12386B]">FICHA MAESTRA · BRIEF 02</div><div className="grid sm:grid-cols-2 gap-2 text-xs"><div><b>Sofisticación:</b> {master.sophistication||'Sin diagnóstico aprobado'}</div><div><b>Conciencia:</b> {master.awareness||'Sin diagnóstico aprobado'}</div><div><b>Fichas creativas detectadas:</b> {master.fichas.length}/6</div><div><b>Oferta oficial:</b> {master.approvedOffer?'Decisión gerencial aprobada':'Pendiente de aprobación'}</div></div><p className="text-xs text-slate-600">El PDF contiene las fichas creativas detalladas y el anexo íntegro de auditoría.</p></div>
+  <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-3"><p className="text-xs font-black text-[#12386B]">PLAN EDITORIAL PARA BRIEF 02 · 2 AUDIENCIAS × 3 ÁNGULOS (CANDIDATO)</p>{brief01CreativeHandoff(research).audienceBlueprint.map(a=><div key={a.id} className="rounded-lg bg-white p-3 border border-blue-100"><p className="text-sm font-bold text-slate-900">{a.id} · {a.name}</p><p className="text-xs text-slate-600 mt-1">{a.avatar}</p><div className="mt-2 space-y-2">{a.angles.map(x=><div key={x.id} className="text-xs"><b>{x.id} · {x.name}</b><p className="text-slate-600">{x.origin} · {x.proof}</p></div>)}</div></div>)}<p className="text-xs text-slate-600">Propuesta fundamentada en la auditoría: BRIEF 02 valida audiencias y crea las seis piezas. Las fichas A1.1–A2.3 originales siguen íntegras como fuente, sin confundirse con dos audiencias ya verificadas.</p></div>
   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{BRIEF01_STRATEGIC_SECTIONS.map(([key,label])=><div key={key} className={`rounded-lg border p-2 text-xs ${reports[key]?.approvedAt?'bg-emerald-50 border-emerald-200 text-emerald-800':'bg-slate-50 border-slate-200 text-slate-500'}`}>{reports[key]?.approvedAt?'✓ Aprobado':'Pendiente'} · {label}</div>)}</div>
   {approved.map(([key,label])=><div key={key} className="rounded-xl border border-slate-200 overflow-hidden"><button type="button" aria-expanded={!!expanded[key]} onClick={()=>setExpanded(v=>({...v,[key]:!v[key]}))} className="w-full flex items-center justify-between text-left p-3 sm:p-4 bg-slate-50 hover:bg-indigo-50"><span className="text-sm font-bold text-[#12386B]">{label}</span><span className="text-xs font-semibold text-indigo-800">{expanded[key]?'Ocultar':'Ver fase completa'}</span></button>{expanded[key]&&<div className="p-4 max-h-[65vh] overflow-y-auto"><Brief01ApprovedPhaseView text={reports[key].text}/></div>}</div>)}
   {!approved.length&&<p className="text-sm text-slate-500">Todavía no existen análisis aprobados.</p>}
@@ -20668,6 +20669,40 @@ function brief01StrategicExecutiveData(research){
  return {phase3:stage3,phase4:stage4,phase6:stage6,sophistication,awareness,fichas,
    approvedOffer:approvedOffer?.diagnosis?approvedOffer:null,
    approvalCount:BRIEF01_STRATEGIC_SECTIONS.filter(([key])=>reports[key]?.approvedAt&&reports[key]?.text).length};
+}
+// V5.11 — Fuentes aprobadas y arquitectura creativa: no modificar cálculos del Diagnóstico Base.
+// Los códigos de Fase 6 son candidatos individuales, NO dos audiencias coherentes por sí solos.
+// BRIEF 02 elige dos audiencias maestras y redistribuye tres ángulos por audiencia con trazabilidad.
+function brief01CreativeHandoff(research,includeResearch=true){
+ const master=brief01StrategicExecutiveData(research);
+ const reports=research?.aiStrategicReports||{};
+ const approvedText=k=>reports[k]?.approvedAt?String(reports[k].text||''):'';
+ const approved=master.approvedOffer;
+ const pack=research?.product||{};
+ const audienceBlueprint=[
+  {id:'A1',name:'Motociclistas de uso frecuente',status:'CANDIDATA · a validar en BRIEF 02',avatar:'Conductor que utiliza la moto regularmente por trabajo o desplazamientos',awareness:'Problema / solución, según hipótesis de la fase 3',angles:[
+   {id:'A1.1',name:'Ajuste visible y sujeción',origin:'Fase 4: reseñas análogas sobre deslizamiento; Fase 6: A1.1',proof:'Mostrar base, correas e instalación; NO garantizar inmovilidad'},
+   {id:'A1.2',name:'Comodidad práctica de la rutina',origin:'Fases 2 y 3: uso prolongado; Fase 6: A1.1',proof:'Mostrar uso real, sin prometer alivio clínico ni durabilidad'},
+   {id:'A1.3',name:'Diseño 3D y ventilación',origin:'Fase 4: objeción sobre calor; Fase 6: A1.3',proof:'Mostrar canales del material; NO asegurar temperatura menor sin ensayo'}
+  ]},
+  {id:'A2',name:'Motociclistas que viajan con acompañante',status:'CANDIDATA · a validar en BRIEF 02',avatar:'Conductor que desea una solución práctica para piloto y parrillero',awareness:'Problema / solución / producto, por comprobar',angles:[
+   {id:'A2.1',name:'Dos tamaños, dos lugares',origin:'Ficha técnica del pack y Fase 6: A1.2',proof:'Mostrar las dos piezas y medidas reales'},
+   {id:'A2.2',name:'Instalación en ambos asientos',origin:'Fase 4: dudas de fijación; Fase 6: A1.2 y A2.2',proof:'Mostrar instalación con fotos reales, sin afirmar compatibilidad universal'},
+   {id:'A2.3',name:'Qué recibe y qué material compra',origin:'Fases 2 y 4: discrepancia gel/espuma; Fase 6: A2.1',proof:'Unboxing del pack real; declarar espuma 3D, no gel'}
+  ]}
+ ];
+ return {
+  schema:'WINNER_OS_BRIEF02_STRATEGIC_HANDOFF_V511',approvedPhases:master.approvalCount,
+  researchId:research?.code||'',productName:research?.name||'',
+  productReality:{description:research?.description||'',technicalProof:research?.strategicEvidence?.technicalProof||'',productData:pack,packUnitsPhysical:'VERIFICAR EN FICHA; no inferir de cantidad comercial',materialRestriction:'No declarar gel si la fuente del proveedor indica espuma'},
+  sophistication:{observed:master.sophistication,communicationTarget:'N3 mediante prueba visual, condicionado a evidencia verificable'},
+  awareness:{observed:master.awareness,uncertainty:'Inferido de copys publicitarios; no equivale a encuesta de compradores'},
+  approvedCommercial:approved?{price:approved.offer?.price,offer:approved.offer,notes:approved.notes||'',approvedAt:approved.approvedAt||''}:{status:'PENDIENTE; no autorizar hipótesis de oferta'},
+  audienceBlueprint,originalSixProfiles:master.fichas.map(f=>({code:f.code,title:f.title,details:f.details})),
+  researchSources:!includeResearch?{note:"Las seis fases completas viajan en approvedStrategicReports"}:{competitorMarket:approvedText('meta'),competitorOffers:approvedText('competitors'),avatarsAndAwareness:approvedText('angles'),negativeReviewGaps:approvedText('suppliers'),offerHypotheses_NOT_APPROVED:approvedText('offer'),persuasionArchitecture:approvedText('diagnosis')},
+  proofPolicy:{verified:'Declaraciones sustentadas por ficha técnica y material real',inferred:'Hipótesis de avatar, competencia o reseñas análogas; no presentarlas como hechos propios',conditional:'Resultados de durabilidad, temperatura, alivio físico, daños o compatibilidad requieren prueba del SKU',claimLimit:'La oferta oficial solo proviene de la decisión gerencial; no incluir bonos ni upsells sugeridos por IA'},
+  handoffRules:'BRIEF 02 NO DEBE confundir los códigos A1/A2 de las seis fichas históricas con audiencias. Seleccionar dos audiencias centrales, tres ángulos realmente diferenciados por cada una; conservar vínculos con perfiles originales y pruebas. No inventar beneficios ni cambiar canales.'
+ };
 }
 function brief01PdfReadableLine(value){
  // PDF nativo conserva los textos originales en Firebase, pero elimina sintaxis Markdown al imprimir.
@@ -20727,7 +20762,21 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add('REGLAS DE PUBLICACION: no prometer gel si es espuma; no prometer curacion, durabilidad, compatibilidad universal o rendimiento termico sin pruebas del SKU. Demostrar solo caracteristicas reales.');
   add('HORMOZI POR ANGULO: resultado deseado, probabilidad percibida, tiempo hasta valor y esfuerzo del comprador. Complementar con evidencia visual, confianza y conveniencia (ver seis fichas).');
   add('Canales de venta: conservar los del Diagnostico Base. BRIEF 02 no puede seleccionar bonos, descuentos ni upsells no aprobados.');
-  section('1B. SEIS HIPOTESIS CREATIVAS DOCUMENTADAS');
+  const creativeHandoff=brief01CreativeHandoff(research);
+  section('1B. PLAN EDITORIAL - 2 AUDIENCIAS X 3 ANGULOS PARA BRIEF 02');
+  add('Arquitectura CANDIDATA basada en las 6 fases aprobadas; BRIEF 02 revisa y aprueba la seleccion. Las seis fichas historicas se conservan completas como biblioteca de perfiles, no representan automaticamente dos audiencias.');
+  for(const aud of creativeHandoff.audienceBlueprint){
+   add(`${aud.id} - ${aud.name}`,{bold:true,size:11,gap:6});
+   add(`Avatar matriz: ${aud.avatar}. Conciencia: ${aud.awareness}.`);
+   for(const a of aud.angles){
+    add(`${a.id} | ${a.name}`,{bold:true});
+    add(`Brecha y trazabilidad: ${a.origin}. Evidencia/produccion: ${a.proof}.`);
+   }
+  }
+  add('HORMOZI: en cada pieza mostrar resultado deseado, evidencia que eleva la probabilidad percibida, tiempo y esfuerzo reales. Diferenciar visualmente las seis piezas, no repetir plantillas.');
+  add('CONTRATO: NO aplicar automaticamente precio de competidores, bonos ni upsells investigados. UNICA OFERTA: escenario gerencial aprobado. Las propuestas termicas, de durabilidad y alivio quedan condicionadas a test del SKU.');
+  section('1C. BIBLIOTECA ORIGINAL DE SEIS PERFILES Y ANGULOS');
+
   if(strategic.fichas.length){
     for(const ficha of strategic.fichas){
       add(`${ficha.code} - ${ficha.title}`,{bold:true});
@@ -21505,7 +21554,7 @@ function Brief01CentralAudit({user,research,onApproved}) {
    for(let i=0;i<stages.length;i++){
     const [step,label]=stages[i];if(temp[step]?.text)continue;
     setProgress(`${i+1} de 6 · ${label}`);
-    const source={name:research.name,category:research.category,description:research.description,product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers:(research.suppliers||[]).slice(0,20),offer:research.offer||{},costs:research.costs||{},planning:research.planning||{},deliverySettings:research.deliverySettings||{},strategicEvidence:research.strategicEvidence||{},negativeReviews:research.strategicEvidence?.negativeReviews||'',baseFinancialDiagnosis:{classification:research.diagnosis.classification,classificationReason:research.diagnosis.classificationReason,financial:research.diagnosis.financial,netMarginPct:research.diagnosis.netMarginPct,monthlyProjection:research.diagnosis.monthlyProjection,missing:research.diagnosis.missing},approvedStrategicReports:Object.fromEntries(Object.entries(temp).filter(([k,v])=>v?.text).map(([k,v])=>[k,{text:String(v.text).slice(0,4200)}]))};
+    const source={name:research.name,category:research.category,description:research.description,product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers:(research.suppliers||[]).slice(0,20),offer:research.offer||{},costs:research.costs||{},planning:research.planning||{},deliverySettings:research.deliverySettings||{},strategicEvidence:research.strategicEvidence||{},negativeReviews:research.strategicEvidence?.negativeReviews||'',baseFinancialDiagnosis:{classification:research.diagnosis.classification,classificationReason:research.diagnosis.classificationReason,financial:research.diagnosis.financial,netMarginPct:research.diagnosis.netMarginPct,monthlyProjection:research.diagnosis.monthlyProjection,missing:research.diagnosis.missing},strategicHandoff:brief01CreativeHandoff(product,false),approvedStrategicReports:Object.fromEntries(Object.entries(temp).filter(([k,v])=>v?.text).map(([k,v])=>[k,{text:String(v.text).slice(0,4200)}]))};
     let output='';let fail='';
     for(let attempt=0;attempt<2;attempt++){
      try{
@@ -21604,7 +21653,7 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   '',
   `Producto: ${safe(product.name)}`,
   `Código: ${code}`,
-  `Precio comercial aprobado (COP): ${safe(product.offer?.price||'PENDIENTE')}`,
+  `Precio comercial aprobado (COP): ${safe(product.managerApprovedScenario?.offer?.price??'PENDIENTE')}`,
   `Condiciones comerciales aprobadas: ${safe(product.managerApprovedScenario?.notes||'Oferta original; sin cambios adicionales autorizados')}`,
   'La oferta aprobada es CONTEXTO. No incluir precio, bono o upsell en todos los anuncios salvo que el ángulo aprobado lo exija.',
   `Versión de estrategia: ${safe(sourceFingerprint)}`,
@@ -21686,10 +21735,10 @@ function Brief02Module(){
  const phases=work?.phases||{};
  const completed=BRIEF02_PHASES.every(x=>Boolean(phases[x.id]?.approved));
  const stale=!!(work?.sourceFingerprint&&work.sourceFingerprint!==sourceFingerprint);
- const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.managerApprovedScenario?.offer||product.offer||{},approvedCommercialConditions:product.managerApprovedScenario?.notes||'',diagnosis:{classification:product.managerApprovedScenario?.diagnosis?.classification||product.diagnosis?.classification,classificationReason:product.managerApprovedScenario?.diagnosis?.classificationReason||product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.managerApprovedScenario?.diagnosis?.financial?.price??product.diagnosis?.financial?.price,netMarginPct:product.managerApprovedScenario?.diagnosis?.netMarginPct??product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text&&r?.approvedAt).map(([k,r])=>[k,brief02CleanText(r.text,12500)]))});
+ const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.managerApprovedScenario?.offer||product.offer||{},approvedCommercialConditions:product.managerApprovedScenario?.notes||'',diagnosis:{classification:product.managerApprovedScenario?.diagnosis?.classification||product.diagnosis?.classification,classificationReason:product.managerApprovedScenario?.diagnosis?.classificationReason||product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.managerApprovedScenario?.diagnosis?.financial?.price??product.diagnosis?.financial?.price,netMarginPct:product.managerApprovedScenario?.diagnosis?.netMarginPct??product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text&&r?.approvedAt).map(([k,r])=>[k,brief02CleanText(r.text,36000)]))});
  const save=async(next)=>{await updateDoc(doc(db,BRIEF01_COLLECTION,selectedId),{brief02:next});setWork(next)};
  const generate=async(id)=>{if(!approved||busy)return;setBusy(id);setError('');setNotice('');try{
-  const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([,v])=>v.approved).map(([k,v])=>[k,brief02CleanText(v.text,12000)]))};
+  const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([,v])=>v.approved).map(([k,v])=>[k,brief02CleanText(v.text,18000)]))};
   const res=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step:'brief02',phase:id,research:context})});
   const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02CleanText(data.analysis,18000).trim();if(!text)throw Error('La IA devolvió texto vacío');const keep=id==='strategy'?{}:phases;const next={...work,sourceFingerprint:sourceFingerprint,phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
  }catch(e){setError(String(e.message||'No se pudo analizar'));}finally{setBusy('')}};
