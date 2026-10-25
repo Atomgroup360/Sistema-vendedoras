@@ -21563,6 +21563,14 @@ function Brief02Module(){
 
 function Brief01Module() {
   const { user } = useAuth();
+  // V5.6.1: compatibilidad con documentos afectados por el error React #31.
+  // La clasificación debe ser texto; diagnosis conserva el objeto financiero completo.
+  const safeBrief01Classification = (record) => {
+    const value = record?.classification;
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object' && typeof value.classification === 'string') return value.classification;
+    return typeof record?.diagnosis?.classification === 'string' ? record.diagnosis.classification : '';
+  };
   // V40: simulación temporal; no se guarda ni modifica la investigación.
   const [brief01SimulatorOpen, setBrief01SimulatorOpen] = useState(false);
   const [brief01SimDailyOrders, setBrief01SimDailyOrders] = useState('');
@@ -21587,7 +21595,7 @@ function Brief01Module() {
     if (!ownerUid) return;
     const q = query(collection(db, BRIEF01_COLLECTION), where('ownerUid','==',ownerUid));
     const unsub=onSnapshot(q,snap=>{
-      const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAtMs||0)-(a.updatedAtMs||0));
+      const rows=snap.docs.map(d=>{const raw={id:d.id,...d.data()};return {...raw,classification:safeBrief01Classification(raw)};}).sort((a,b)=>(b.updatedAtMs||0)-(a.updatedAtMs||0));
       setRecords(rows); setLoading(false);
     },err=>{ console.error('BRIEF 01',err); setMessage('No se pudieron cargar las investigaciones. Verifica permisos de Firestore.'); setLoading(false); });
     const unsubFreight=onSnapshot(doc(db,FREIGHT_TABLE_COLLECTION,FREIGHT_TABLE_DOC_ID),snap=>{
@@ -21769,7 +21777,7 @@ function Brief01Module() {
     if(!current?.id) return;
     setSaving(true); setMessage('');
     try{
-      const data={...current,ownerUid,normalizedName:normalizeBrief01Name(current.name),updatedDate:todayColombia(),updatedAtMs:Date.now()}; delete data.id;
+      const data={...current,classification:safeBrief01Classification(current),ownerUid,normalizedName:normalizeBrief01Name(current.name),updatedDate:todayColombia(),updatedAtMs:Date.now()}; delete data.id;
       delete data.adCopies; await updateDoc(doc(db,BRIEF01_COLLECTION,current.id),data);
       // Las clasificaciones manuales residen en approved_ads (fuente canónica), no en el documento principal.
       const reviewed=(current.adCopies||[]).filter(r=>/^\d{8,30}$/.test(String(r.libraryId||'')) && r.method==='revisión manual');
@@ -21792,7 +21800,7 @@ function Brief01Module() {
     }
     const status=current.inTesting ? 'testing' : current.manualApproved ? 'approved' : (diag.missing.length?'missing':'diagnosed');
     const financialSnapshot={offer:structuredClone(current.offer),costs:structuredClone(current.costs),planning:structuredClone(current.planning),deliverySettings:structuredClone(current.deliverySettings),suppliers:structuredClone(current.suppliers)};
-    const next={...current,baseFinancialSnapshot:financialSnapshot,diagnosis:diag,classification:diag,status,history:history.slice(-30),updatedDate:todayColombia(),updatedAtMs:Date.now()};
+    const next={...current,baseFinancialSnapshot:financialSnapshot,diagnosis:diag,classification:diag.classification,status,history:history.slice(-30),updatedDate:todayColombia(),updatedAtMs:Date.now()};
     setCurrent(next); setSaving(true);
     try{ const data={...next};delete data.id;delete data.adCopies;await updateDoc(doc(db,BRIEF01_COLLECTION,current.id),data);setStep('diagnosis');setScreen('result'); }
     catch(e){console.error(e);setMessage('No se pudo guardar el diagnóstico.');}finally{setSaving(false);}
@@ -21865,7 +21873,7 @@ function Brief01Module() {
         const tone=r.classification==='RECOMENDADO PARA TESTEO'?'emerald':r.classification==='NO RECOMENDADO POR AHORA'?'rose':'amber';
         return <div key={r.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-widest text-slate-400">{r.code}</p><h3 className="text-base font-black text-slate-900 truncate mt-1">{r.name||'Producto sin nombre'}</h3><p className="text-[9px] text-slate-500 mt-1">{r.category||'Sin categoría'} · actualizado {r.updatedDate||'-'}</p></div><span className="shrink-0 rounded-full bg-slate-100 text-slate-600 px-2.5 py-1 text-[7px] font-black uppercase">{brief01StatusLabel(r.status)}</span></div>
-          <div className="mt-3 flex flex-wrap gap-2">{r.classification&&<span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${tone==='emerald'?'bg-emerald-100 text-emerald-700':tone==='rose'?'bg-rose-100 text-rose-700':'bg-amber-100 text-amber-700'}`}>{r.classification}</span>}{r.manualApproved&&<span className="rounded-full bg-blue-100 text-blue-700 px-2.5 py-1 text-[7px] font-black uppercase">Aprobado</span>}{r.inTesting&&<span className="rounded-full bg-purple-100 text-purple-700 px-2.5 py-1 text-[7px] font-black uppercase">En testeo</span>}</div>
+          <div className="mt-3 flex flex-wrap gap-2">{safeBrief01Classification(r)&&<span className={`rounded-full px-2.5 py-1 text-[7px] font-black uppercase ${tone==='emerald'?'bg-emerald-100 text-emerald-700':tone==='rose'?'bg-rose-100 text-rose-700':'bg-amber-100 text-amber-700'}`}>{r.classification}</span>}{r.manualApproved&&<span className="rounded-full bg-blue-100 text-blue-700 px-2.5 py-1 text-[7px] font-black uppercase">Aprobado</span>}{r.inTesting&&<span className="rounded-full bg-purple-100 text-purple-700 px-2.5 py-1 text-[7px] font-black uppercase">En testeo</span>}</div>
           <div className="grid grid-cols-3 gap-2 mt-4"><div className="rounded-xl bg-slate-50 p-2"><p className="text-[7px] uppercase font-black text-slate-400">Ticket</p><p className="text-xs font-black mt-1">{fmt(Number(r.offer?.price)||0)}</p></div><div className="rounded-xl bg-slate-50 p-2"><p className="text-[7px] uppercase font-black text-slate-400">Margen</p><p className="text-xs font-black mt-1">{r.diagnosis?fmt(r.diagnosis?.financial?.marginPerGenerated||0):'—'}</p></div><div className="rounded-xl bg-slate-50 p-2"><p className="text-[7px] uppercase font-black text-slate-400">Competidores</p><p className="text-xs font-black mt-1">{(r.competitors||[]).length}</p></div></div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4"><button onClick={()=>{setCurrent(structuredClone(r));setStep('product');setScreen('edit');}} className="rounded-xl bg-slate-100 text-slate-700 py-2 text-[8px] font-black uppercase inline-flex items-center justify-center gap-1"><Pencil size={11}/> Editar</button><button onClick={()=>{setCurrent(structuredClone(r));setScreen('result');setStep('diagnosis');}} className="rounded-xl bg-blue-50 text-[#12386B] py-2 text-[8px] font-black uppercase inline-flex items-center justify-center gap-1"><Eye size={11}/> Diagnóstico</button><button onClick={()=>{setCurrent(structuredClone(r));setTimeout(()=>{const view=brief01ApprovedResearchView(r);const d=view.diagnosis||buildBrief01Diagnosis(view,freightRates);const blob=buildBrief01PdfBlob(view,d);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`${r.code}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);},0);}} className="rounded-xl bg-emerald-50 text-emerald-700 py-2 text-[8px] font-black uppercase inline-flex items-center justify-center gap-1"><Download size={11}/> PDF</button><button onClick={()=>deleteResearch(r)} className="rounded-xl bg-rose-50 text-rose-600 py-2 text-[8px] font-black uppercase inline-flex items-center justify-center gap-1"><Trash2 size={11}/> Eliminar</button></div>
         </div>})}</div>}
