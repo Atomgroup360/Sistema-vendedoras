@@ -20600,6 +20600,41 @@ function brief01WrapPdf(text, max=92) {
   return lines.length ? lines : [''];
 }
 
+// V5.9: present approved strategic evidence without character truncation or raw Markdown tokens.
+const BRIEF01_STRATEGIC_SECTIONS = [
+ ['meta','01 · Actividad y cobertura'],
+ ['competitors','02 · Competidores y ofertas'],
+ ['angles','03 · Sofisticación, conciencia y avatares'],
+ ['suppliers','04 · Brechas, reseñas y oportunidades'],
+ ['offer','05 · Ingeniería de ofertas — hipótesis gerenciales'],
+ ['diagnosis','06 · Arquitectura persuasiva para BRIEF 02']
+];
+function brief01InlineMarks(value){
+ const s=String(value||'').replace(/\\([#*_])/g,'$1');
+ return s.split(/(\*\*[^*]+\*\*)/g).map((part,i)=>part.startsWith('**')&&part.endsWith('**')?<strong key={i}>{part.slice(2,-2)}</strong>:part);
+}
+function Brief01ApprovedPhaseView({text}){
+ const paragraphs=String(text||'').replace(/\\([#*_])/g,'$1').split(/\n{2,}|(?=^#{1,5} )/m).filter(x=>x.trim());
+ return <div className="space-y-3">{paragraphs.map((part,i)=>{
+  const val=part.trim();
+  const heading=val.match(/^#{1,5}\s+([^\n]+)(?:\n([\s\S]*))?$/);
+  if(heading)return <div key={i} className="space-y-2"><h4 className="text-sm font-extrabold text-[#12386B]">{brief01InlineMarks(heading[1])}</h4>{heading[2]&&<p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{brief01InlineMarks(heading[2])}</p>}</div>;
+  return <p key={i} className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{brief01InlineMarks(val)}</p>;
+ })}</div>;
+}
+function Brief01StrategicHandoff({research}){
+ const [expanded,setExpanded]=useState({});
+ const reports=research?.aiStrategicReports||{};
+ const approved=BRIEF01_STRATEGIC_SECTIONS.filter(([key])=>reports[key]?.text&&reports[key]?.approvedAt);
+ return <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-5 my-4 space-y-3">
+  <div><h3 className="text-base font-black text-[#12386B]">Veredicto estratégico aprobado · Fuente de BRIEF 02</h3><p className="text-xs text-slate-600 mt-1">Las seis fases se conservan completas, sin copiar ni recortar el contenido. Las hipótesis gerenciales de la fase 5 no son ofertas aprobadas.</p></div>
+  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{BRIEF01_STRATEGIC_SECTIONS.map(([key,label])=><div key={key} className={`rounded-lg border p-2 text-xs ${reports[key]?.approvedAt?'bg-emerald-50 border-emerald-200 text-emerald-800':'bg-slate-50 border-slate-200 text-slate-500'}`}>{reports[key]?.approvedAt?'✓ Aprobado':'Pendiente'} · {label}</div>)}</div>
+  {approved.map(([key,label])=><div key={key} className="rounded-xl border border-slate-200 overflow-hidden"><button type="button" aria-expanded={!!expanded[key]} onClick={()=>setExpanded(v=>({...v,[key]:!v[key]}))} className="w-full flex items-center justify-between text-left p-3 sm:p-4 bg-slate-50 hover:bg-indigo-50"><span className="text-sm font-bold text-[#12386B]">{label}</span><span className="text-xs font-semibold text-indigo-800">{expanded[key]?'Ocultar':'Ver fase completa'}</span></button>{expanded[key]&&<div className="p-4 max-h-[65vh] overflow-y-auto"><Brief01ApprovedPhaseView text={reports[key].text}/></div>}</div>)}
+  {!approved.length&&<p className="text-sm text-slate-500">Todavía no existen análisis aprobados.</p>}
+  <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-900"><b>Contrato con BRIEF 02:</b> Sofisticación, conciencia y avatares (fase 3); brechas y reseñas (fase 4); seis ángulos, Hormozi, evidencia y claims condicionados (fase 6). Únicamente la decisión gerencial, no las hipótesis de fase 5, puede modificar la oferta comercial. Se conservan los canales originales.</div>
+ </section>;
+}
+
 function brief01ApprovedResearchView(research) {
   const approved=research?.managerApprovedScenario;
   if(!approved?.diagnosis)return research;
@@ -20644,11 +20679,13 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add(diagnosis?.classificationReason||'Faltan datos para determinar el dictamen.',{gap:6});
   add('Criterio: clasificacion financiera y evidencia publicitaria son indicadores de testeo, no una garantia de ventas.');
 
-  section('1A. VEREDICTO ESTRATEGICO IA - FASES 1 Y 2');
+  section('1A. INTELIGENCIA ESTRATEGICA APROBADA - FASES 1 A 6');
   add('Bloque cualitativo: solo analisis aprobados manualmente; no sustituye las reglas de rentabilidad.',{bold:true});
-  for (const [key,label] of [['competitors','COMPETIDOR DOMINANTE Y LANDINGS'],['angles','SOFISTICACION, BRECHAS Y 5 AUDIENCIAS'],['suppliers','MECANISMO UNICO DEMOSTRABLE'],['offer','INGENIERIA DE OFERTA Y TICKET'],['diagnosis','COMO COMPETIR Y CONDICIONES DE LANZAMIENTO']]) {
+  for (const [key,label] of BRIEF01_STRATEGIC_SECTIONS) {
     const item=research?.aiStrategicReports?.[key];
-    add(label+': '+(item?.text?String(item.text).replace(/\s+/g,' ').slice(0,key==='offer'?10000:4500):'Pendiente de fuentes y aprobacion humana.'),{gap:5});
+    if(!item?.text||!item?.approvedAt)continue;
+    section(label);
+    for(const block of String(item.text).replace(/\\([#*_])/g,'$1').split(/\r?\n/))add(block,{gap:1});
   }
   add('Reglas: actividad publicitaria no prueba ventas; un ticket premium no queda autorizado solo por comparables externos. Confirmar costos, garantia y mecanismo fisico.');
 
@@ -21591,7 +21628,7 @@ function Brief02Module(){
  const phases=work?.phases||{};
  const completed=BRIEF02_PHASES.every(x=>Boolean(phases[x.id]?.approved));
  const stale=!!(work?.sourceFingerprint&&work.sourceFingerprint!==sourceFingerprint);
- const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.managerApprovedScenario?.offer||product.offer||{},approvedCommercialConditions:product.managerApprovedScenario?.notes||'',diagnosis:{classification:product.managerApprovedScenario?.diagnosis?.classification||product.diagnosis?.classification,classificationReason:product.managerApprovedScenario?.diagnosis?.classificationReason||product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.managerApprovedScenario?.diagnosis?.financial?.price??product.diagnosis?.financial?.price,netMarginPct:product.managerApprovedScenario?.diagnosis?.netMarginPct??product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text&&r?.approvedAt).map(([k,r])=>[k,brief02CleanText(r.text,2400)]))});
+ const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.managerApprovedScenario?.offer||product.offer||{},approvedCommercialConditions:product.managerApprovedScenario?.notes||'',diagnosis:{classification:product.managerApprovedScenario?.diagnosis?.classification||product.diagnosis?.classification,classificationReason:product.managerApprovedScenario?.diagnosis?.classificationReason||product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.managerApprovedScenario?.diagnosis?.financial?.price??product.diagnosis?.financial?.price,netMarginPct:product.managerApprovedScenario?.diagnosis?.netMarginPct??product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text&&r?.approvedAt).map(([k,r])=>[k,brief02CleanText(r.text,12500)]))});
  const save=async(next)=>{await updateDoc(doc(db,BRIEF01_COLLECTION,selectedId),{brief02:next});setWork(next)};
  const generate=async(id)=>{if(!approved||busy)return;setBusy(id);setError('');setNotice('');try{
   const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([,v])=>v.approved).map(([k,v])=>[k,brief02CleanText(v.text,12000)]))};
@@ -22054,7 +22091,7 @@ function Brief01Module() {
     <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
       <Brief01StrategicInputs research={current} step={step} onField={updateCurrent}/>
       {step==='diagnosis'&&<Brief01CentralAudit user={user} research={current} onApproved={merged=>setCurrent(previous=>({...previous,aiStrategicReports:merged}))}/>}
-      {['diagnosis','pdf'].includes(step)&&<div className="rounded-2xl border border-indigo-200 bg-white p-4 my-4"><p className="text-xs font-black text-[#12386B]">Veredicto estratégico · Fases 1 y 2</p><p className="text-[10px] text-slate-500 mb-3">Se muestran únicamente los análisis aprobados. La aprobación de un ticket premium requiere pruebas técnicas, comerciales y financieras.</p>{[['competitors','1. Competidor dominante y ángulo de venta'],['angles','2. Cinco audiencias, sofisticación y brechas'],['suppliers','3. Mecanismo técnico comprobable'],['offer','4. Bonos, garantía, ticket y upsell'],['diagnosis','5. Estrategia y condiciones de lanzamiento']].map(([id,label])=><div key={id} className="border-t border-slate-100 py-2"><p className="text-[10px] font-bold text-slate-800">{label}</p><p className="text-xs text-slate-600 whitespace-pre-wrap">{current?.aiStrategicReports?.[id]?.text?String(current.aiStrategicReports[id].text).slice(0,7500):'Pendiente de investigación y aprobación'}</p></div>)}</div>}
+      {['diagnosis','pdf'].includes(step)&&<Brief01StrategicHandoff research={current}/> }
       {step==='product'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">1. Información del producto</p><p className="text-xs text-slate-500 mt-1">Puedes guardar aunque la investigación esté incompleta.</p></div>{duplicateMatches.length>0&&<div className="rounded-2xl border border-amber-200 bg-amber-50 p-3"><p className="text-[9px] font-black text-amber-800">Posible duplicado detectado</p><p className="text-[8px] text-amber-700 mt-1">Existe {duplicateMatches.map(x=>`${x.code} · ${x.name}`).join(', ')}. Puedes continuar de todas maneras.</p></div>}<div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Código</label><input value={current.code} disabled className={`${fieldClass} bg-slate-50`}/></div><div><label className={labelClass}>Nombre del producto</label><input value={current.name||''} onChange={e=>updateCurrent('name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Categoría</label><input value={current.category||''} onChange={e=>updateCurrent('category',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Fecha creación</label><input value={current.createdDate||todayColombia()} disabled className={`${fieldClass} bg-slate-50`}/></div><div className="md:col-span-2"><label className={labelClass}>Descripción breve</label><textarea rows={3} value={current.description||''} onChange={e=>updateCurrent('description',e.target.value)} className={fieldClass}/></div></div><div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4"><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">Objetivo económico del producto</p><p className="text-[8px] text-slate-500 mt-1">Planificación comercial separada de la viabilidad. El CPA no modifica el margen antes de Ads.</p><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Meta de ganancia mensual (COP)</label><input type="number" min="0" value={current.planning?.monthlyProfitTarget??''} onChange={e=>updateCurrent('planning.monthlyProfitTarget',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>CPA de planificación por orden generada (COP)</label><input type="number" min="0" value={current.planning?.planningCPA??''} onChange={e=>updateCurrent('planning.planningCPA',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/><p className="text-[7px] text-slate-500 mt-1">Solo para proyección mensual. No afecta el margen antes de Ads.</p></div><div><label className={labelClass}>Días de venta al mes</label><input type="number" min="1" max="31" value={current.planning?.sellingDays??''} onChange={e=>updateCurrent('planning.sellingDays',e.target.value===''?'':Math.min(31,Math.max(1,Number(e.target.value)||1)))} className={fieldClass}/></div></div>
 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 mt-4">
   <p className="text-[10px] font-black uppercase text-emerald-900">IER del producto · Contraentrega</p>
