@@ -21336,7 +21336,7 @@ function Brief01StrategicInputs({research,step,onField}) {
 }
 
 
-// WINNER OS BRIEF 02 V5.0 — módulo independiente; no modifica BRIEF 01.
+// WINNER OS BRIEF 02 V5.1 — módulo independiente; no modifica BRIEF 01.
 const BRIEF02_PHASES=[
  {id:'strategy',label:'Estrategia · 2 audiencias'},
  {id:'static_a1',label:'3 estáticos · Audiencia 1'},
@@ -21351,7 +21351,7 @@ function brief02PdfBlob(title,parts){
  for(const [heading,text] of parts){lines.push({s:String(heading).toUpperCase(),bold:true});for(const p of String(text||'').split('\n')){if(!p.trim()){lines.push({s:' '});continue;}let row='';for(const w of p.trim().split(/\s+/)){if((row+' '+w).length>94){lines.push({s:row});row=w;}else row=(row?row+' ':'')+w;}if(row)lines.push({s:row});}}
  const pages=[];let command='',y=775,pageNumber=0;
  function flush(){if(command){pages.push(command);command='';}}
- function page(){flush();pageNumber++;y=775;command+=`0.06 0.18 0.33 rg 0 792 595 50 re f\n1 1 1 rg BT /F2 15 Tf 42 813 Td (${escape('WINNER OS · BRIEF 02 V5.0')}) Tj ET\n0.4 0.45 0.5 rg BT /F1 8 Tf 42 34 Td (${escape('Documento operativo · pagina '+pageNumber)}) Tj ET\n`;}
+ function page(){flush();pageNumber++;y=775;command+=`0.06 0.18 0.33 rg 0 792 595 50 re f\n1 1 1 rg BT /F2 15 Tf 42 813 Td (${escape('WINNER OS · BRIEF 02 V5.1')}) Tj ET\n0.4 0.45 0.5 rg BT /F1 8 Tf 42 34 Td (${escape('Documento operativo · pagina '+pageNumber)}) Tj ET\n`;}
  page();
  for(const line of [{s:title,bold:true},...lines]){const fontSize=line.bold?11:9,step=line.bold?24:15;if(y<60)page();const s=line.s;command+=`0.12 0.18 0.27 rg BT /${line.bold?'F2':'F1'} ${fontSize} Tf 42 ${y} Td (${escape(s)}) Tj ET\n`;y-=step;}
  flush();const objs=[],put=s=>(objs.push(s),objs.length);const catalog=put(''),pagesId=put(''),f1=put('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),f2=put('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'),pageIds=[];
@@ -21359,6 +21359,82 @@ function brief02PdfBlob(title,parts){
  objs[catalog-1]=`<< /Type /Catalog /Pages ${pagesId} 0 R >>`;objs[pagesId-1]=`<< /Type /Pages /Kids [${pageIds.map(i=>i+' 0 R').join(' ')}] /Count ${pageIds.length} >>`;
  let pdf='%PDF-1.4\n';const offsets=[0];objs.forEach((o,i)=>{offsets.push(pdf.length);pdf+=`${i+1} 0 obj\n${o}\nendobj\n`;});const xref=pdf.length;pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`;for(let i=1;i<offsets.length;i++)pdf+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;pdf+=`trailer\n<< /Size ${objs.length+1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
  return new Blob([pdf],{type:'application/pdf'});
+}
+function brief02WorkMarkdown(product,phases,sourceFingerprint){
+ const safe=v=>String(v??'').replace(/\r/g,'').trim();
+ const code=safe(product.code||product.id||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_');
+ const lines=[
+  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.1',
+  '',
+  `Producto: ${safe(product.name)}`,
+  `Código: ${code}`,
+  `Versión de estrategia: ${safe(sourceFingerprint)}`,
+  'Estado: APROBADO EN WINNER OS. Esta exportación no certifica calidad de creativos ni disponibilidad de materiales.',
+  '',
+  '## 0. PRECEDENCIA Y UBICACIÓN',
+  'Este archivo se almacena en PRODUCTOS/<producto>/BRIEF_Y_FICHA/BRIEF_IA_WORK.md.',
+  'Lee primero AGENTS.md en la raíz del motor Work. Mantén intactos el motor de estáticos V10, la estrategia audiovisual V7 y el flujo técnico V6.',
+  'Para estrategia comercial, usa SOLO este BRIEF IA y el BRIEF 02 HUMANO APROBADOS. Para hechos técnicos/forma del producto prevalecen FICHA_TECNICA y medios reales. Ante conflicto: detener la pieza, registrar discrepancia y solicitar decisión humana. No modificar la estrategia por cuenta propia.',
+  'El BRIEF 02 HUMANO es contexto editorial, no permiso para introducir nuevos ángulos o claims.',
+  '',
+  '## 1. COMPROBACIONES OBLIGATORIAS ANTES DE PRODUCIR',
+  '- Identifica el producto activo y comprueba que código/nombre coinciden en todos los documentos.',
+  '- Lee completa la ficha técnica, fotos y clips originales de las carpetas existentes; no inventes recursos.',
+  '- Confirma y comunica mensaje global, nivel N1–N4, brecha competitiva, dos audiencias, avatares y seis ángulos.',
+  '- Verifica seis fichas A1.1–A2.3 y cuatro guiones de video, aprobados; si faltan, NO generar esa pieza.',
+  '- Completa las seis fichas de preproducción del motor usando su propio esquema (preproduccion.ejemplo.json); no crees una estructura paralela.',
+  '- Presenta matriz de seis direcciones de arte DIFERENTES y pide aprobación antes de crear la primera imagen.',
+  '',
+  '## 2. REGLAS ESTRATÉGICAS NO NEGOCIABLES',
+  '- El nivel de sofisticación NO es decorativo: cada anuncio debe explicar cómo su mensaje se diferencia de promesas saturadas en BRIEF 01.',
+  '- Respeta avatar principal de audiencia y avatar/situación particular de cada pieza. Marca hipótesis como hipótesis.',
+  '- Conserva Product DNA: puntera, geometría, materiales, tamaño, colores, emblemas y propiedades reales según cada producto. Fotografías son fuente de verdad visual.',
+  '- No inventes garantías, evidencia clínica, testimonios, precios tachados, beneficios, timelíneas, escenas ni supuestas ventas de competidores.',
+  '- Prioriza legibilidad en tres segundos, español, Meta Ads y piezas 1:1 1080 x 1080.',
+  '',
+  '## 3. CREATIVE DIVERSITY LOCK — SEIS EJECUCIONES DISTINTAS',
+  'Antes de generar, asigna a cada código un sistema visual distinguible y justificado por avatar + ángulo + sofisticación.',
+  'Compara entre las seis piezas: composición, jerarquía tipográfica, distribución texto/producto/rostro, fondo, iluminación, tratamiento editorial, recursos gráficos y tipo de demostración.',
+  'NO reutilizar de manera dominante la misma cabecera azul, subrayado amarillo, cajas de beneficios, titular gigante, mismo layout ni misma combinación de recursos en la mayoría de piezas.',
+  'Diversidad no es romper branding: conservar logos, restricciones de marca y Product DNA. La paleta puede variar dentro de identidad aprobada, no inventar una marca distinta.',
+  'Si dos conceptos se parecen demasiado, replantear diseño ANTES de producir, conservando estrategia y copy aprobados.',
+  '',
+  '## 4. ESTRATEGIA MAESTRA — APROBADA',
+  safe(phases.strategy?.text),
+  '',
+  '## 5. ESTÁTICOS — AUDIENCIA 1 (A1.1 A1.2 A1.3)',
+  safe(phases.static_a1?.text),
+  '',
+  '## 6. ESTÁTICOS — AUDIENCIA 2 (A2.1 A2.2 A2.3)',
+  safe(phases.static_a2?.text),
+  '',
+  '## 7. VIDEOS PAS — AUDIENCIA 1',
+  safe(phases.video_a1?.text),
+  '',
+  '## 8. VIDEOS PAS — AUDIENCIA 2',
+  safe(phases.video_a2?.text),
+  '',
+  '## 9. EJECUCIÓN PASO A PASO EN EL MOTOR EXISTENTE',
+  '1. Usar carpetas existentes. El operador incorpora los medios originales; no crear estructura nueva.',
+  '2. Validar evidencia y recursos. Asociar archivos originales a los códigos de anuncios sin falsificar recursos.',
+  '3. Presentar/obtener aprobación de preproducción de seis estáticos y matriz de diversidad.',
+  '4. Generar solo UN anuncio 1:1 por turno. Comprobar exactitud del producto, avatar, objetivo, visual y mensaje. Solicitar aprobación para avanzar al siguiente.',
+  '5. Para videos seguir estrategia V7 PAS y técnica V6; aprobación del guion ANTES de ElevenLabs; respetar voz original y FFmpeg.',
+  '6. Hook de problema máximo 5 s y mínimo dos escenas distintas. Una vez generado audio, ajustar narrativa aprobada para que duración del problema narrado y secuencia visual coincidan exactamente; jamás acelerar/cortar voz sin aprobación.',
+  '7. Subtítulos discretos en zona segura, logo superior derecho solo si disponible, video 20–30 s sujeto a recursos y guion aprobado.',
+  '8. Verificar archivos, registrar origen, versiones y conformidad; no publicar ni afirmar aprobación de Meta.',
+  '',
+  '## 10. AUDITORÍA FINAL Y BLOQUEOS',
+  'Revisar cada pieza: (a) mensaje global/brecha N1–N4, (b) avatar, (c) ángulo único, (d) Product DNA, (e) evidencia y claims, (f) claridad en 3 s, (g) diferenciación gráfica de las otras cinco.',
+  'Una falla en fidelidad del producto o beneficio sin respaldo BLOQUEA la entrega, aunque el diseño sea atractivo.',
+  'Registrar incidencias y solicitar recursos o aprobación humana si faltan o son insuficientes. No saltar estados de aprobación de AGENTS.md.',
+  ''
+ ];
+ return lines.join('\n');
+}
+function brief02DownloadFile(name,content,mime){
+ const blob=content instanceof Blob?content:new Blob([content],{type:mime});
+ const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);
 }
 function Brief02Module(){
  const {user}=useAuth();const [products,setProducts]=useState([]),[selectedId,setSelectedId]=useState(''),[work,setWork]=useState(null),[loading,setLoading]=useState(true),[busy,setBusy]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
@@ -21371,7 +21447,7 @@ function Brief02Module(){
  const phases=work?.phases||{};
  const completed=BRIEF02_PHASES.every(x=>Boolean(phases[x.id]?.approved));
  const stale=!!(work?.sourceFingerprint&&work.sourceFingerprint!==sourceFingerprint);
- const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.offer||{},diagnosis:{classification:product.diagnosis?.classification,classificationReason:product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.diagnosis?.financial?.price,netMarginPct:product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text).map(([k,r])=>[k,brief02CleanText(r.text,2400)]))});
+ const sourceSafe=()=>({name:product.name,category:product.category,description:product.description,product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',negativeReviews:product.strategicEvidence?.negativeReviews||'',competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),offer:product.offer||{},diagnosis:{classification:product.diagnosis?.classification,classificationReason:product.diagnosis?.classificationReason,alerts:product.diagnosis?.alerts,financial:{price:product.diagnosis?.financial?.price,netMarginPct:product.diagnosis?.netMarginPct}},approvedStrategicReports:Object.fromEntries(Object.entries(product.aiStrategicReports||{}).filter(([,r])=>r?.text&&r?.approvedAt).map(([k,r])=>[k,brief02CleanText(r.text,2400)]))});
  const save=async(next)=>{await updateDoc(doc(db,BRIEF01_COLLECTION,selectedId),{brief02:next});setWork(next)};
  const generate=async(id)=>{if(!approved||busy)return;setBusy(id);setError('');setNotice('');try{
   const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([,v])=>v.approved).map(([k,v])=>[k,brief02CleanText(v.text,12000)]))};
@@ -21379,12 +21455,13 @@ function Brief02Module(){
   const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02CleanText(data.analysis,18000).trim();if(!text)throw Error('La IA devolvió texto vacío');const keep=id==='strategy'?{}:phases;const next={...work,sourceFingerprint:sourceFingerprint,phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
  }catch(e){setError(String(e.message||'No se pudo analizar'));}finally{setBusy('')}};
  const approvePhase=async(id)=>{if(busy||!phases[id]?.text)return;setBusy(id);setError('');try{const next={...work,phases:{...phases,[id]:{...phases[id],approved:true,approvedAt:Date.now()}},updatedAtMs:Date.now()};await save(next);setNotice('Bloque aprobado y guardado.');}catch(e){setError(String(e.message))}finally{setBusy('')}};
- const approveFinal=async()=>{if(!completed||stale||busy)return;setBusy('final');try{await save({...work,status:'approved',approvedAt:Date.now(),updatedAtMs:Date.now()});setNotice('BRIEF 02 aprobado. Ya puedes descargar el PDF.')}catch(e){setError(String(e.message))}finally{setBusy('')}};
- const download=()=>{if(!completed||stale||work?.status!=='approved')return;const parts=[['FUENTES Y CONTRATO','Producto: '+product.name+'\nBRIEF 01: '+product.code+'\nAprobado comercialmente: SI\nMaterial visual: entregado al Area Digital por separado. Sin inspeccion visual automatica.'],...BRIEF02_PHASES.map(p=>[p.label,phases[p.id]?.text||''])];const blob=brief02PdfBlob('ESTRATEGIA CREATIVA · '+product.name,parts);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`BRIEF02_${product.code||'PRODUCTO'}_V5.pdf`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)};
- return <div className="space-y-4"><div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm"><p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">WINNER OS · Motor creativo</p><h2 className="text-2xl font-black text-[#12386B]">BRIEF 02 · V5.0</h2><p className="text-xs text-slate-600 mt-2">2 audiencias · 6 ángulos · 6 estáticos 1:1 · 4 narrativas PAS. Fuentes: diagnóstico BRIEF 01 aprobado y ficha técnica. Materiales originales se entregan al Área Digital por separado.</p><label className="block text-xs font-bold mt-4 mb-1">Producto investigado</label><select className="w-full rounded-xl border p-3 text-sm bg-white" value={selectedId} onChange={e=>setSelectedId(e.target.value)}><option value="">Selecciona un producto BRIEF 01...</option>{products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name||'Sin nombre'} · {p.manualApproved?'Aprobado':'Pendiente de aprobación'}</option>)}</select></div>
+ const approveFinal=async()=>{if(!completed||stale||busy)return;setBusy('final');try{await save({...work,status:'approved',approvedAt:Date.now(),updatedAtMs:Date.now()});setNotice('BRIEF 02 aprobado. Ya puedes descargar PDF humano y BRIEF IA para Work.')}catch(e){setError(String(e.message))}finally{setBusy('')}};
+ const download=()=>{if(!completed||stale||work?.status!=='approved')return;const parts=[['FUENTES Y CONTRATO','Producto: '+product.name+'\nBRIEF 01: '+product.code+'\nAprobación comercial registrada. Material visual y ficha técnica se entregan al Área Digital por separado.'],...BRIEF02_PHASES.map(p=>[p.label,phases[p.id]?.text||''])];const blob=brief02PdfBlob('BRIEF 02 HUMANO · ESTRATEGIA CREATIVA · '+product.name,parts);brief02DownloadFile(`BRIEF_02_HUMANO_${String(product.code||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_')}_V5_1.pdf`,blob,'application/pdf')};
+ const downloadWork=()=>{if(!completed||stale||work?.status!=='approved')return;brief02DownloadFile('BRIEF_IA_WORK.md',brief02WorkMarkdown(product,phases,sourceFingerprint),'text/markdown;charset=utf-8')};
+ return <div className="space-y-4"><div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm"><p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">WINNER OS · Motor creativo</p><h2 className="text-2xl font-black text-[#12386B]">BRIEF 02 · V5.1</h2><p className="text-xs text-slate-600 mt-2">2 audiencias · 6 ángulos · 6 estáticos 1:1 · 4 narrativas PAS. Fuentes: diagnóstico BRIEF 01 aprobado y ficha técnica. Materiales originales se entregan al Área Digital por separado.</p><label className="block text-xs font-bold mt-4 mb-1">Producto investigado</label><select className="w-full rounded-xl border p-3 text-sm bg-white" value={selectedId} onChange={e=>setSelectedId(e.target.value)}><option value="">Selecciona un producto BRIEF 01...</option>{products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name||'Sin nombre'} · {p.manualApproved?'Aprobado':'Pendiente de aprobación'}</option>)}</select></div>
  {loading&&<p className="text-sm">Cargando investigaciones...</p>}{product&&!approved&&<div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-4 text-sm font-semibold">La generación está bloqueada. Debes generar el diagnóstico de BRIEF 01 y aprobar manualmente su viabilidad comercial antes de continuar.</div>}
  {product&&approved&&<>{stale&&<div className="rounded-xl bg-amber-50 border border-amber-300 p-3 text-amber-900 text-xs font-bold">BRIEF 01 cambió desde esta generación. Regenera la estrategia y los entregables antes de aprobar o exportar.</div>}<div className="rounded-xl border bg-emerald-50 border-emerald-200 p-4 text-xs text-emerald-900"><b>Viabilidad BRIEF 01 aprobada.</b> La IA utilizará análisis aprobados, reseñas negativas y ficha técnica disponibles. Si falta un dato, debe marcarlo como pendiente; no se utilizarán imágenes ni videos como fuente automática.</div>{BRIEF02_PHASES.map((p,i)=>{const block=phases[p.id];const ready=i===0||Boolean(phases[BRIEF02_PHASES[i-1].id]?.approved);return <section key={p.id} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black text-[#12386B]">{i+1}. {p.label}</p><p className="text-[10px] text-slate-500">{block?.approved?'Aprobado':block?.text?'Revisión pendiente':'Pendiente de generación'}</p></div><button disabled={!ready||!!busy} onClick={()=>generate(p.id)} className="rounded-lg bg-indigo-800 text-white px-3 py-2 text-xs font-bold disabled:opacity-40">{busy===p.id?'Procesando...':block?.text?'Regenerar':'Generar con DeepSeek'}</button></div>{block?.text&&<><textarea rows={15} value={block.text} onChange={e=>setWork(w=>({...w,phases:{...w.phases,[p.id]:{...w.phases[p.id],text:e.target.value,approved:false}}}))} className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed"/><div className="flex flex-wrap gap-2"><button disabled={!!busy||block.approved} onClick={()=>approvePhase(p.id)} className="rounded-lg bg-emerald-700 text-white px-3 py-2 text-xs font-bold disabled:opacity-40">{block.approved?'Aprobado':'Aprobar y guardar bloque'}</button><button onClick={()=>navigator.clipboard?.writeText(block.text)} className="border rounded-lg px-3 py-2 text-xs">Copiar texto</button></div></>}</section>})}
- <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-3"><h3 className="font-black text-indigo-900">Revisión y PDF profesional</h3><p className="text-xs text-slate-600">Se exige aprobar los cinco bloques antes de emitir el informe. Los seis anuncios son instrucciones de producción; no se generan imágenes ni videos aquí.</p><div className="flex flex-wrap gap-2"><button disabled={!completed||stale||!!busy} onClick={approveFinal} className="bg-indigo-900 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Aprobar BRIEF 02 final</button><button disabled={!completed||stale||work?.status!=='approved'} onClick={download} className="bg-emerald-700 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Descargar PDF BRIEF 02</button></div></section></>}
+ <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-3"><h3 className="font-black text-indigo-900">Aprobación y dos documentos para Área Digital</h3><p className="text-xs text-slate-600">Se exige aprobar los cinco bloques antes de emitir el informe. Los seis anuncios son instrucciones de producción; no se generan imágenes ni videos aquí.</p><div className="flex flex-wrap gap-2"><button disabled={!completed||stale||!!busy} onClick={approveFinal} className="bg-indigo-900 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Aprobar BRIEF 02 final</button><button disabled={!completed||stale||work?.status!=='approved'} onClick={download} className="bg-emerald-700 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Descargar BRIEF 02 HUMANO (PDF)</button><button disabled={!completed||stale||work?.status!=='approved'} onClick={downloadWork} className="bg-[#12386B] disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Descargar BRIEF IA para Work (.md)</button></div></section></>}
  {notice&&<div className="rounded-xl bg-blue-50 border border-blue-100 text-blue-900 p-3 text-xs">{notice}</div>}{error&&<p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700 text-xs">{error}</p>}</div>;
 }
 
