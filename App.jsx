@@ -21347,17 +21347,18 @@ function Brief01IntelligenceAssistant({user,research,step,onApproved}) {
 // V5.2 AUDITORIA INTEGRAL — una acción de usuario; fases existentes del Worker.
 // Ninguna recomendación modifica el Diagnóstico Base ni los campos de investigación.
 function Brief01CentralAudit({user,research,onApproved}) {
- const stages=[['meta','Actividad y cobertura'],['competitors','Competidores y ofertas'],['angles','Audiencias y brechas'],['suppliers','Producto y atributos'],['offer','Oportunidades de oferta'],['diagnosis','Decisiones estratégicas']];
+ const stages=[['meta','Actividad y cobertura'],['competitors','Competidores y ofertas'],['angles','Sofisticación, conciencia y avatares'],['suppliers','Brechas, reseñas y ángulos'],['offer','Oportunidades de oferta'],['diagnosis','Mapa estratégico para BRIEF 02']];
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[reports,setReports]=useState({}),[progress,setProgress]=useState(''),[showDetails,setShowDetails]=useState(false);
  const savedId=useRef('');
- const key='winner_audit_v56_'+String(research?.id||'none');
+ const key='winner_audit_v57_'+String(research?.id||'none');
  // Read session cache only after mount, never as render-time dependency.
  useEffect(()=>{
   if(savedId.current===key)return;
   savedId.current=key;setError('');setProgress('');setShowDetails(false);
   try {const v=JSON.parse(window.sessionStorage.getItem(key)||'{}');setReports(v&&typeof v==='object'&&!Array.isArray(v)?v:{});}catch{setReports({});}
  },[key]);
- const mergedReports={...(research?.aiStrategicReports||{}),...reports};
+ const priorReports=Object.fromEntries(Object.entries(research?.aiStrategicReports||{}).filter(([k,v])=>String(v?.source||'').includes('executive-v57')));
+ const mergedReports={...priorReports,...reports};
  const count=stages.filter(([k])=>Boolean(mergedReports[k]?.text)).length;
  const complete=count===stages.length;
  const keep=(value)=>{setReports({...value});try{window.sessionStorage.setItem(key,JSON.stringify(value));}catch{}};
@@ -21372,7 +21373,7 @@ function Brief01CentralAudit({user,research,onApproved}) {
    for(let i=0;i<stages.length;i++){
     const [step,label]=stages[i];if(temp[step]?.text)continue;
     setProgress(`${i+1} de 6 · ${label}`);
-    const source={name:research.name,category:research.category,description:research.description,product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers:(research.suppliers||[]).slice(0,20),offer:research.offer||{},costs:research.costs||{},planning:research.planning||{},deliverySettings:research.deliverySettings||{},strategicEvidence:research.strategicEvidence||{},negativeReviews:research.strategicEvidence?.negativeReviews||'',baseFinancialDiagnosis:{classification:research.diagnosis.classification,classificationReason:research.diagnosis.classificationReason,financial:research.diagnosis.financial,netMarginPct:research.diagnosis.netMarginPct,monthlyProjection:research.diagnosis.monthlyProjection,missing:research.diagnosis.missing},approvedStrategicReports:Object.fromEntries(Object.entries(temp).filter(([k,v])=>v?.text).map(([k,v])=>[k,{text:String(v.text).slice(0,1300)}]))};
+    const source={name:research.name,category:research.category,description:research.description,product:research.product||{},meta:research.meta||{},adCopies:copies,competitors,suppliers:(research.suppliers||[]).slice(0,20),offer:research.offer||{},costs:research.costs||{},planning:research.planning||{},deliverySettings:research.deliverySettings||{},strategicEvidence:research.strategicEvidence||{},negativeReviews:research.strategicEvidence?.negativeReviews||'',baseFinancialDiagnosis:{classification:research.diagnosis.classification,classificationReason:research.diagnosis.classificationReason,financial:research.diagnosis.financial,netMarginPct:research.diagnosis.netMarginPct,monthlyProjection:research.diagnosis.monthlyProjection,missing:research.diagnosis.missing},approvedStrategicReports:Object.fromEntries(Object.entries(temp).filter(([k,v])=>v?.text).map(([k,v])=>[k,{text:String(v.text).slice(0,2400)}]))};
     let output='';let fail='';
     for(let attempt=0;attempt<2;attempt++){
      try{
@@ -21382,7 +21383,7 @@ function Brief01CentralAudit({user,research,onApproved}) {
      }catch(ex){fail=String(ex?.message||ex);if(attempt>0||!['ai_incomplete_response','ai_empty_response','ai_unavailable'].some(e=>fail.includes(e)))break;}
     }
     if(!output)throw Error(`${label}: ${fail}`);
-    temp[step]={text:output.slice(0,14500),source:'deepseek-executive-v56',generatedAt:Date.now(),approvedAt:null};
+    temp[step]={text:output.slice(0,14500),source:'deepseek-executive-v57',generatedAt:Date.now(),approvedAt:null};
     keep(temp);
    }
    setProgress('Análisis completo. Revisa y aprueba.');
@@ -21404,9 +21405,9 @@ function Brief01CentralAudit({user,research,onApproved}) {
   return clean.split('\n').map(s=>s.trim()).filter(s=>s&&!s.startsWith('|')&&!s.startsWith('---')).slice(0,10).join('\n').slice(0,1500);
  };
  return <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
-  <div><p className="font-black text-indigo-900 text-sm">Auditoría gerencial DeepSeek</p><p className="text-xs text-slate-600 mt-1">Conclusiones claras. Sin modificar Diagnóstico Base, costos ni canales. Si se detiene, podrás continuar.</p></div>
+  <div><p className="font-black text-indigo-900 text-sm">Auditoría gerencial DeepSeek</p><p className="text-xs text-slate-600 mt-1">Investigación accionable: sofisticación real, conciencia del comprador, avatares, brechas y ángulos incluso cuando requieran verificación. Diagnóstico Base y canales protegidos.</p></div>
   <p className="text-xs font-bold text-indigo-900" role="status">{count} de 6 análisis completos</p>
-  <button type="button" onClick={execute} disabled={busy||!research?.diagnosis||complete} className="rounded-xl bg-indigo-900 text-white px-4 py-3 text-xs font-black disabled:opacity-40">{busy?'ANALIZANDO...':complete?'AUDITORÍA COMPLETA':count?'REANUDAR AUDITORÍA':'EJECUTAR AUDITORÍA INTEGRAL IA'}</button>
+  <button type="button" onClick={execute} disabled={busy||!research?.diagnosis||complete} className="rounded-xl bg-indigo-900 text-white px-4 py-3 text-xs font-black disabled:opacity-40">{busy?'ANALIZANDO...':complete?'AUDITORÍA ESTRATÉGICA COMPLETA':count?'REANUDAR AUDITORÍA':'EJECUTAR AUDITORÍA INTEGRAL IA'}</button>
   {progress&&<p className="text-xs font-semibold text-indigo-900">{progress}</p>}
   {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs p-3">{error}</p>}
   {stages.map(([k,label],i)=>{const block=mergedReports[k];return <div key={k} className="bg-white rounded-xl border border-indigo-100 p-3"><p className="font-black text-xs text-indigo-900">{i+1}. {label} · {block?.approvedAt?'APROBADO':block?.text?'COMPLETO':'PENDIENTE'}</p>{block?.text?<div className="whitespace-pre-wrap text-xs text-slate-700 mt-2">{short(block.text)}</div>:<p className="text-xs text-slate-400 mt-1">Sin analizar</p>}{showDetails&&block?.text&&<pre className="whitespace-pre-wrap font-sans text-xs text-slate-600 mt-3 max-h-80 overflow-y-auto border-t pt-2">{block.text}</pre>}</div>})}
