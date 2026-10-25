@@ -20679,29 +20679,65 @@ function brief01CreativeHandoff(research,includeResearch=true){
  const approvedText=k=>reports[k]?.approvedAt?String(reports[k].text||''):'';
  const approved=master.approvedOffer;
  const pack=research?.product||{};
- const audienceBlueprint=[
-  {id:'A1',name:'Motociclistas de uso frecuente',status:'CANDIDATA · a validar en BRIEF 02',avatar:'Conductor que utiliza la moto regularmente por trabajo o desplazamientos',awareness:'Problema / solución, según hipótesis de la fase 3',angles:[
-   {id:'A1.1',name:'Ajuste visible y sujeción',origin:'Fase 4: reseñas análogas sobre deslizamiento; Fase 6: A1.1',proof:'Mostrar base, correas e instalación; NO garantizar inmovilidad'},
-   {id:'A1.2',name:'Comodidad práctica de la rutina',origin:'Fases 2 y 3: uso prolongado; Fase 6: A1.1',proof:'Mostrar uso real, sin prometer alivio clínico ni durabilidad'},
-   {id:'A1.3',name:'Diseño 3D y ventilación',origin:'Fase 4: objeción sobre calor; Fase 6: A1.3',proof:'Mostrar canales del material; NO asegurar temperatura menor sin ensayo'}
-  ]},
-  {id:'A2',name:'Motociclistas que viajan con acompañante',status:'CANDIDATA · a validar en BRIEF 02',avatar:'Conductor que desea una solución práctica para piloto y parrillero',awareness:'Problema / solución / producto, por comprobar',angles:[
-   {id:'A2.1',name:'Dos tamaños, dos lugares',origin:'Ficha técnica del pack y Fase 6: A1.2',proof:'Mostrar las dos piezas y medidas reales'},
-   {id:'A2.2',name:'Instalación en ambos asientos',origin:'Fase 4: dudas de fijación; Fase 6: A1.2 y A2.2',proof:'Mostrar instalación con fotos reales, sin afirmar compatibilidad universal'},
-   {id:'A2.3',name:'Qué recibe y qué material compra',origin:'Fases 2 y 4: discrepancia gel/espuma; Fase 6: A2.1',proof:'Unboxing del pack real; declarar espuma 3D, no gel'}
-  ]}
- ];
+ const stage3=approvedText('angles');
+ const stage6=approvedText('diagnosis');
+ const clean=t=>String(t||'').replace(/\\([#*_])/g,'$1').replace(/\*\*/g,'').replace(/\*/g,'').replace(/\s+/g,' ').trim();
+ const avatarSection=stage3.match(/(?:Biblioteca de avatares[^\n]*|AVATARES[^\n]*)[\s\S]*?(?=^\s*#{1,4}\s*VERIFICACIONES|^\s*---\s*$)/im);
+ const candidates=[];
+ const avatarRegex=/\bA([1-9])\s*[-—:]\s*([^\n.]{5,95})\.?\s*([^\n]*)(?:\n|$)/gim;
+ let av;
+ const avatarText=avatarSection?avatarSection[0]:stage3;
+ while((av=avatarRegex.exec(avatarText))!==null){
+   const id='A'+av[1];
+   if(!candidates.some(x=>x.id===id))candidates.push({id,name:clean(av[2]),details:clean(av[3]),origin:'Fase 3 · '+id});
+ }
+ const sourceFichas=master.fichas.map(f=>{
+  const content=clean(f.details);
+  const extract=re=>{const m=content.match(re);return m?clean(m[1]):''};
+  const sections=[
+    ['avatar',/Avatar y objeci[oó]n\.?\s*([\s\S]*?)(?=Conciencia\.|Hook de inicio\.|$)/i],
+    ['consciousness',/Conciencia\.?\s*([\s\S]*?)(?=Hook de inicio\.|Sofisticaci[oó]n que ataca|$)/i],
+    ['hook',/Hook de inicio\.?\s*([\s\S]*?)(?=Sofisticaci[oó]n que ataca|$)/i],
+    ['sophistication',/Sofisticaci[oó]n que ataca[:.]?\s*([\s\S]*?)(?=Mensaje competidor|$)/i],
+    ['competitiveGap',/Brecha de origen\.?\s*([\s\S]*?)(?=[ÁA]ngulo y resultado|$)/i],
+    ['dream',/[ÁA]ngulo y resultado so[nñ]ado\.?\s*([\s\S]*?)(?=4 factores de Hormozi|$)/i],
+    ['hormozi',/4 factores de Hormozi\.?\s*([\s\S]*?)(?=3 palancas|$)/i],
+    ['value',/3 palancas de valor percibido\.?\s*([\s\S]*?)(?=Mecanismo\/demostraci[oó]n|$)/i],
+    ['demonstration',/Mecanismo\/demostraci[oó]n visual\.?\s*([\s\S]*?)(?=Claim publicable|$)/i],
+    ['safeClaim',/Claim publicable hoy\.?\s*([\s\S]*?)(?=Versi[oó]n ambiciosa|$)/i],
+    ['conditional',/Versi[oó]n ambiciosa CONDICIONAL\.?\s*([\s\S]*?)(?=Prioridad:|$)/i]
+  ];
+  const fields=Object.fromEntries(sections.map(([key,re])=>[key,extract(re)]));
+  return {...f,fields,searchText:(f.title+' '+fields.avatar+' '+fields.dream+' '+fields.competitiveGap).toLowerCase()};
+ });
+ // Solo se eligen avatares reales de la fase 3; nunca insertar nombres universales.
+ // Si la fase 3 no tiene 2 avatares claros, entregar un bloqueo documental en vez de inventar.
+ const audienceBlueprint=candidates.slice(0,2).map((candidate,idx)=>{
+   const id='A'+(idx+1);
+   const tokens=(candidate.name+' '+candidate.details).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').match(/[a-z]{5,}/g)||[];
+   const uniq=[...new Set(tokens.filter(t=>!['contexto','problema','comprador','cliente','quiere','tiene','desea','cojin','producto','solucion'].includes(t)))];
+   const scored=sourceFichas.map(f=>({f,score:uniq.reduce((n,t)=>n+(f.searchText.normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(t)?1:0),0)})).sort((a,b)=>b.score-a.score);
+   const chosen=scored.slice(0,3).map(({f,score},i)=>({id:id+'.'+(i+1),name:f.title.replace(/^["“”]|["“”]$/g,''),origin:'Fase 6: '+f.code+' · Avatar de Fase 3: '+candidate.id,proof:f.fields.demonstration||'Consultar ficha original; demostración no extraíble',sourceCode:f.code,confidence:score>=2?'ALINEACIÓN TEXTUAL':'REVISAR COHERENCIA',...f.fields}));
+   return {id,name:candidate.name,avatar:candidate.details||candidate.name,awareness:'Ver conciencia inferida en Fase 3 y ficha individual; no atribuir sin evidencia',status:'CANDIDATA EXTRAÍDA DE FASE 3; REQUIERE VALIDACIÓN',origin:candidate.origin,angles:chosen};
+ });
+ const structurallyReady=candidates.length>=2&&sourceFichas.length===6&&master.approvalCount===6;
+ const handoffWarnings=[];
+ if(candidates.length<2)handoffWarnings.push('Fase 3 no contiene dos avatares extraíbles; no asignar audiencias automáticamente.');
+ if(sourceFichas.length!==6)handoffWarnings.push('Fase 6 no contiene seis fichas completas extraíbles.');
+ if(master.approvalCount!==6)handoffWarnings.push('La auditoría no tiene las seis fases aprobadas.');
+ if(audienceBlueprint.some(a=>a.angles.some(x=>x.confidence==='REVISAR COHERENCIA')))handoffWarnings.push('Hay correspondencias débiles entre avatares y ángulos: revisar antes de producción.');
+ if(audienceBlueprint.length===2&&audienceBlueprint[0].angles.some(x=>audienceBlueprint[1].angles.some(y=>y.sourceCode===x.sourceCode)))handoffWarnings.push('Los grupos reutilizan fichas de origen: es obligatorio diferenciar y validar seis ángulos antes de producir anuncios.');
  return {
-  schema:'WINNER_OS_BRIEF02_STRATEGIC_HANDOFF_V511',approvedPhases:master.approvalCount,
+  schema:'WINNER_OS_BRIEF02_STRATEGIC_HANDOFF_V512',approvedPhases:master.approvalCount,
   researchId:research?.code||'',productName:research?.name||'',
-  productReality:{description:research?.description||'',technicalProof:research?.strategicEvidence?.technicalProof||'',productData:pack,packUnitsPhysical:'VERIFICAR EN FICHA; no inferir de cantidad comercial',materialRestriction:'No declarar gel si la fuente del proveedor indica espuma'},
-  sophistication:{observed:master.sophistication,communicationTarget:'N3 mediante prueba visual, condicionado a evidencia verificable'},
+  productReality:{description:research?.description||'',technicalProof:research?.strategicEvidence?.technicalProof||'',productData:pack,packUnitsPhysical:'VERIFICAR EN FICHA; no inferir de cantidad comercial',materialRestriction:'No atribuir materiales, funciones ni medidas ajenas a ficha técnica del SKU; prevalece fuente del producto real'},
+  sophistication:{observed:master.sophistication,communicationTarget:'Definir exclusivamente según recomendación de las fases 3 y 6 aprobadas; no fijar N3 universalmente'},
   awareness:{observed:master.awareness,uncertainty:'Inferido de copys publicitarios; no equivale a encuesta de compradores'},
   approvedCommercial:approved?{price:approved.offer?.price,offer:approved.offer,notes:approved.notes||'',approvedAt:approved.approvedAt||''}:{status:'PENDIENTE; no autorizar hipótesis de oferta'},
-  audienceBlueprint,originalSixProfiles:master.fichas.map(f=>({code:f.code,title:f.title,details:f.details})),
+  structurallyReady,handoffWarnings,audienceBlueprint,originalSixProfiles:master.fichas.map(f=>({code:f.code,title:f.title,details:f.details})),
   researchSources:!includeResearch?{note:"Las seis fases completas viajan en approvedStrategicReports"}:{competitorMarket:approvedText('meta'),competitorOffers:approvedText('competitors'),avatarsAndAwareness:approvedText('angles'),negativeReviewGaps:approvedText('suppliers'),offerHypotheses_NOT_APPROVED:approvedText('offer'),persuasionArchitecture:approvedText('diagnosis')},
   proofPolicy:{verified:'Declaraciones sustentadas por ficha técnica y material real',inferred:'Hipótesis de avatar, competencia o reseñas análogas; no presentarlas como hechos propios',conditional:'Resultados de durabilidad, temperatura, alivio físico, daños o compatibilidad requieren prueba del SKU',claimLimit:'La oferta oficial solo proviene de la decisión gerencial; no incluir bonos ni upsells sugeridos por IA'},
-  handoffRules:'BRIEF 02 NO DEBE confundir los códigos A1/A2 de las seis fichas históricas con audiencias. Seleccionar dos audiencias centrales, tres ángulos realmente diferenciados por cada una; conservar vínculos con perfiles originales y pruebas. No inventar beneficios ni cambiar canales.'
+  handoffRules:'SOURCE LOCK V512: únicamente fuentes DeepSeek aprobadas de fases 1-6 y ficha técnica. Los avatares de fase 3 y las 6 fichas históricas de fase 6 son evidencia, NO licencia para inventar asociaciones. El blueprint solo es sugerencia textual con nivel de confianza; si handoffWarnings existen, resolver explícitamente durante la estrategia y no aprobar producción sin coherencia. Cada ángulo debe conservar código original, brecha y prueba, conciencia, sofisticación y 4 factores Hormozi. Prohibido inventar audiencia, performance, competencia, producto, bonos o claims. Oferta exclusivamente gerencial; canales del diagnóstico original.'
  };
 }
 function brief01PdfReadableLine(value){
@@ -20764,13 +20800,16 @@ function buildBrief01PdfBlob(research, diagnosis) {
   add('Canales de venta: conservar los del Diagnostico Base. BRIEF 02 no puede seleccionar bonos, descuentos ni upsells no aprobados.');
   const creativeHandoff=brief01CreativeHandoff(research);
   section('1B. PLAN EDITORIAL - 2 AUDIENCIAS X 3 ANGULOS PARA BRIEF 02');
-  add('Arquitectura CANDIDATA basada en las 6 fases aprobadas; BRIEF 02 revisa y aprueba la seleccion. Las seis fichas historicas se conservan completas como biblioteca de perfiles, no representan automaticamente dos audiencias.');
+  add('Arquitectura EXTRAÍDA de los avatares de fase 3 y las fichas de fase 6 APROBADAS; correspondencia semántica tentativa, no se reemplazan los hallazgos originales. Si hay advertencias, revisar antes de producir los anuncios.');
+  if(creativeHandoff.handoffWarnings.length)for(const w of creativeHandoff.handoffWarnings)add('REVISIÓN OBLIGATORIA: '+w,{bold:true});
   for(const aud of creativeHandoff.audienceBlueprint){
    add(`${aud.id} - ${aud.name}`,{bold:true,size:11,gap:6});
    add(`Avatar matriz: ${aud.avatar}. Conciencia: ${aud.awareness}.`);
    for(const a of aud.angles){
     add(`${a.id} | ${a.name}`,{bold:true});
-    add(`Brecha y trazabilidad: ${a.origin}. Evidencia/produccion: ${a.proof}.`);
+    add(`Fuente original: ${a.sourceCode} | Correspondencia: ${a.confidence}. ${a.origin}.`);
+    for(const [label,key] of [['Avatar y objeción','avatar'],['Nivel de conciencia','consciousness'],['Sofisticación atacada','sophistication'],['Brecha','competitiveGap'],['Resultado deseado','dream'],['Hook candidato','hook'],['Hormozi - 4 factores','hormozi'],['Tres palancas de valor','value'],['Demostración visual','demonstration'],['Claim original publicable sujeto a ficha','safeClaim'],['Claim condicionado / prueba pendiente','conditional']])if(a[key])add(`${label}: ${a[key]}`);
+    add(`Producción y evidencia: ${a.proof}.`);
    }
   }
   add('HORMOZI: en cada pieza mostrar resultado deseado, evidencia que eleva la probabilidad percibida, tiempo y esfuerzo reales. Diferenciar visualmente las seis piezas, no repetir plantillas.');
