@@ -20847,7 +20847,7 @@ function buildBrief01PdfBlob(research, diagnosis) {
     const item=research?.aiStrategicReports?.[key];
     if(!item?.approvedAt||!item?.text)continue;
     section(label);
-    for(const line of String(item.text).replace(/\([#*_])/g,'$1').split(/\r?\n/)){
+    for(const line of String(item.text).replace(/\\([#*_])/g,'$1').split(/\r?\n/)){
       const readable=brief01PdfReadableLine(line);
       if(readable)add(readable,{bold:/^\s*#{1,5}\s+|^\*\*[^*]+\*\*:?\s*$/.test(line),gap:1});
     }
