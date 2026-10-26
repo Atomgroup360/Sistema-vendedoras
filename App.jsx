@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, addDoc, setDoc, updateDoc, deleteDoc, doc, onSnapshot,
-  Timestamp, serverTimestamp, query, where, writeBatch, runTransaction, getDoc
+  Timestamp, serverTimestamp, query, where, writeBatch, runTransaction, getDoc, getDocs
 } from 'firebase/firestore';
 import {
   LayoutDashboard, ClipboardList, Settings, Plus, Trash2, Calendar,
@@ -19923,6 +19923,7 @@ const BRIEF01_STEPS = [
   { id: 'product', label: 'Producto', icon: Package },
   { id: 'meta', label: 'Meta Ads', icon: BarChart3 },
   { id: 'intelligence', label: 'Inteligencia competitiva', icon: Users },
+  { id: 'reddit', label: 'Reddit · Audiencias', icon: Users },
   { id: 'suppliers', label: 'Dropi', icon: Truck },
   { id: 'costs', label: 'Costos', icon: Calculator },
   { id: 'offer', label: 'Oferta', icon: ShoppingBag },
@@ -21658,6 +21659,79 @@ function Brief01CentralAudit({user,research,onApproved}) {
  </section>;
 }
 
+// V5.22 — Reddit como observación cualitativa separada de las seis fases aprobadas.
+// La captura es manual: no se consulta ni extrae Reddit automáticamente.
+function Brief01RedditAudienceLab({user,research}) {
+ const [comments,setComments]=useState('');
+ const [analysis,setAnalysis]=useState('');
+ const [bank,setBank]=useState('');
+ const [ideas,setIdeas]=useState('');
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState('');
+ const [loaded,setLoaded]=useState(false);
+ useEffect(()=>{
+  setLoaded(false);setMessage('');setComments('');setAnalysis('');setBank('');setIdeas('');
+  if(!research?.id)return;
+  let active=true;
+  getDoc(doc(db,BRIEF01_COLLECTION,research.id,'reddit_intelligence','workspace')).then(snapshot=>{
+   if(!active)return;
+   const data=snapshot.exists()?snapshot.data():{};
+   setComments(String(data.comments||''));setAnalysis(String(data.analysis||''));setBank(String(data.approvedAudienceBank||''));setIdeas(String(data.approvedValueIdeas||''));setLoaded(true);
+  }).catch(e=>{if(active){setMessage('No se pudo leer Reddit: '+e.message);setLoaded(true)}});
+  return ()=>{active=false};
+ },[research?.id]);
+ const persist=async(patch)=>{
+  if(!research?.id||!user?.uid)throw Error('No hay producto activo');
+  await setDoc(doc(db,BRIEF01_COLLECTION,research.id,'reddit_intelligence','workspace'),{
+   comments,analysis,approvedAudienceBank:bank,approvedValueIdeas:ideas,updatedAtMs:Date.now(),...patch
+  },{merge:true});
+ };
+ const save=async()=>{setBusy(true);setMessage('');try{await persist({});await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),{redditAudienceBank:bank,redditValueIdeas:ideas});setMessage('Fuentes y banco guardados para este producto.')}catch(e){setMessage('Error al guardar: '+e.message)}finally{setBusy(false)}};
+ const analyze=async()=>{
+  if(!comments.trim()){setMessage('Pega comentarios con fuente y contexto antes de analizar.');return}
+  setBusy(true);setMessage('');
+  try{
+   await persist({});
+   const token=await user.getIdToken();
+   // Lotes acotados por petición para respetar el límite real del Worker.
+   const input=comments.slice(0,25000);
+   const response=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({step:'reddit',research:{name:research.name,category:research.category,
+      description:String(research.description||'').slice(0,2500),
+      product:research.product||{},technicalProof:String(research.strategicEvidence?.technicalProof||'').slice(0,5000),
+      redditComments:input,
+      approvedCommercial:{price:research.managerApprovedScenario?.offer?.price??research.offer?.price,
+        notes:research.managerApprovedScenario?.notes||''}}})
+   });
+   const result=await response.json();
+   if(!response.ok)throw Error(result.message||result.error||'Error del Worker');
+   const text=String(result.analysis||'').trim();if(!text)throw Error('DeepSeek no devolvió contenido');
+   setAnalysis(text);
+   await persist({analysis:text,approvedAudienceBank:bank,approvedValueIdeas:ideas,analyzedAtMs:Date.now(),
+    analysisCoverageChars:input.length});
+   setMessage(comments.length>input.length?'Análisis del primer lote (25.000 caracteres). Hay más comentarios por analizar.':'Análisis listo. Revisa y selecciona manualmente los candidatos para tu banco.');
+  }catch(e){setMessage('No se pudo analizar: '+e.message)}finally{setBusy(false)}
+ };
+ return <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-5 space-y-4">
+  <div><h3 className="text-lg font-black text-indigo-900">Reddit · Banco de audiencias, avatares y valor</h3>
+   <p className="text-xs text-slate-600 mt-1">Pega textos obtenidos legalmente de Reddit, junto con URL, comunidad, fecha y contexto. DeepSeek contrasta problemas y deseos con el producto; no considera comentarios como prueba de ventas ni de eficacia.</p></div>
+  <label className="block"><span className="text-xs font-bold">Comentarios y testimonios de Reddit (texto manual)</span>
+   <textarea rows={12} value={comments} onChange={e=>setComments(e.target.value)} className="mt-1 w-full rounded-xl border p-3 text-xs" placeholder={'URL del hilo | r/comunidad | fecha | comentario literal\n[Cada comentario separado por línea o encabezado]'} />
+   <span className="text-[10px] text-slate-500">{comments.length.toLocaleString('es-CO')} caracteres. Para entradas muy extensas usa lotes; Firebase y el Worker tienen límites técnicos de tamaño.</span></label>
+  <div className="flex flex-wrap gap-2"><button disabled={busy||!loaded} onClick={save} className="rounded-xl bg-slate-800 text-white px-4 py-2 text-xs font-bold disabled:opacity-40">Guardar comentarios</button>
+   <button disabled={busy||!loaded||!comments.trim()} onClick={analyze} className="rounded-xl bg-indigo-700 text-white px-4 py-2 text-xs font-bold disabled:opacity-40">{busy?'Procesando...':'Analizar con DeepSeek'}</button></div>
+  {message&&<p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg p-3">{message}</p>}
+  <label className="block"><span className="text-xs font-bold">Análisis DeepSeek · Candidatos e hipótesis (editable)</span><textarea rows={16} value={analysis} onChange={e=>setAnalysis(e.target.value)} className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
+  <div className="grid md:grid-cols-2 gap-3">
+   <label className="block"><span className="text-xs font-bold">Banco seleccionado de audiencias y avatares</span><textarea rows={12} value={bank} onChange={e=>setBank(e.target.value)} placeholder="Selecciona aquí los candidatos que merecen experimentos; incluye motivación, objeción y comentario fuente." className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
+   <label className="block"><span className="text-xs font-bold">Ideas seleccionadas de upsells y PDF digitales</span><textarea rows={12} value={ideas} onChange={e=>setIdeas(e.target.value)} placeholder="Problema adyacente → posible bonus, PDF digital o upsell → evidencia → factibilidad pendiente." className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
+  </div>
+  <button disabled={busy||!loaded} onClick={save} className="rounded-xl bg-emerald-700 text-white px-4 py-2 text-xs font-bold disabled:opacity-40">Guardar selección y banco</button>
+  <p className="text-[10px] text-slate-500">Las ideas quedan como hipótesis. No añaden bonos, upsells ni nuevas audiencias a la oferta o al BRIEF 02 sin aprobación gerencial.</p>
+ </section>;
+}
+
 function Brief01StrategicInputs({research,step,onField}) {
  const values=research?.strategicEvidence||{};
  const all={
@@ -21668,7 +21742,7 @@ function Brief01StrategicInputs({research,step,onField}) {
   offer:{title:'FASE 2 · Ingeniería de la oferta',help:'Bonos, garantía, anclaje de precio y upsell son propuestas: requieren factibilidad y aprobación.',fields:[['adjacentProblems','Problemas adyacentes y posibles bonos digitales','Fuente y problema del nicho; propone entregable digital, sin asumir costo operativo cero.'],['upsellEvidence','Comprados juntos / evidencia de upsell','Producto complementario, fuente, compatibilidad, precio y logística; si no hay evidencia, indícalo.'],['premiumBenchmarks','Precios premium externos comparables','Tienda / presentación equivalente / precio COP / fecha / URL.'],['guaranteeConditions','Garantías que realmente puedes cumplir','Plazo autorizado, cobertura, exclusiones y costos potenciales.']]}
  };
  const config=all[step];if(!config)return null;
- return <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 my-4"><p className="text-xs font-black text-[#12386B]">{config.title}</p><p className="text-[10px] text-slate-600 mt-1 mb-3">{config.help}</p><div className="grid grid-cols-1 md:grid-cols-2 gap-3">{config.fields.map(([field,label,placeholder])=><label key={field} className="block"><span className="block text-[10px] font-bold text-slate-700 mb-1">{label}</span><textarea rows={3} maxLength={6000} value={values[field]||''} placeholder={placeholder} onChange={e=>onField('strategicEvidence.'+field,e.target.value)} className="w-full rounded-xl border border-slate-200 p-3 text-xs bg-white"/></label>)}</div><p className="text-[10px] text-slate-500 mt-2">Usa el botón Guardar de BRIEF 01 para conservar estas fuentes antes de solicitar el análisis IA.</p></section>;
+ return <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 my-4"><p className="text-xs font-black text-[#12386B]">{config.title}</p><p className="text-[10px] text-slate-600 mt-1 mb-3">{config.help}</p><div className="grid grid-cols-1 md:grid-cols-2 gap-3">{config.fields.map(([field,label,placeholder])=><label key={field} className="block"><span className="block text-[10px] font-bold text-slate-700 mb-1">{label}</span><textarea rows={3} value={values[field]||''} placeholder={placeholder} onChange={e=>onField('strategicEvidence.'+field,e.target.value)} className="w-full rounded-xl border border-slate-200 p-3 text-xs bg-white"/></label>)}</div><p className="text-[10px] text-slate-500 mt-2">Sin límite artificial de caracteres en el editor. Firebase tiene un límite por documento; para fichas extremadamente grandes divide el material en fuentes separadas. Guarda antes de solicitar IA.</p></section>;
 }
 
 
@@ -21708,11 +21782,25 @@ function brief02PdfBlob(title,parts){
  let pdf='%PDF-1.4\n';const offsets=[0];objs.forEach((o,i)=>{offsets.push(pdf.length);pdf+=`${i+1} 0 obj\n${o}\nendobj\n`;});const xref=pdf.length;pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`;for(let i=1;i<offsets.length;i++)pdf+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;pdf+=`trailer\n<< /Size ${objs.length+1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
  return new Blob([pdf],{type:'application/pdf'});
 }
+// V5.23 Banco editorial: se extrae únicamente una sección delimitada expresamente por la estrategia aprobada.
+// Si no hay candidatos comprobables, se conserva la indicación de evidencia insuficiente.
+function brief02ReserveAvatarExtract(strategy){
+ const text=String(strategy||'');
+ const start='[BANCO_AVATARES_NO_SELECCIONADOS]';
+ const end='[/BANCO_AVATARES_NO_SELECCIONADOS]';
+ const a=text.indexOf(start), b=a>=0?text.indexOf(end,a+start.length):-1;
+ return a>=0&&b>a?text.slice(a+start.length,b).trim():'';
+}
+function brief02ActiveOnlyStrategy(strategy){
+ const text=String(strategy||'');const start='[BANCO_AVATARES_NO_SELECCIONADOS]',end='[/BANCO_AVATARES_NO_SELECCIONADOS]';
+ const a=text.indexOf(start),b=a>=0?text.indexOf(end,a+start.length):-1;
+ return a>=0&&b>a?(text.slice(0,a)+text.slice(b+end.length)).trim():text;
+}
 function brief02WorkMarkdown(product,phases,sourceFingerprint){
  const safe=v=>String(v??'').replace(/\r/g,'').trim();
  const code=safe(product.code||product.id||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_');
  const lines=[
-  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.15',
+  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.23',
   '',
   `Producto: ${safe(product.name)}`,
   `Código: ${code}`,
@@ -21726,7 +21814,7 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   'Este archivo se almacena en PRODUCTOS/<producto>/BRIEF_Y_FICHA/BRIEF_IA_WORK.md.',
   'Lee primero AGENTS.md en la raíz del motor Work. Mantén intactos el motor de estáticos V10, la estrategia audiovisual V7 y el flujo técnico V6.',
   'Para estrategia comercial, usa SOLO este BRIEF IA y el BRIEF 02 HUMANO APROBADOS. Para hechos técnicos/forma del producto prevalecen FICHA_TECNICA y medios reales. Ante conflicto: detener la pieza, registrar discrepancia y solicitar decisión humana. No modificar la estrategia por cuenta propia.',
-  'El BRIEF 02 HUMANO es contexto editorial, no permiso para introducir nuevos ángulos o claims.',
+  'El BRIEF 02 HUMANO incluye un BANCO DE AVATARES DE RESERVA que NO se debe usar en este ciclo sin nueva aprobación gerencial.',
   '',
   '## 1. COMPROBACIONES OBLIGATORIAS ANTES DE PRODUCIR',
   '- Identifica el producto activo y comprueba que código/nombre coinciden en todos los documentos.',
@@ -21738,7 +21826,8 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   '',
   '## 2. REGLAS ESTRATÉGICAS NO NEGOCIABLES',
   '- El nivel de sofisticación NO es decorativo: cada anuncio debe explicar cómo su mensaje se diferencia de promesas saturadas en BRIEF 01.',
-  '- Respeta avatar principal de audiencia y avatar/situación particular de cada pieza. Marca hipótesis como hipótesis.',
+  '- EXACTAMENTE un avatar principal seleccionado por audiencia A1 y A2. Los tres ángulos A1.1-A1.3 deben dirigirse AL MISMO avatar A1; análogamente A2.1-A2.3 al avatar A2. Cambiar de avatar dentro de un grupo invalida la ficha.',
+  '- Los avatares no seleccionados son reserva estratégica, NO son instrucciones de producción ni se autorizan anuncios adicionales en este ciclo. Marca hipótesis como hipótesis.',
   '- Conserva Product DNA: puntera, geometría, materiales, tamaño, colores, emblemas y propiedades reales según cada producto. Fotografías son fuente de verdad visual.',
   '- No inventes garantías, evidencia clínica, testimonios, precios tachados, beneficios, timelíneas, escenas ni supuestas ventas de competidores.',
   '- Prioriza legibilidad en tres segundos, español, Meta Ads y piezas 1:1 1080 x 1080.',
@@ -21751,7 +21840,7 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   'Si dos conceptos se parecen demasiado, replantear diseño ANTES de producir, conservando estrategia y copy aprobados.',
   '',
   '## 4. ESTRATEGIA MAESTRA — APROBADA',
-  safe(phases.strategy?.text),
+  brief02ActiveOnlyStrategy(safe(phases.strategy?.text)),
   '',
   '## 5. ESTÁTICOS — AUDIENCIA 1 (A1.1 A1.2 A1.3)',
   safe(phases.static_a1?.text),
@@ -21796,7 +21885,7 @@ function Brief02Module(){
  useEffect(()=>{if(!user?.uid)return;return onSnapshot(query(collection(db,BRIEF01_COLLECTION),where('ownerUid','==',user.uid)),snap=>{setProducts(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAtMs||0)-(a.updatedAtMs||0)));setLoading(false);},()=>{setError('No se pudieron leer las investigaciones BRIEF 01.');setLoading(false);});},[user?.uid]);
  const product=products.find(p=>p.id===selectedId)||null;
  // V5.15: identidad estratégica estable. No incluir updatedAtMs, costos, proyecciones ni diagnóstico financiero.
- const sourceVersion=product?JSON.stringify({name:product.name,category:product.category,description:product.description,technicalProof:product.strategicEvidence?.technicalProof,negativeReviews:product.strategicEvidence?.negativeReviews,competitors:(product.competitors||[]).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,notes:c.notes})),commercial:{price:product.managerApprovedScenario?.offer?.price??product.offer?.price,offer:product.managerApprovedScenario?.offer??product.offer,notes:product.managerApprovedScenario?.notes},reports:Object.fromEntries(['meta','competitors','angles','suppliers','diagnosis'].map(k=>[k,product.aiStrategicReports?.[k]?.approvedAt?brief02StripFinanceEvidence(product.aiStrategicReports[k].text):'']))}):'';
+ const sourceVersion=product?JSON.stringify({name:product.name,category:product.category,description:product.description,redditAudienceBank:product.redditAudienceBank||'',technicalProof:product.strategicEvidence?.technicalProof,negativeReviews:product.strategicEvidence?.negativeReviews,competitors:(product.competitors||[]).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,notes:c.notes})),commercial:{price:product.managerApprovedScenario?.offer?.price??product.offer?.price,offer:product.managerApprovedScenario?.offer??product.offer,notes:product.managerApprovedScenario?.notes},reports:Object.fromEntries(['meta','competitors','angles','suppliers','diagnosis'].map(k=>[k,product.aiStrategicReports?.[k]?.approvedAt?brief02StripFinanceEvidence(product.aiStrategicReports[k].text):'']))}):'';
  // FNV-1a determinista (huella de cambio, no hash criptográfico).
  let stableHash=2166136261;for(let i=0;i<sourceVersion.length;i++){stableHash^=sourceVersion.charCodeAt(i);stableHash=Math.imul(stableHash,16777619)}
  const sourceFingerprint='BRIEF02_V515_STRATEGIC:'+sourceVersion.length+':'+(stableHash>>>0).toString(16);
@@ -21847,6 +21936,7 @@ function Brief02Module(){
   return {name:product.name,category:product.category,description:product.description,
    product:product.product||{},technicalProof:product.strategicEvidence?.technicalProof||'',
    negativeReviews:product.strategicEvidence?.negativeReviews||'',
+   redditAudienceBank:String(product.redditAudienceBank||'').slice(0,8000),
    competitors:(product.competitors||[]).slice(0,25).map(c=>({name:c.name,primaryAngle:c.primaryAngle,secondaryAngle1:c.secondaryAngle1,secondaryAngle2:c.secondaryAngle2,activeAdsCount:c.activeAdsCount,notes:c.notes})),
    adCopies:(product.adCopies||[]).slice(0,100).map(a=>({id:a.id,advertiser:a.advertiser,copy:brief02CleanText(a.copy,600),relation:a.productRelation||a.classification})),
    approvedCommercial:{price:product.managerApprovedScenario?.offer?.price??product.offer?.price,
@@ -21886,7 +21976,7 @@ function Brief02Module(){
  const generate=async(id)=>{if(!approved||busy)return;setBusy(id);setError('');setNotice('');try{
   const token=await user.getIdToken();const context={...sourceSafe(),brief02Progress:Object.fromEntries(Object.entries(phases).filter(([k,v])=>BRIEF02_PHASES.some(p=>p.id===k)&&v.approved).map(([k,v])=>[k,brief02CleanText(v.text,18000)]))};
   const res=await fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/v1/brief',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({step:'brief02',phase:id,research:context})});
-  const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02StripFinanceEvidence(brief02CleanText(data.analysis,18000)).trim();if(!text)throw Error('La IA devolvió texto vacío');const audit=brief02AuditText(text);if(audit)setNotice('Advertencia de revisión: '+audit);const keep=id==='strategy'?{}:phases;const next={...work,sourceFingerprint,sourceSnapshot:sourceVersion,sourceRevalidatedAt:Date.now(),phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',approvedAt:null,updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
+  const data=await res.json();if(!res.ok)throw Error(data.error+(data.providerDetail?' · '+data.providerDetail:''));const text=brief02StripFinanceEvidence(brief02CleanText(data.analysis,18000)).trim();if(!text)throw Error('La IA devolvió texto vacío');const audit=brief02AuditText(text);if(audit)setNotice('Advertencia de revisión: '+audit);const keep=id==='strategy'?{}:phases;const reserveAvatarBank=id==='strategy'?brief02ReserveAvatarExtract(text):(work?.reserveAvatarBank||'');const next={...work,reserveAvatarBank,sourceFingerprint,sourceSnapshot:sourceVersion,sourceRevalidatedAt:Date.now(),phases:{...keep,[id]:{text,approved:false,generatedAt:Date.now()}},status:'draft',approvedAt:null,updatedAtMs:Date.now()};await save(next);setNotice('Análisis generado. Revísalo y apruébalo antes de avanzar.');
  }catch(e){setError(String(e.message||'No se pudo analizar'));}finally{setBusy('')}};
  const approvePhase=async(id)=>{if(busy||!phases[id]?.text)return;const audit=brief02AuditText(phases[id].text);if(audit)setNotice('Advertencia no bloqueante de contenido: '+audit+' Revísalo antes de usarlo en anuncios.');setBusy(id);setError('');try{const next={...work,phases:{...phases,[id]:{...phases[id],approved:true,approvedAt:Date.now()}},updatedAtMs:Date.now()};await save(next);setNotice('Bloque aprobado y guardado.');}catch(e){setError(String(e.message))}finally{setBusy('')}};
  const approveFinal=async()=>{
@@ -21901,11 +21991,13 @@ function Brief02Module(){
    setNotice('BRIEF 02 aprobado y guardado en Firebase. Ya puedes descargar el PDF humano y el BRIEF IA para Work.');
   }catch(e){setError(String(e.message))}finally{setBusy('')}
  };
- const download=()=>{if(!completed||work?.status!=='approved')return;const parts=[['FUENTES Y CONTRATO','Producto: '+product.name+'\nBRIEF 01: '+product.code+'\nTicket gerencial aprobado: '+(product.managerApprovedScenario?.offer?.price??product.offer?.price??'Pendiente')+' COP\nOferta gerencial: '+(product.managerApprovedScenario?.notes||'Sin ajustes adicionales')+'\nAprobación comercial registrada. Material visual y ficha técnica se entregan al Área Digital por separado.'],...BRIEF02_PHASES.map(p=>[p.label,phases[p.id]?.text||''])];const blob=brief02PdfBlob('BRIEF 02 HUMANO · ESTRATEGIA CREATIVA · '+product.name,parts);brief02DownloadFile(`BRIEF_02_HUMANO_${String(product.code||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_')}_V5_1.pdf`,blob,'application/pdf')};
+ const download=()=>{if(!completed||work?.status!=='approved')return;const parts=[['FUENTES Y CONTRATO','Producto: '+product.name+'\nBRIEF 01: '+product.code+'\nTicket gerencial aprobado: '+(product.managerApprovedScenario?.offer?.price??product.offer?.price??'Pendiente')+' COP\nOferta gerencial: '+(product.managerApprovedScenario?.notes||'Sin ajustes adicionales')+'\nAprobación comercial registrada. Material visual y ficha técnica se entregan al Área Digital por separado.'],...BRIEF02_PHASES.map(p=>[p.label,p.id==='strategy'?brief02ActiveOnlyStrategy(phases[p.id]?.text||''):(phases[p.id]?.text||'')]),['BANCO DE AVATARES NO SELECCIONADOS · FUTURAS PRUEBAS',(work?.reserveAvatarBank||'Sin candidatos de reserva registrados. No inventar perfiles.').trim()+'\n\nEstos avatares son hipótesis de investigación, no están aprobados para el ciclo actual. Solo los avatares activos A1 y A2 generan seis anuncios.']];const blob=brief02PdfBlob('BRIEF 02 HUMANO · ESTRATEGIA CREATIVA · '+product.name,parts);brief02DownloadFile(`BRIEF_02_HUMANO_${String(product.code||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_')}_V5_1.pdf`,blob,'application/pdf')};
  const downloadWork=()=>{if(!completed||work?.status!=='approved')return;brief02DownloadFile('BRIEF_IA_WORK.md',brief02WorkMarkdown(brief01ApprovedResearchView(product),phases,sourceFingerprint),'text/markdown;charset=utf-8')};
- return <div className="space-y-4"><div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm"><p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">WINNER OS · Motor creativo</p><h2 className="text-2xl font-black text-[#12386B]">BRIEF 02 · V5.20</h2><p className="text-xs text-slate-600 mt-2">2 audiencias · 6 ángulos · 6 estáticos 1:1. Las 4 narrativas PAS se desarrollan en Work a partir de la estrategia aprobada. Fuentes: diagnóstico BRIEF 01 aprobado y ficha técnica. Materiales originales se entregan al Área Digital por separado.</p><label className="block text-xs font-bold mt-4 mb-1">Producto investigado</label><select className="w-full rounded-xl border p-3 text-sm bg-white" value={selectedId} onChange={e=>setSelectedId(e.target.value)}><option value="">Selecciona un producto BRIEF 01...</option>{products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name||'Sin nombre'} · {p.manualApproved?'Aprobado':'Pendiente de aprobación'}</option>)}</select></div>
+ return <div className="space-y-4"><div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm"><p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">WINNER OS · Motor creativo</p><h2 className="text-2xl font-black text-[#12386B]">BRIEF 02 · V5.23</h2><p className="text-xs text-slate-600 mt-2">2 audiencias · 1 avatar activo por audiencia · 3 ángulos por avatar · 6 estáticos 1:1. Las 4 narrativas PAS se desarrollan en Work a partir de la estrategia aprobada. Fuentes: diagnóstico BRIEF 01 aprobado y ficha técnica. Materiales originales se entregan al Área Digital por separado.</p><label className="block text-xs font-bold mt-4 mb-1">Producto investigado</label><select className="w-full rounded-xl border p-3 text-sm bg-white" value={selectedId} onChange={e=>setSelectedId(e.target.value)}><option value="">Selecciona un producto BRIEF 01...</option>{products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name||'Sin nombre'} · {p.manualApproved?'Aprobado':'Pendiente de aprobación'}</option>)}</select></div>
  {loading&&<p className="text-sm">Cargando investigaciones...</p>}{product&&!approved&&<div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-4 text-sm font-semibold">La generación está bloqueada. Debes generar el diagnóstico de BRIEF 01 y aprobar manualmente su viabilidad comercial antes de continuar.</div>}
  {product&&approved&&<>{stale&&<div className="rounded-xl bg-amber-50 border border-amber-300 p-3 text-amber-900 text-xs font-bold">Aviso informativo: la referencia estratégica del BRIEF 01 difiere de la guardada en esta generación. Puedes seguir trabajando y aprobar BRIEF 02; revisa manualmente los cambios estratégicos y la oferta antes de publicar anuncios. La aprobación actualizará la referencia sin exigir regeneración.</div>}<div className="rounded-xl border bg-emerald-50 border-emerald-200 p-4 text-xs text-emerald-900"><b>Viabilidad BRIEF 01 aprobada.</b> La IA utilizará análisis aprobados, reseñas negativas y ficha técnica disponibles. Si falta un dato, debe marcarlo como pendiente; no se utilizarán imágenes ni videos como fuente automática.</div>{BRIEF02_PHASES.map((p,i)=>{const block=phases[p.id];const ready=i===0||Boolean(phases[BRIEF02_PHASES[i-1].id]?.approved);return <section key={p.id} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black text-[#12386B]">{i+1}. {p.label}</p><p className="text-[10px] text-slate-500">{block?.approved?'Aprobado':block?.text?'Revisión pendiente':'Pendiente de generación'}</p></div><button disabled={!ready||!!busy} onClick={()=>generate(p.id)} className="rounded-lg bg-indigo-800 text-white px-3 py-2 text-xs font-bold disabled:opacity-40">{busy===p.id?'Procesando...':block?.text?'Regenerar':'Generar con DeepSeek'}</button></div>{block?.text&&<><textarea rows={15} value={block.text} onChange={e=>setWork(w=>({...w,phases:{...w.phases,[p.id]:{...w.phases[p.id],text:e.target.value,approved:false}}}))} className="w-full rounded-xl border border-slate-200 p-3 text-xs leading-relaxed"/><div className="flex flex-wrap gap-2"><button disabled={!!busy||block.approved} onClick={()=>approvePhase(p.id)} className="rounded-lg bg-emerald-700 text-white px-3 py-2 text-xs font-bold disabled:opacity-40">{block.approved?'Aprobado':'Aprobar y guardar bloque'}</button><button onClick={()=>navigator.clipboard?.writeText(block.text)} className="border rounded-lg px-3 py-2 text-xs">Copiar texto</button></div></>}</section>})}
+ <section className="rounded-2xl border border-indigo-200 bg-white p-4 space-y-3"><h3 className="text-sm font-black text-indigo-900">Banco de avatares NO seleccionados · futuras pruebas</h3><p className="text-xs text-slate-600">El banco se extrae de la estrategia DeepSeek con evidencia y descarte. Puedes corregirlo y guardarlo sin regenerar fichas. Se incluye SOLO en el PDF humano, nunca como encargo para Work.</p><textarea rows={10} value={work?.reserveAvatarBank||''} onChange={e=>setWork(w=>({...w,reserveAvatarBank:e.target.value}))} placeholder="AV-003 | audiencia | avatar y situación | problema | objeción | evidencia y enlace | hipótesis | prioridad | motivo no seleccionado | estado
+Si la evidencia no alcanza, indicar sin evidencia suficiente." className="w-full rounded-xl border border-slate-200 p-3 text-xs"/><button disabled={!!busy||!selectedId} onClick={async()=>{setBusy('reserve');setError('');try{await save({...work,reserveAvatarBank:work?.reserveAvatarBank||'',updatedAtMs:Date.now()});setNotice('Banco de reserva guardado en Firebase sin regenerar anuncios.')}catch(e){setError(String(e.message||e))}finally{setBusy('')}}} className="rounded-lg bg-indigo-800 text-white px-4 py-2 text-xs font-bold disabled:opacity-40">Guardar banco de reserva</button></section>
  <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2"><h3 className="text-xs font-black text-amber-900">Herramientas de diagnóstico · BRIEF 02</h3><p className="text-xs text-amber-900">El reset borra únicamente la vista y los tres bloques BRIEF 02 de este producto, tras descargar respaldo JSON. No borra BRIEF 01, DeepSeek aprobado, Firebase de BRIEF 01, oferta ni SIMULADOR. Después hay que generar y aprobar los tres bloques de nuevo (con consumo de DeepSeek).</p><button type="button" disabled={!!busy||!selectedId} onClick={resetBrief02} className="rounded-lg bg-rose-800 text-white px-4 py-2 text-xs font-black disabled:opacity-40">{busy==='reset'?'Reiniciando BRIEF 02...':'Resetear BRIEF 02 (con respaldo)'}</button></section>
  <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 space-y-3"><h3 className="font-black text-indigo-900">Aprobación y dos documentos para Área Digital</h3><p className="text-xs text-slate-600">Se exige aprobar los tres bloques estratégicos antes de emitir el informe. BRIEF IA encarga a Work la creación de cuatro narrativas PAS (dos por audiencia). No se generan imágenes ni videos aquí.</p><div className="flex flex-wrap gap-2"><button disabled={!completed||!!busy} onClick={approveFinal} className="bg-indigo-900 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Aprobar BRIEF 02 final</button><button disabled={!completed||work?.status!=='approved'} onClick={download} className="bg-emerald-700 disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Descargar BRIEF 02 HUMANO (PDF)</button><button disabled={!completed||work?.status!=='approved'} onClick={downloadWork} className="bg-[#12386B] disabled:opacity-40 rounded-lg px-4 py-2 text-xs font-bold text-white">Descargar BRIEF IA para Work (.md)</button></div></section></>}
  {notice&&<div className="rounded-xl bg-blue-50 border border-blue-100 text-blue-900 p-3 text-xs">{notice}</div>}{error&&<p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700 text-xs">{error}</p>}</div>;
@@ -22168,7 +22260,22 @@ function Brief01Module() {
   const deleteResearch=async(row)=>{
     const ok=window.confirm(`ELIMINACIÓN IRREVERSIBLE\n\n${row.code} · ${row.name||'Sin nombre'}\n\nSe eliminará la investigación y sus datos asociados. El código no se reutilizará.\n\n¿Continuar?`);
     if(!ok)return;
-    try{await deleteDoc(doc(db,BRIEF01_COLLECTION,row.id)); if(current?.id===row.id){setCurrent(null);setScreen('list');}}
+    try{
+      // Firestore NO elimina subcolecciones al borrar el documento padre.
+      // Borrar hijos conocidos primero: anuncio histórico y fuentes Reddit por producto.
+      // Si falla algún lote, NO borrar el padre para conservar trazabilidad y permitir reintento.
+      for(const child of [BRIEF01_ADS_SUBCOLLECTION,'reddit_intelligence']){
+        const children=await getDocs(collection(db,BRIEF01_COLLECTION,row.id,child));
+        for(let i=0;i<children.docs.length;i+=350){
+          const batch=writeBatch(db);
+          children.docs.slice(i,i+350).forEach(d=>batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+      await deleteDoc(doc(db,BRIEF01_COLLECTION,row.id));
+      if(current?.id===row.id){setCurrent(null);setScreen('list');}
+      setMessage('Investigación y subcolecciones conocidas eliminadas de Firebase.');
+    }
     catch(e){console.error(e);setMessage('No se pudo eliminar la investigación.');}
   };
 
@@ -22355,6 +22462,7 @@ function Brief01Module() {
   return <div className="space-y-4 anim-fade"><Header/>
     <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
       <Brief01StrategicInputs research={current} step={step} onField={updateCurrent}/>
+      {step==='reddit'&&<Brief01RedditAudienceLab user={user} research={current}/>}
       {step==='diagnosis'&&<Brief01CentralAudit user={user} research={current} onApproved={merged=>setCurrent(previous=>({...previous,aiStrategicReports:merged}))}/>}
       {['diagnosis','pdf'].includes(step)&&<Brief01StrategicHandoff research={current}/> }
       {step==='product'&&<div className="space-y-4"><div><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">1. Información del producto</p><p className="text-xs text-slate-500 mt-1">Puedes guardar aunque la investigación esté incompleta.</p></div>{duplicateMatches.length>0&&<div className="rounded-2xl border border-amber-200 bg-amber-50 p-3"><p className="text-[9px] font-black text-amber-800">Posible duplicado detectado</p><p className="text-[8px] text-amber-700 mt-1">Existe {duplicateMatches.map(x=>`${x.code} · ${x.name}`).join(', ')}. Puedes continuar de todas maneras.</p></div>}<div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className={labelClass}>Código</label><input value={current.code} disabled className={`${fieldClass} bg-slate-50`}/></div><div><label className={labelClass}>Nombre del producto</label><input value={current.name||''} onChange={e=>updateCurrent('name',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Categoría</label><input value={current.category||''} onChange={e=>updateCurrent('category',e.target.value)} className={fieldClass}/></div><div><label className={labelClass}>Fecha creación</label><input value={current.createdDate||todayColombia()} disabled className={`${fieldClass} bg-slate-50`}/></div><div className="md:col-span-2"><label className={labelClass}>Descripción breve</label><textarea rows={3} value={current.description||''} onChange={e=>updateCurrent('description',e.target.value)} className={fieldClass}/></div></div><div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4"><p className="text-[9px] font-black uppercase tracking-widest text-[#12386B]">Objetivo económico del producto</p><p className="text-[8px] text-slate-500 mt-1">Planificación comercial separada de la viabilidad. El CPA no modifica el margen antes de Ads.</p><div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3"><div><label className={labelClass}>Meta de ganancia mensual (COP)</label><input type="number" min="0" value={current.planning?.monthlyProfitTarget??''} onChange={e=>updateCurrent('planning.monthlyProfitTarget',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/></div><div><label className={labelClass}>CPA de planificación por orden generada (COP)</label><input type="number" min="0" value={current.planning?.planningCPA??''} onChange={e=>updateCurrent('planning.planningCPA',e.target.value===''?'':Math.max(0,Number(e.target.value)||0))} className={fieldClass}/><p className="text-[7px] text-slate-500 mt-1">Solo para proyección mensual. No afecta el margen antes de Ads.</p></div><div><label className={labelClass}>Días de venta al mes</label><input type="number" min="1" max="31" value={current.planning?.sellingDays??''} onChange={e=>updateCurrent('planning.sellingDays',e.target.value===''?'':Math.min(31,Math.max(1,Number(e.target.value)||1)))} className={fieldClass}/></div></div>
