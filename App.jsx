@@ -21705,7 +21705,10 @@ function Brief01RedditAudienceLab({user,research}) {
         notes:research.managerApprovedScenario?.notes||''}}})
    });
    const result=await response.json();
-   if(!response.ok)throw Error(result.message||result.error||'Error del Worker');
+   if(!response.ok){
+    if(result.error==='invalid_brief_input')throw Error('El Worker de Cloudflare no reconoce el análisis Reddit. Actualiza el Worker a V5.23.1 en la URL winner-os-intelligence-api.julian-1818.workers.dev y vuelve a intentar; los comentarios guardados se conservan.');
+    throw Error(result.message||result.error||'Error del Worker');
+   }
    const text=String(result.analysis||'').trim();if(!text)throw Error('DeepSeek no devolvió contenido');
    setAnalysis(text);
    await persist({analysis:text,approvedAudienceBank:bank,approvedValueIdeas:ideas,analyzedAtMs:Date.now(),
