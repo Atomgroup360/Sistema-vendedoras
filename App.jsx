@@ -21666,24 +21666,26 @@ function Brief01RedditAudienceLab({user,research}) {
  const [analysis,setAnalysis]=useState('');
  const [bank,setBank]=useState('');
  const [ideas,setIdeas]=useState('');
+ const [candidates,setCandidates]=useState([]);
+ const [valueCandidates,setValueCandidates]=useState([]);
  const [busy,setBusy]=useState(false);
  const [message,setMessage]=useState('');
  const [loaded,setLoaded]=useState(false);
  useEffect(()=>{
-  setLoaded(false);setMessage('');setComments('');setAnalysis('');setBank('');setIdeas('');
+  setLoaded(false);setMessage('');setComments('');setAnalysis('');setBank('');setIdeas('');setCandidates([]);setValueCandidates([]);
   if(!research?.id)return;
   let active=true;
   getDoc(doc(db,BRIEF01_COLLECTION,research.id,'reddit_intelligence','workspace')).then(snapshot=>{
    if(!active)return;
    const data=snapshot.exists()?snapshot.data():{};
-   setComments(String(data.comments||''));setAnalysis(String(data.analysis||''));setBank(String(data.approvedAudienceBank||''));setIdeas(String(data.approvedValueIdeas||''));setLoaded(true);
+   setComments(String(data.comments||''));setAnalysis(String(data.analysis||''));setBank(String(data.approvedAudienceBank||''));setIdeas(String(data.approvedValueIdeas||''));setCandidates(Array.isArray(data.avatarCandidates)?data.avatarCandidates:[]);setValueCandidates(Array.isArray(data.valueCandidates)?data.valueCandidates:[]);setLoaded(true);
   }).catch(e=>{if(active){setMessage('No se pudo leer Reddit: '+e.message);setLoaded(true)}});
   return ()=>{active=false};
  },[research?.id]);
  const persist=async(patch)=>{
   if(!research?.id||!user?.uid)throw Error('No hay producto activo');
   await setDoc(doc(db,BRIEF01_COLLECTION,research.id,'reddit_intelligence','workspace'),{
-   comments,analysis,approvedAudienceBank:bank,approvedValueIdeas:ideas,updatedAtMs:Date.now(),...patch
+   comments,analysis,avatarCandidates:candidates,valueCandidates:valueCandidates,approvedAudienceBank:bank,approvedValueIdeas:ideas,updatedAtMs:Date.now(),...patch
   },{merge:true});
  };
  const save=async()=>{setBusy(true);setMessage('');try{await persist({});await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),{redditAudienceBank:bank,redditValueIdeas:ideas});setMessage('Fuentes y banco guardados para este producto.')}catch(e){setMessage('Error al guardar: '+e.message)}finally{setBusy(false)}};
@@ -21705,16 +21707,35 @@ function Brief01RedditAudienceLab({user,research}) {
         notes:research.managerApprovedScenario?.notes||''}}})
    });
    const result=await response.json();
-   if(!response.ok){
-    if(result.error==='invalid_brief_input')throw Error('El Worker de Cloudflare no reconoce el análisis Reddit. Actualiza el Worker a V5.23.1 en la URL winner-os-intelligence-api.julian-1818.workers.dev y vuelve a intentar; los comentarios guardados se conservan.');
-    throw Error(result.message||result.error||'Error del Worker');
-   }
+   if(!response.ok)throw Error(result.message||result.error||'Error del Worker');
    const text=String(result.analysis||'').trim();if(!text)throw Error('DeepSeek no devolvió contenido');
    setAnalysis(text);
-   await persist({analysis:text,approvedAudienceBank:bank,approvedValueIdeas:ideas,analyzedAtMs:Date.now(),
+   const newAvatars=Array.isArray(result.avatars)?result.avatars:[];
+   const newValues=Array.isArray(result.valueIdeas)?result.valueIdeas:[];
+   const keepSelection=(oldItems,newItems)=>newItems.map((item,i)=>{const old=oldItems.find(x=>x.id===item.id||x.name===item.name);return {...item,id:String(item.id||`AV-${i+1}`).slice(0,32),selected:!!old?.selected};});
+   const mergedAvatars=keepSelection(candidates,newAvatars);
+   const mergedValues=keepSelection(valueCandidates,newValues);
+   setCandidates(mergedAvatars);setValueCandidates(mergedValues);
+   await persist({analysis:text,avatarCandidates:mergedAvatars,valueCandidates:mergedValues,approvedAudienceBank:bank,approvedValueIdeas:ideas,analyzedAtMs:Date.now(),
     analysisCoverageChars:input.length});
-   setMessage(comments.length>input.length?'Análisis del primer lote (25.000 caracteres). Hay más comentarios por analizar.':'Análisis listo. Revisa y selecciona manualmente los candidatos para tu banco.');
+   setMessage(comments.length>input.length?'Análisis del primer lote (25.000 caracteres). Hay más comentarios por analizar.':'Análisis listo. Marca las tarjetas que quieres aprobar y guarda la selección; el banco existente sigue intacto.');
   }catch(e){setMessage('No se pudo analizar: '+e.message)}finally{setBusy(false)}
+ };
+
+ const avatarText=(a)=>`${a.id||''} — ${a.name||''}\nAudiencia: ${a.audience||''}\nSituación: ${a.situation||''}\nMotivación: ${a.motivation||''}\nProblema: ${a.problem||''}\nDeseo: ${a.desire||''}\nObjeción: ${a.objection||''}\nConciencia: ${a.awareness||''}\nEvidencia: ${a.evidence||''}\nFuente: ${a.source||''}\nHipótesis (no validada): ${a.hypothesis||''}\nÁngulos sugeridos (hipótesis):\n${(Array.isArray(a.angles)?a.angles:[]).map((x,i)=>`${i+1}. ${typeof x==='string'?x:[x.name,x.message,x.mechanism,x.proofNeeded].filter(Boolean).join(' | ')}`).join('\n')}`;
+ const valueText=(v)=>`${v.name||''} — ${v.type||''}\nProblema: ${v.problem||''}\nIdea: ${v.idea||''}\nAvatar: ${v.avatarId||''}\nEvidencia: ${v.evidence||''}\nValidación pendiente: ${v.validation||''}`;
+ const approveSelection=async()=>{
+  setBusy(true);setMessage('');
+  try{
+   const selectedA=candidates.filter(x=>x.selected).map(avatarText);
+   const selectedV=valueCandidates.filter(x=>x.selected).map(valueText);
+   // Nunca sustituir silenciosamente aprobaciones previas; anexar solamente candidatos nuevos.
+   const appendUnique=(oldText,items)=>{let out=String(oldText||'').trim();for(const entry of items){const first=entry.split('\n')[0];if(!out.includes(first))out+=(out?'\n\n---\n\n':'')+entry;}return out;};
+   const nextBank=appendUnique(bank,selectedA),nextIdeas=appendUnique(ideas,selectedV);
+   await setDoc(doc(db,BRIEF01_COLLECTION,research.id,'reddit_intelligence','workspace'),{comments,analysis,avatarCandidates:candidates,valueCandidates,approvedAudienceBank:nextBank,approvedValueIdeas:nextIdeas,updatedAtMs:Date.now(),approvedAtMs:Date.now()},{merge:true});
+   await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),{redditAudienceBank:nextBank,redditValueIdeas:nextIdeas});
+   setBank(nextBank);setIdeas(nextIdeas);setMessage(`Selección guardada: ${selectedA.length} avatares y ${selectedV.length} ideas de valor. Los bancos anteriores se conservaron.`);
+  }catch(e){setMessage('No se pudo aprobar: '+e.message)}finally{setBusy(false)}
  };
  return <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-5 space-y-4">
   <div><h3 className="text-lg font-black text-indigo-900">Reddit · Banco de audiencias, avatares y valor</h3>
@@ -21726,6 +21747,19 @@ function Brief01RedditAudienceLab({user,research}) {
    <button disabled={busy||!loaded||!comments.trim()} onClick={analyze} className="rounded-xl bg-indigo-700 text-white px-4 py-2 text-xs font-bold disabled:opacity-40">{busy?'Procesando...':'Analizar con DeepSeek'}</button></div>
   {message&&<p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg p-3">{message}</p>}
   <label className="block"><span className="text-xs font-bold">Análisis DeepSeek · Candidatos e hipótesis (editable)</span><textarea rows={16} value={analysis} onChange={e=>setAnalysis(e.target.value)} className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
+  {(candidates.length>0||valueCandidates.length>0)&&<div className="rounded-2xl border border-indigo-200 p-3 space-y-3 bg-indigo-50/40">
+   <p className="font-black text-indigo-900">Candidatos de DeepSeek · selecciona las hipótesis que quieres guardar</p>
+   <p className="text-xs text-slate-600">Cada avatar conserva sus ángulos asociados. La IA propone; tú apruebas. La selección no autoriza anuncios ni ofertas nuevas.</p>
+   <div className="grid md:grid-cols-2 gap-3">{candidates.map((a,i)=><label key={a.id||i} className="block rounded-xl bg-white border p-3 space-y-2">
+    <div className="flex gap-2 items-start"><input type="checkbox" checked={!!a.selected} onChange={e=>setCandidates(prev=>prev.map((x,j)=>j===i?{...x,selected:e.target.checked}:x))} className="mt-1"/><div><strong className="text-sm">{a.id||`AV-${i+1}`} · {a.name||'Avatar por revisar'}</strong><p className="text-xs text-slate-500">{a.audience||'Audiencia por validar'}</p></div></div>
+    <p className="text-xs"><b>Situación:</b> {a.situation}</p><p className="text-xs"><b>Problema y objeción:</b> {a.problem} · {a.objection}</p>
+    <p className="text-xs"><b>Evidencia:</b> {a.evidence||'Sin evidencia citada; hipótesis'} <span className="text-slate-500">{a.source}</span></p>
+    <p className="text-xs font-bold text-indigo-800">Ángulos candidatos para este avatar</p>
+    {(Array.isArray(a.angles)?a.angles:[]).map((ang,j)=><div key={j} className="bg-indigo-50 rounded-lg p-2 text-xs">{j+1}. {typeof ang==='string'?ang:[ang.name,ang.message,ang.mechanism].filter(Boolean).join(' · ')} {typeof ang==='object'&&ang.proofNeeded?<p className="text-amber-800 mt-1">Validación: {ang.proofNeeded}</p>:null}</div>)}
+   </label>)}</div>
+   {!!valueCandidates.length&&<><p className="font-black text-indigo-900 text-sm">Ideas de valor · solo hipótesis</p><div className="grid md:grid-cols-2 gap-2">{valueCandidates.map((v,i)=><label key={v.id||i} className="flex items-start gap-2 rounded-xl border bg-white p-3"><input type="checkbox" className="mt-1" checked={!!v.selected} onChange={e=>setValueCandidates(prev=>prev.map((x,j)=>j===i?{...x,selected:e.target.checked}:x))}/><div className="text-xs"><b>{v.name||v.idea}</b> · {v.type}<p>{v.problem} → {v.idea}</p><p className="text-slate-500">{v.evidence} · {v.validation}</p></div></label>)}</div></>}
+   <button type="button" disabled={busy||!loaded} onClick={approveSelection} className="rounded-xl bg-emerald-700 text-white px-4 py-3 text-xs font-bold disabled:opacity-40">APROBAR SELECCIONADOS Y GUARDAR EN BANCO</button>
+  </div>}
   <div className="grid md:grid-cols-2 gap-3">
    <label className="block"><span className="text-xs font-bold">Banco seleccionado de audiencias y avatares</span><textarea rows={12} value={bank} onChange={e=>setBank(e.target.value)} placeholder="Selecciona aquí los candidatos que merecen experimentos; incluye motivación, objeción y comentario fuente." className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
    <label className="block"><span className="text-xs font-bold">Ideas seleccionadas de upsells y PDF digitales</span><textarea rows={12} value={ideas} onChange={e=>setIdeas(e.target.value)} placeholder="Problema adyacente → posible bonus, PDF digital o upsell → evidencia → factibilidad pendiente." className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
