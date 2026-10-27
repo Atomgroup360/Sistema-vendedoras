@@ -21873,7 +21873,7 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
  const safe=v=>String(v??'').replace(/\r/g,'').trim();
  const code=safe(product.code||product.id||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_');
  const lines=[
-  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.27 · HOOKS COMERCIALES',
+  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.28 · HOOKS + PRODUCTO COMO SOLUCIÓN',
   '',
   `Producto: ${safe(product.name)}`,
   `Código: ${code}`,
@@ -21925,6 +21925,15 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   'SI las fichas anteriores traen hooks fríos, se pueden OPTIMIZAR los titulares dentro del mismo ángulo y con aprobación humana: la estrategia no se modifica. El PDF BRIEF 02 humano, los bloques DeepSeek y el manifiesto no se reescriben. Registrar en preproducción el hook editorial aprobado y el hook original para trazabilidad.',
   'IMPORTANTE: esta sección es una instrucción de PREPRODUCCIÓN para Work, no una orden para generar seis imágenes inmediatamente sin aprobación. Cuando las instrucciones originales de las fichas indiquen un titular frío, aplicar este protocolo de selección de hook, conservando avatar, ángulo y claims permitidos.',
   '',
+  '## 3C. PRODUCT AS SOLUTION LOCK — MENSAJE COMERCIAL COMPLETO (OBLIGATORIO)',
+  'OBJETIVO: ninguna imagen debe dejar un problema en el aire. Cada uno de los seis anuncios debe comunicar con claridad PROBLEMA/DESEO DEL AVATAR → NOMBRE COMERCIAL EXACTO DEL PRODUCTO COMO SOLUCIÓN PROPUESTA → MECANISMO REAL → BENEFICIO VERIFICABLE → ACCIÓN. El nombre comercial no se considera comunicado por aparecer únicamente como un logotipo pequeño en una esquina.',
+  'Para cada código A1.1–A2.3, DESPUÉS de elegir el hook del bloque 3B y ANTES de producir la imagen, crear un bloque PROPUESTA DE SOLUCIÓN EXPLÍCITA con: (1) HOOK aprobado de 4–9 palabras; (2) FRASE PUENTE con el NOMBRE COMERCIAL EXACTO del producto tal como aparece en la documentación del producto, y la relación inequívoca con el problema del hook; (3) MECANISMO físico comprobable de la ficha técnica; (4) BENEFICIO formulado con el grado de certeza que la evidencia permite; (5) CTA u oferta confirmados, si corresponde. No inventar nombres de marca si los documentos difieren: detener solo esa pieza y señalar la discrepancia.',
+  'No basta con decir características sin relacionarlas con el dolor o deseo. Si el hook menciona calor, la frase puente debe explicar por qué el diseño y los canales del producto se relacionan con ventilación; si menciona fijación, debe explicar base y correas; si menciona acompañante, debe explicar pack y piezas. No afirmar que elimina el calor, jamás se mueve, cura dolores o produce un resultado no demostrado.',
+  'JERARQUÍA PARA LA IMAGEN: HEADLINE = hook emocional aprobado; SUBHEADLINE = frase breve que menciona explícitamente NOMBRE COMERCIAL + cómo aborda el problema; APOYO OPCIONAL = mecanismo real o beneficio; PRODUCTO REAL = protagonista visual y fiel a fotos y ficha; CIERRE = oferta/CTA aprobados. Evitar que la motocicleta o el decorado eclipsen el producto. Lectura clara en tres segundos y sin saturación de texto.',
+  'VERIFICACIÓN DE COHERENCIA POR PIEZA: preguntar (A) ¿el lector comprende el problema o deseo?, (B) ¿identifica el NOMBRE COMERCIAL exacto en la propuesta y no solo en el logo?, (C) ¿entiende qué aporta el producto específicamente frente a ese problema?, (D) ¿se muestra o explica el mecanismo real respaldado?, (E) ¿el mensaje conserva audiencia matriz, avatar y ángulo de [STRATEGY_IDENTITY_V1]?, (F) ¿tiene acción clara sin oferta inventada? Si falla alguna, REHACER la preproducción antes de generar la imagen; no cambiar estrategia aprobada.',
+  'APROBACIÓN: incorporar a la matriz previa de seis piezas del bloque 3B una columna SOLUCIÓN EXPLÍCITA (marca + respuesta al problema) y otra MECANISMO/CLAIM VERIFICADO. El operador aprueba conjuntamente hook + frase de solución + escena. Una vez aprobados, Work debe mantener sus textos exactos y la relación lógica entre ellos en el anuncio final; si el espacio no alcanza, reducir apoyos secundarios, NUNCA eliminar la solución explícita.',
+  'ALCANCE Y PRECEDENCIA: este bloqueo desarrolla solamente la preproducción comercial del BRIEF IA. No altera el contenido de las tres fases DeepSeek, la identidad, el ángulo, el PDF humano ni la ficha técnica. Si una ficha heredada dice usar una subheadline meramente técnica, reformularla para incluir nombre comercial + respuesta al problema sin añadir propiedades; solicitar aprobación humana del texto final.',
+  '',
   '## 4. ESTRATEGIA MAESTRA — APROBADA',
   brief02ActiveOnlyStrategy(safe(phases.strategy?.text)),
   '',
@@ -21955,7 +21964,7 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   '8. Verificar archivos, registrar origen, versiones y conformidad; no publicar ni afirmar aprobación de Meta.',
   '',
   '## 10. AUDITORÍA FINAL Y BLOQUEOS',
-  'Revisar cada pieza: (a) mensaje global/brecha N1–N4, (b) avatar, (c) ángulo único, (d) Product DNA, (e) evidencia y claims, (f) claridad en 3 s, (g) diferenciación gráfica de las otras cinco.',
+  'Revisar cada pieza: (a) mensaje global/brecha N1–N4, (b) avatar y audiencia matriz, (c) ángulo único, (d) Product DNA, (e) evidencia y claims, (f) claridad en 3 s, (g) diferenciación gráfica, (h) PROBLEMA → PRODUCTO NOMBRADO COMO SOLUCIÓN → MECANISMO → BENEFICIO → CTA; si la solución queda implícita, no aprobar.',
   'Una falla en fidelidad del producto o beneficio sin respaldo BLOQUEA la entrega, aunque el diseño sea atractivo.',
   'Registrar incidencias y solicitar recursos o aprobación humana si faltan o son insuficientes. No saltar estados de aprobación de AGENTS.md.',
   ''
