@@ -21873,7 +21873,7 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
  const safe=v=>String(v??'').replace(/\r/g,'').trim();
  const code=safe(product.code||product.id||'PRODUCTO').replace(/[^A-Za-z0-9_-]/g,'_');
  const lines=[
-  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.23',
+  '# BRIEF_IA_WORK — WINNER OS BRIEF 02 V5.27 · HOOKS COMERCIALES',
   '',
   `Producto: ${safe(product.name)}`,
   `Código: ${code}`,
@@ -21911,6 +21911,19 @@ function brief02WorkMarkdown(product,phases,sourceFingerprint){
   'NO reutilizar de manera dominante la misma cabecera azul, subrayado amarillo, cajas de beneficios, titular gigante, mismo layout ni misma combinación de recursos en la mayoría de piezas.',
   'Diversidad no es romper branding: conservar logos, restricciones de marca y Product DNA. La paleta puede variar dentro de identidad aprobada, no inventar una marca distinta.',
   'Si dos conceptos se parecen demasiado, replantear diseño ANTES de producir, conservando estrategia y copy aprobados.',
+  '',
+  '## 3B. AVATAR PAIN-TO-HOOK ENGINE — OBLIGATORIO ANTES DE PRODUCIR IMÁGENES',
+  'MISIÓN: transformar la evidencia, el dolor detonante, el deseo y la objeción DEL AVATAR APROBADO en un hook comercial de respuesta directa. No usar como titular principal una descripción fría de la característica si la estrategia ofrece un problema o deseo específico respaldado.',
+  'BLOQUEO DE IDENTIDAD: EXACTAMENTE dos audiencias matrices A1/A2, tres avatares DISTINTOS por audiencia y un ángulo DISTINTO por avatar. Los códigos A1.1–A2.3, nombres, audiencia matriz, objeción, ángulo y brecha competitiva son los del manifiesto [STRATEGY_IDENTITY_V1] y las fichas aprobadas. Está prohibido reinterpretarlos, reasignarlos o sustituirlos. Si la ficha contradice el manifiesto, detener SOLO esa pieza y señalar la discrepancia.',
+  'Para CADA uno de los SEIS códigos, ANTES de generar imagen: (1) identificar audiencia matriz y avatar; (2) extraer dolor/deseo detonante y lenguaje del comprador proveniente del BRIEF 02; (3) reconocer conciencia y sofisticación N1–N4; (4) señalar promesa/mensaje repetido por la competencia y brecha aprobada; (5) verificar el mecanismo físico y la prueba disponible según FICHA_TECNICA y fotos reales.',
+  'Entregar tres propuestas de titulares de 4–9 palabras, siempre dentro del MISMO ángulo: HOOK A = frustración o dolor cotidiano; HOOK B = objeción o mala experiencia previa; HOOK C = deseo o aspiración concreta. Elegir UNA opción recomendada y justificar en máximo dos frases su relación con el avatar, la evidencia y la diferencia frente a la competencia. Evitar variaciones que solo intercambian sinónimos.',
+  'Cada propuesta debe ser entendible en tres segundos, sonar natural en español colombiano y evitar promesas absolutas. Meta Ads: no atribuir directamente al lector condiciones médicas, vulnerabilidades ni atributos personales sensibles; no usar antes/después de salud engañoso. Preguntas generales, escenas cotidianas y beneficios verificables son preferibles.',
+  'Luego definir para la opción recomendada: HEADLINE comercial exacto, SUBHEADLINE corto con mecanismo verificable, ESCENA que materialice la tensión del avatar sin fingir pruebas, indicación de PERSONA/PRODUCTO y jerarquía visual, OFERTA/CTA solo si están autorizadas. El headline debe ser comercial; la subheadline demuestra cómo responde el producto. No sobrecargar con badges o párrafos.',
+  'BLOQUEO DE EVIDENCIA: si la ficha no prueba fijación absoluta, duración, temperatura, resultados físicos o compatibilidad, no afirmar que el resultado está garantizado. Mostrar correas, superficies, medidas o uso real solo cuando las referencias lo sustenten. Las reseñas sobre productos análogos sustentan la preocupación del avatar, NO la eficacia de nuestro SKU.',
+  'APROBACIÓN HUMANA: antes de la primera imagen, mostrar una MATRIZ compacta A1.1–A2.3 con audiencia matriz, avatar, ángulo, dolor/deseo, brecha, tres hooks propuestos, hook recomendado, subheadline y escena. Solicitar aprobación del HOOK ELEGIDO de cada pieza. Solo después generar anuncios UNO POR UNO. Conservar literalmente el hook aprobado en la imagen; no cambiarlo por un titular técnico, minimalista o una función del producto.',
+  'RÚBRICA EDITORIAL (0–100, no predice conversión): avatar y contexto 25; conexión con dolor/deseo 25; brecha competitiva 20; conciencia/sofisticación 15; claridad y veracidad 15. Objetivo ≥80 para recomendar el hook, pero ningún puntaje exime el control obligatorio de claims y Product DNA. Si no supera la rúbrica, reformular hooks SIN cambiar avatar o ángulo.',
+  'SI las fichas anteriores traen hooks fríos, se pueden OPTIMIZAR los titulares dentro del mismo ángulo y con aprobación humana: la estrategia no se modifica. El PDF BRIEF 02 humano, los bloques DeepSeek y el manifiesto no se reescriben. Registrar en preproducción el hook editorial aprobado y el hook original para trazabilidad.',
+  'IMPORTANTE: esta sección es una instrucción de PREPRODUCCIÓN para Work, no una orden para generar seis imágenes inmediatamente sin aprobación. Cuando las instrucciones originales de las fichas indiquen un titular frío, aplicar este protocolo de selección de hook, conservando avatar, ángulo y claims permitidos.',
   '',
   '## 4. ESTRATEGIA MAESTRA — APROBADA',
   brief02ActiveOnlyStrategy(safe(phases.strategy?.text)),
