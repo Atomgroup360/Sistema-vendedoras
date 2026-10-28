@@ -22763,6 +22763,85 @@ return <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
 }
 
 
+
+// V5.29 — Calculadora autónoma. Reutiliza los motores BRIEF01 sin tocar investigaciones.
+function CalculadoraIndependienteV529() {
+  const [freightRates,setFreightRates]=useState(DEFAULT_PONDERADO_BASE_RATES);
+  const [freightError,setFreightError]=useState('');
+  const [form,setForm]=useState({name:'Nuevo escenario',price:'99900',unitCost:'27500',quantity:'1',cancellation:'5',returns:'20',commission:'3500',fixed:'2000',cpa:'15000',target:'800000',days:'30',dailyOrders:'',additional:'0'});
+  const [upsells,setUpsells]=useState([]);
+  useEffect(()=>{
+    const unsub=onSnapshot(doc(db,FREIGHT_TABLE_COLLECTION,FREIGHT_TABLE_DOC_ID),snapshot=>{
+      if(snapshot.exists()) {
+        const rows=normalizeFreightRates(snapshot.data()?.rates||[]);
+        if(rows.length) {setFreightRates(rows);setFreightError('');} else setFreightError('La tabla compartida está vacía; se muestran tarifas predeterminadas.');
+      } else setFreightError('Sin tabla guardada: se muestran tarifas predeterminadas.');
+    },()=>setFreightError('No se pudo consultar la tabla global; se usan tarifas predeterminadas.'));
+    return ()=>unsub();
+  },[]);
+  const setField=(key,value)=>setForm(p=>({...p,[key]:value}));
+  const n=value=>Math.max(0, Number(value)||0);
+  const money=value=>new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(Number(value)||0);
+  const activeUpsells=upsells.filter(x=>x.enabled);
+  const upsellPrice=activeUpsells.reduce((a,u)=>a+n(u.price)*Math.max(1,Math.floor(n(u.quantity)||1)),0);
+  const upsellCost=activeUpsells.reduce((a,u)=>a+n(u.cost)*Math.max(1,Math.floor(n(u.quantity)||1)),0);
+  const totalPrice=n(form.price)+upsellPrice;
+  const productCost=n(form.unitCost)*Math.max(1,Math.floor(n(form.quantity)||1))+upsellCost;
+  const virtualResearch={
+    offer:{price:totalPrice,quantity:1},
+    costs:{importEstimatedUnitCost:productCost,commissionAmount:n(form.commission),commissionBase:'per_delivered',fixedAmount:n(form.fixed),fixedBase:'per_delivered',additional:n(form.additional)?[{amount:n(form.additional),base:'per_delivered'}]:[]},
+    deliverySettings:{custom:true,cancellationPct:n(form.cancellation),returnPct:n(form.returns)},
+    planning:{planningCPA:n(form.cpa),monthlyProfitTarget:n(form.target),sellingDays:Math.floor(n(form.days))}
+  };
+  const financial=calculateBrief01Financial(virtualResearch,freightRates,{unitCost:productCost,quantity:1,price:totalPrice});
+  const projection=calculateBrief01MonthlyProjection(virtualResearch,financial);
+  const rates=brief01DeliveryRates(virtualResearch);
+  const validFreight=financial.freightLookup.status==='ok';
+  const valid=totalPrice>0 && validFreight && rates.valid && n(form.days)>0 && n(form.days)<=31;
+  const dailyActual=Math.floor(n(form.dailyOrders));
+  const hasDaily=form.dailyOrders!=='';
+  const monthOrders=dailyActual*Math.floor(n(form.days));
+  const monthlyAtInput=hasDaily&&valid?{
+    generated:monthOrders,delivered:monthOrders*rates.effective,
+    revenue:monthOrders*financial.revenueCollected/100,
+    profit:monthOrders*(financial.marginPerGenerated-n(form.cpa)),
+    ads:monthOrders*n(form.cpa)
+  }:null;
+  const inputStyle='w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500';
+  const field=(key,label,help)=> <label className="block min-w-0"><span className="block text-[10px] font-black uppercase tracking-wide text-slate-500 mb-1">{label}</span><input className={inputStyle} type="number" min="0" step="any" value={form[key]} onChange={e=>setField(key,e.target.value)}/>{help&&<span className="text-[9px] text-slate-400">{help}</span>}</label>;
+  const tile=(label,value,sub)=> <div className="p-3 rounded-2xl border border-slate-200 bg-white"><p className="text-[10px] uppercase font-black text-slate-500">{label}</p><p className="text-xl font-black text-[#12386B] mt-1">{value}</p>{sub&&<p className="text-[10px] text-slate-500 mt-1">{sub}</p>}</div>;
+  return <div className="space-y-5 max-w-[1450px] mx-auto">
+    <div className="rounded-3xl bg-[#12386B] text-white p-5 sm:p-7"><p className="text-[10px] font-black tracking-[0.18em] text-yellow-300 uppercase">WINNER OS · Motor BRIEF 01 reutilizado</p><h2 className="text-2xl font-black mt-2">Calculadora independiente</h2><p className="text-xs text-blue-100 mt-2">Simula productos sin proveedor, hasta tres upsells, IER, fletes, publicidad y pedidos para alcanzar una meta. No altera BRIEF 01.</p></div>
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <section className="rounded-2xl bg-white border border-slate-200 p-4 space-y-4">
+        <h3 className="font-black text-[#12386B]">1. Producto, costos y venta</h3>
+        <label className="block"><span className="text-[10px] font-black text-slate-500 uppercase">Nombre del escenario</span><input className={inputStyle} value={form.name} onChange={e=>setField('name',e.target.value)} /></label>
+        <div className="grid grid-cols-2 gap-3">{field('price','Precio de venta base COP')}{field('unitCost','Costo unitario COP')}{field('quantity','Unidades producto base')}{field('cpa','CPA por pedido generado COP')}</div>
+        <h4 className="font-black text-[#12386B]">Upsells (máximo 3)</h4>
+        <p className="text-xs text-slate-500">Activa los complementos incluidos en este escenario. Precio y costo se suman al pedido en el 100% de las ventas simuladas; desactiva un upsell para excluirlo.</p>
+        {upsells.map((u,i)=><div key={u.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between"><label className="text-xs font-black flex items-center gap-2"><input type="checkbox" checked={u.enabled} onChange={e=>setUpsells(old=>old.map((v,j)=>j===i?{...v,enabled:e.target.checked}:v))}/>Upsell {i+1}</label><button className="text-rose-600 text-xs font-bold" onClick={()=>setUpsells(old=>old.filter((_,j)=>j!==i))}>Eliminar</button></div>
+          <input className={inputStyle} placeholder="Nombre del complemento" value={u.name} onChange={e=>setUpsells(old=>old.map((v,j)=>j===i?{...v,name:e.target.value}:v))}/>
+          <div className="grid grid-cols-3 gap-2">{[['price','Precio venta'],['cost','Costo compra'],['quantity','Cantidad']].map(([k,label])=><label key={k}><span className="text-[9px] font-bold text-slate-500">{label}</span><input type="number" min="0" className={inputStyle} value={u[k]} onChange={e=>setUpsells(old=>old.map((v,j)=>j===i?{...v,[k]:e.target.value}:v))}/></label>)}</div>
+        </div>)}
+        {upsells.length<3&&<button className="rounded-xl px-4 py-2 bg-indigo-50 text-indigo-800 font-black text-xs" onClick={()=>setUpsells(a=>[...a,{id:`upsell-${a.length}-${Date.now()}`,name:'',price:'0',cost:'0',quantity:'1',enabled:true}])}>+ Agregar upsell</button>}
+        <div className="rounded-xl bg-blue-50 p-3 text-xs"><b>Ticket total:</b> {money(totalPrice)} · <b>Mercancía total:</b> {money(productCost)} · <b>Margen bruto de mercancía:</b> {money(totalPrice-productCost)}</div>
+      </section>
+      <section className="rounded-2xl bg-white border border-slate-200 p-4 space-y-4">
+        <h3 className="font-black text-[#12386B]">2. Costos, IER y objetivo</h3>
+        <div className="grid grid-cols-2 gap-3">{field('cancellation','Cancelaciones %')}{field('returns','Devoluciones sobre despachados %')}{field('commission','Comisión por entregado COP')}{field('fixed','Costo fijo por entregado COP')}{field('additional','Otros costos por entregado COP')}{field('target','Meta utilidad mensual COP')}{field('days','Días de venta al mes')}{field('dailyOrders','Pedidos diarios hipotéticos','Opcional: compara tu ritmo real con la meta')}</div>
+        <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700"><b>IER:</b> {(rates.effective*100).toFixed(2)}% · <b>Despacho:</b> {(rates.dispatch*100).toFixed(2)}% · <b>Devolución:</b> {(rates.returnRate*100).toFixed(2)}%</div>
+        <div className="rounded-xl border border-slate-200 p-3"><h4 className="text-xs font-black">Tabla global de fletes (mismo origen BRIEF 01)</h4>{freightError&&<p className="text-xs text-amber-700 mt-2">{freightError}</p>}<div className="max-h-44 overflow-y-auto mt-2"><table className="w-full text-xs"><thead><tr><th className="text-left">Ticket hasta</th><th className="text-right">Flete</th></tr></thead><tbody>{freightRates.map((r,i)=><tr key={i} className="border-t border-slate-100"><td>{money(r.ticketMax)}</td><td className="text-right">{money(r.freight)}</td></tr>)}</tbody></table></div><p className="text-xs mt-2 font-semibold text-[#12386B]">Tarifa aplicada: {validFreight?money(financial.freightPerShipment):'FUERA DE TABLA'}</p></div>
+      </section>
+    </div>
+    {!valid && <div className="border border-amber-300 bg-amber-50 text-amber-900 rounded-xl p-4 text-sm font-semibold">Revisa los parámetros: precio mayor a cero, días entre 1 y 31 y ticket dentro de la tabla de fletes. No se calcula una utilidad viable con flete desconocido.</div>}
+    {valid&&<><div className="grid grid-cols-2 md:grid-cols-4 gap-3">{tile('IER final',`${(rates.effective*100).toFixed(2)}%`,'Pedidos que llegan a entrega')}{tile('Margen antes de Ads',money(financial.marginPerGenerated),'Por pedido generado, conforme a BRIEF 01')}{tile('Utilidad después de Ads',money(financial.marginPerGenerated-n(form.cpa)),'Por pedido generado; base usada por el motor')}{tile('Flete por despacho',money(financial.freightPerShipment),'Tarifa global por ticket')}</div>
+      <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3"><h3 className="font-black text-[#12386B]">3. Meta de ganancia · proyección BRIEF 01</h3>{projection.status==='ok'?<div className="grid grid-cols-2 md:grid-cols-4 gap-3">{tile('Pedidos diarios mínimos',projection.requiredDailyOrders,'Generados, considerando IER')}{tile('Pedidos mensuales mínimos',projection.minimumMonthlyOrders,'Antes de redondear al ritmo diario')}{tile('Entregas mínimas',projection.requiredDeliveredOrders,'Meta acumulada')}{tile('Inversión Ads mensual',money(projection.operatingAdBudget),'Pedidos al ritmo diario × CPA')}{tile('Recaudo proyectado',money(projection.projectedGrossRevenue))}{tile('Utilidad mensual estimada',money(projection.projectedMonthlyOperatingProfit))}{tile('Pedidos al ritmo elegido',projection.monthlyOrdersAtDailyPace)}{tile('Ads / recaudo',`${projection.adSpendShareOfRevenuePct.toFixed(1)}%`)}</div>:<p className="text-sm font-semibold text-amber-800">{projection.message}</p>}{monthlyAtInput&&<div className="rounded-xl bg-blue-50 border border-blue-200 p-3 text-sm"><b>Con {dailyActual} pedidos diarios:</b> {monthlyAtInput.generated} pedidos/mes, {monthlyAtInput.delivered.toFixed(1)} entregas estimadas, recaudo {money(monthlyAtInput.revenue)}, pauta {money(monthlyAtInput.ads)} y utilidad {money(monthlyAtInput.profit)}.</div>}</section>
+      <p className="text-[11px] text-slate-500">Motor exacto de BRIEF 01: sobre una cohorte de 100 pedidos generados se calculan despachos, entregas, costos recuperables de producto, fletes por despachado, comisiones, costos fijos y margen. La proyección utiliza la misma regla mensual de BRIEF 01; son estimaciones, no liquidaciones reales. Los complementos activados se suponen vendidos con todos los pedidos y sus costos se contabilizan al entregarse.</p>
+    </>}
+  </div>;
+}
+
 export default function App() {
   const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
@@ -22822,7 +22901,8 @@ export default function App() {
     { id: 'agenda', icon: CalendarDays, label: 'Agenda' },
     { id: 'campaignControl', icon: BarChart3, label: 'Campañas', notificationCount: campaignMenuPendingCount },
     { id: 'brief01', icon: FlaskConical, label: 'BRIEF 01' },
-    { id: 'brief02', icon: Target, label: 'BRIEF 02' }
+    { id: 'brief02', icon: Target, label: 'BRIEF 02' },
+    { id: 'calculadora', icon: Calculator, label: 'Calculadora' }
   ];
   const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
   const renderDesktopNavButton = (tab) => {
@@ -22933,7 +23013,7 @@ export default function App() {
           </div>
           <div>
             <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Investigación</p>
-            <div className="space-y-1">{renderDesktopNavButton(tabs[5])}{renderDesktopNavButton(tabs[6])}</div>
+            <div className="space-y-1">{renderDesktopNavButton(tabs[5])}{renderDesktopNavButton(tabs[6])}{renderDesktopNavButton(tabs[7])}</div>
           </div>
           <div>
             <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Gestión</p>
@@ -22997,6 +23077,7 @@ export default function App() {
           {activeTab === 'campaignControl' && <CampaignControlModule />}
           {activeTab === 'brief01' && <Brief01Module />}
           {activeTab === 'brief02' && <Brief02Module />}
+          {activeTab === 'calculadora' && <CalculadoraIndependienteV529 />}
         </main>
       </div>
 
