@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Activity, AlertTriangle, Bell, CheckCircle2, Clock3, LayoutDashboard, LockKeyhole, LogOut, Package, Radio, ShieldCheck, Sparkles, Users, Wifi, Zap } from 'lucide-react';
 
 const TABS = [
@@ -17,7 +17,9 @@ const STATUSES = [
   { name: 'WhatsApp', value: 'Manual', detail: 'Contacto desde el móvil de cada asesora', color: 'violet', icon: Radio },
   { name: 'Alertas recientes', value: 'Vista previa', detail: 'Análisis protegido en el Worker', color: 'green', icon: Sparkles },
 ];
-const ORDER_STATUS_LABELS = {assigned:'Pendiente de contacto',contacted:'Contactado',no_answer:'Sin respuesta',needs_correction:'Requiere corrección',confirmed:'Confirmado',cancelled:'Cancelado'};
+const ORDER_STATUS_LABELS = {pending:'Pendiente',sent:'Enviado',confirmed:'Confirmado',cancelled:'Cancelado'};
+const STATUS_STYLES={pending:{border:'#e5ac40',background:'rgba(226,166,53,.08)',tag:'#e5ac40'},sent:{border:'#47b9ef',background:'rgba(71,185,239,.08)',tag:'#47b9ef'},confirmed:{border:'#45cd96',background:'rgba(69,205,150,.08)',tag:'#45cd96'},cancelled:{border:'#f26b77',background:'rgba(242,107,119,.10)',tag:'#f26b77'}};
+const isOverdueOrder=o=>['pending','sent','confirmed'].includes(o.status)&&Number.isFinite(Date.parse(o.stateChangedAt||o.createdAt))&&(Date.now()-Date.parse(o.stateChangedAt||o.createdAt)>48*3600000);
 const ALERTS = [
   { title: 'Cliente con pedido reciente', detail: 'Verifica si está preguntando por el pedido anterior antes de confirmar uno nuevo.', tone: 'cyan', icon: Clock3 },
   { title: 'Posible pedido duplicado', detail: 'Mismo teléfono, productos o dirección: revisar manualmente; no cancelar de forma automática.', tone: 'amber', icon: AlertTriangle },
@@ -41,24 +43,48 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [advisorDraft,setAdvisorDraft]=useState({advisorId:'',displayName:'',priority:2,enabled:false});
 
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
+  const inboxBusyRef = useRef(false);
+  const knownOrderIdsRef = useRef(null);
+  const [newOrderCount,setNewOrderCount] = useState(0);
+  const [lastSync,setLastSync] = useState(null);
+  const [pollError,setPollError] = useState('');
   const [actionEnabled, setActionEnabled] = useState(false);
   const [actionState,setActionState]=useState({busy:0,message:''});
   const [notes,setNotes]=useState({});
+  const [confirmAction,setConfirmAction]=useState(null);
   const [advisorName,setAdvisorName]=useState('');
   const [messagePreview,setMessagePreview]=useState(null);
-  const fetchInbox = async () => {
-    if (!user?.getIdToken) {setInbox({status:'error',orders:[],error:'Sesión Firebase no disponible'});return;}
-    setInbox(prev=>({...prev,status:'loading',error:''}));
+  const fetchInbox = async (silent = false) => {
+    if (inboxBusyRef.current) return;
+    if (!user?.getIdToken) {
+      if (!silent) setInbox({status:'error',orders:[],error:'Sesión Firebase no disponible'});
+      return;
+    }
+    inboxBusyRef.current = true;
+    if (!silent) setInbox(prev=>({...prev,status:'loading',error:''}));
     try {
       const token=await user.getIdToken();
       const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/inbox',{
-        method:'GET', headers:{Authorization:`Bearer ${token}`}, cache:'no-store'
+        method:'GET',headers:{Authorization:`Bearer ${token}`},cache:'no-store'
       });
       const data=await res.json();
-      if(!res.ok || !data.ok)throw new Error(data.code||'ERROR_DE_CONEXION');
+      if (!res.ok || !data.ok) throw new Error(data.code||'ERROR_DE_CONEXION');
+      const orders=Array.isArray(data.orders)?data.orders:[];
+      const nextIds=new Set(orders.map(o=>o.id));
+      if (knownOrderIdsRef.current !== null) {
+        const added=orders.filter(o=>!knownOrderIdsRef.current.has(o.id)).length;
+        if (added>0) setNewOrderCount(count=>count+added);
+      }
+      knownOrderIdsRef.current=nextIds;
       setActionEnabled(data.orderActionsEnabled===true);
-      setInbox({status:'ready',orders:Array.isArray(data.orders)?data.orders:[],error:''});
-    }catch(e){setInbox({status:'error',orders:[],error:String(e.message||'ERROR')});}
+      setInbox({status:'ready',orders,error:''});
+      setLastSync(new Date());
+      setPollError('');
+    }catch(e){
+      const message=String(e.message||'ERROR');
+      if (silent) setPollError(message);
+      else setInbox(prev=>({...prev,status:'error',error:message}));
+    }finally{inboxBusyRef.current=false;}
   };
   const fetchDashboard = async () => {
     if(role!=='admin')return;
@@ -147,18 +173,21 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
   };
   const updateOrder = async (o, action) => {
-    if (!actionEnabled) return;
+    if(!actionEnabled)return;
     const note=notes[o.id]||'';
-    if (action==='no_answer' && !note.trim()) {setActionState({busy:0,message:'Escribe una nota para registrar el intento sin respuesta.'});return;}
-    if ((action==='cancelled'||action==='confirmed') && !window.confirm(`¿Registrar pedido ${o.number} como ${action==='confirmed'?'CONFIRMADO':'CANCELADO'}? Esta acción es definitiva.`)) return;
     setActionState({busy:o.id,message:''});
-    try {
+    try{
       const token=await user.getIdToken();
-      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/order-action',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,action,note})});
+      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/order-action',{
+        method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({incomingId:o.id,action,note})
+      });
       const data=await res.json();
-      if (!res.ok||!data.ok) throw new Error(data.code||'No se pudo registrar');
-      setActionState({busy:0,message:'Gestión guardada con auditoría.'});
+      if(!res.ok||!data.ok)throw new Error(data.code||'No se pudo registrar');
+      setActionState({busy:0,message:'Estado guardado y auditado.'});
+      setConfirmAction(null);
       await fetchInbox();
+      if(role==='admin')fetchDashboard();
     }catch(e){setActionState({busy:0,message:String(e.message||'Error')});}
   };
   const money = value => {
@@ -186,6 +215,17 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     catch{setMessagePreview(o.id);setActionState({busy:0,message:'Selecciona el mensaje de vista previa para copiarlo.'});}
   };
   useEffect(()=>{if(['pedidos','resumen','alertas'].includes(tab))fetchInbox();},[tab,user?.uid]);
+  // Asesora: actualiza sin recargar la página ni cerrar sesión. No interrumpe notas o mensajes.
+  useEffect(()=>{
+    if(role==='admin'||!user?.getIdToken)return;
+    const refresh=()=>{if(document.visibilityState==='visible'&&navigator.onLine)void fetchInbox(true);};
+    const timer=window.setInterval(refresh,15000);
+    document.addEventListener('visibilitychange',refresh);
+    window.addEventListener('focus',refresh);
+    window.addEventListener('online',refresh);
+    return ()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
+  },[role,user?.uid]);
+  useEffect(()=>{if(tab==='pedidos')setNewOrderCount(0);},[tab]);
   useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
@@ -234,12 +274,18 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         <div className="ao-atom-wrap"><Atom/></div>
         <div className="ao-user"><div><small style={{color:'#8cdaed',fontWeight:800}}>{admin?'ADMINISTRADOR':'ASESORA'}</small><span>{user?.email||'Sesión activa'}</span></div>{!admin&&<button type="button" onClick={onLogout}><LogOut size={15}/> Salir</button>}</div>
       </header>
+      {!admin&&<div role="status" aria-live="polite" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:12,fontSize:12,color:'#c9e5f1'}}>
+        <span className="ao-tag green"><Wifi size={12}/> Bandeja automática · cada 15 s</span>
+        <span>{lastSync?`Última actualización: ${lastSync.toLocaleTimeString('es-CO')}`:'Conectando con los pedidos…'}</span>
+        {pollError&&<span className="ao-tag amber">Sin conexión temporal; reintentando automáticamente</span>}
+        {newOrderCount>0&&<button type="button" className="ao-tag amber" onClick={()=>{setTab('pedidos');setNewOrderCount(0);}} style={{cursor:'pointer',padding:'9px 13px'}}>🔔 {newOrderCount} pedido(s) nuevo(s) · Ver ahora</button>}
+      </div>}
       <nav className="ao-nav" aria-label="Secciones del módulo de confirmaciones" role="tablist">
         {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
-        {tab==='resumen'&&<><section className="ao-panel" style={{marginBottom:14}}><div className="ao-section-head"><h3>Indicadores de pedidos asignados</h3><span className="ao-tag cyan">{inbox.status==='ready'?'Datos reales · hasta 100 asignaciones':'Consultando bandeja'}</span></div><div className="ao-minis"><div className="ao-mini"><h4>Asignados visibles</h4><strong>{inbox.status==='ready'?stats.total:'—'}</strong></div><div className="ao-mini"><h4>Confirmados</h4><strong>{inbox.status==='ready'?(stats.confirmed||0):'—'}</strong></div><div className="ao-mini"><h4>Sin respuesta</h4><strong>{inbox.status==='ready'?(stats.no_answer||0):'—'}</strong></div></div><p style={{fontSize:12,color:'#a5d9ec'}}>Cifras de la bandeja autorizada, no del total de pedidos Shopify ni de cohortes mensuales.</p></section><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Datos de bandeja autorizada</span></div><p>Los indicadores superiores utilizan exclusivamente los pedidos asignados visibles para esta cuenta.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Confirmados</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Cancelados</h4><strong>—</strong><p>Sin lectura autorizada</p></div></div><div className="ao-note">La recepción Shopify y el reparto funcionan en procesos independientes. Si el reparto está habilitado en Cloudflare, los pedidos elegibles se asignan automáticamente; consulta el panel de distribución para verificar resultados.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
-        {tab==='pedidos'&&<section className="ao-panel"><div className="ao-section-head"><h3>{admin?'Bandeja general de confirmaciones':'Mis pedidos asignados'}</h3><button type="button" className="ao-tag cyan" onClick={fetchInbox} disabled={inbox.status==='loading'}>{inbox.status==='loading'?'Consultando…':'Actualizar bandeja'}</button></div>
+        {tab==='resumen'&&<><section className="ao-panel" style={{marginBottom:14}}><div className="ao-section-head"><h3>Indicadores de pedidos asignados</h3><span className="ao-tag cyan">{inbox.status==='ready'?'Datos reales · hasta 100 asignaciones':'Consultando bandeja'}</span></div><div className="ao-minis"><div className="ao-mini"><h4>Asignados visibles</h4><strong>{inbox.status==='ready'?stats.total:'—'}</strong></div><div className="ao-mini"><h4>Confirmados</h4><strong>{inbox.status==='ready'?(stats.confirmed||0):'—'}</strong></div><div className="ao-mini"><h4>Enviados</h4><strong>{inbox.status==='ready'?(stats.sent||0):'—'}</strong></div></div><p style={{fontSize:12,color:'#a5d9ec'}}>Cifras de la bandeja autorizada, no del total de pedidos Shopify ni de cohortes mensuales.</p></section><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Datos de bandeja autorizada</span></div><p>Los indicadores superiores utilizan exclusivamente los pedidos asignados visibles para esta cuenta.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>{stats.pending||0}</strong></div><div className="ao-mini"><h4>Confirmados</h4><strong>{stats.confirmed||0}</strong></div><div className="ao-mini"><h4>Cancelados</h4><strong>{stats.cancelled||0}</strong></div></div><div className="ao-note">La recepción Shopify y el reparto funcionan en procesos independientes. Si el reparto está habilitado en Cloudflare, los pedidos elegibles se asignan automáticamente; consulta el panel de distribución para verificar resultados.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
+        {tab==='pedidos'&&<section className="ao-panel"><div className="ao-section-head"><h3>{admin?'Bandeja general de confirmaciones':'Mis pedidos asignados'}</h3><button type="button" className="ao-tag cyan" onClick={()=>fetchInbox()} disabled={inbox.status==='loading'}>{inbox.status==='loading'?'Consultando…':'Actualizar bandeja'}</button></div>
           <div style={{margin:'12px 0',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             <label htmlFor="ao-advisor-name" style={{fontSize:13,color:'#9bdff0',fontWeight:700}}>Nombre que aparecerá en el WhatsApp:</label>
             <input id="ao-advisor-name" value={advisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{border:'1px solid #447a97',background:'#061c30',color:'#fff',borderRadius:9,padding:'9px 12px',width:260,maxWidth:'100%'}}/>
@@ -248,8 +294,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {inbox.status==='error'&&<div className="ao-note">Conexión pendiente o acceso no autorizado: {inbox.error}. No se muestran datos de clientes.</div>}
           {inbox.status==='loading'&&<div className="ao-empty"><Clock3 size={28}/><h3>Consultando pedidos autorizados…</h3></div>}
           {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><LockKeyhole size={30}/><h3>No tienes pedidos asignados por ahora</h3><p>La bandeja está conectada y autorizada. Los pedidos aparecerán aquí cuando el reparto seguro sea habilitado.</p></div>}
-          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:14}}>{inbox.orders.map(o=><article key={o.id} className="ao-mini" style={{padding:18,border:'1px solid #3f728c',borderRadius:14}}>
-            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}><strong style={{fontSize:18,color:'#e9faff'}}>Pedido {o.number}</strong><span className="ao-tag cyan">{ORDER_STATUS_LABELS[o.status]||o.status}</span></div>
+          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:14}}>{inbox.orders.map(o=><article key={o.id} className="ao-mini" style={{padding:18,border:`2px solid ${STATUS_STYLES[o.status]?.border||'#3f728c'}`,background:STATUS_STYLES[o.status]?.background||'transparent',borderRadius:14,boxShadow:`inset 4px 0 0 ${STATUS_STYLES[o.status]?.border||'#3f728c'}`}}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}><strong style={{fontSize:18,color:'#e9faff'}}>Pedido {o.number}</strong><span style={{display:"inline-flex",gap:7,alignItems:"center",border:`1px solid ${STATUS_STYLES[o.status]?.border||"#3f728c"}`,color:STATUS_STYLES[o.status]?.tag||"#fff",borderRadius:99,padding:"6px 12px",fontWeight:800}}>{isOverdueOrder(o)&&<AlertTriangle size={15} aria-label="Más de 48 horas en este estado"/>}{ORDER_STATUS_LABELS[o.status]||o.status}{isOverdueOrder(o)&&" · +48 h"}</span></div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:13,marginTop:16}}>
               <div><p><b style={{color:'#6de7ff'}}>CLIENTE</b></p><p style={{color:'#e6f4ff'}}>{o.customerName||'No registrado'}</p><p>Teléfono: {o.customerPhone||'No registrado'}</p><p>Ciudad: {o.city||'No registrada'}</p></div>
               <div><p><b style={{color:'#f9c56b'}}>DIRECCIÓN DE ENTREGA</b></p><p>{[o.address?.address1,o.address?.address2].filter(Boolean).join(', ')||'No registrada'}</p><p>{[o.address?.city,o.address?.province,o.address?.zip].filter(Boolean).join(' · ')||'Ubicación incompleta'}</p><p style={{fontSize:11,color:'#a8becf'}}>Dirección original Shopify; verificar antes de confirmar.</p></div>
@@ -259,17 +305,28 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             {o.timeline?.length>0&&<details style={{marginTop:14,border:'1px solid #34576d',padding:12,borderRadius:10}}><summary style={{cursor:'pointer',fontWeight:750,color:'#8fe5f7'}}>Historial de gestiones ({o.timeline.length})</summary>{o.timeline.map((event,i)=><div key={i} style={{borderTop:'1px solid #25445b',padding:'9px 0',fontSize:12}}><b>{ORDER_STATUS_LABELS[event.action]||event.action}</b> · {new Date(event.at).toLocaleString('es-CO')} · {event.note||'Sin nota'}</div>)}</details>}
             <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:16,alignItems:'center'}}>
               <button type="button" onClick={()=>setMessagePreview(messagePreview===o.id?null:o.id)} className="ao-tag cyan" style={{padding:'10px 14px'}}>Vista previa del mensaje</button><button type="button" onClick={()=>copyMessage(o)} className="ao-tag violet" style={{padding:'10px 14px'}}>Copiar mensaje</button>{whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
-              <span style={{color:'#b1cddd',fontSize:11}}>La asesora revisa y envía manualmente. Abrir WhatsApp no registra contacto.</span>
+              <span style={{color:'#b1cddd',fontSize:11}}>La asesora envía por WhatsApp y después marca «Enviado». Abrir WhatsApp por sí solo no cambia el estado.</span>
             </div>
             {messagePreview===o.id&&<div style={{marginTop:10,padding:16,border:'1px solid #3886a7',background:'#09263d',borderRadius:12}}><div style={{fontWeight:800,color:'#74e8fa',marginBottom:10}}>Mensaje preparado para revisar y copiar</div><textarea readOnly value={formatConfirmMessage(o)} rows={15} style={{width:'100%',padding:12,whiteSpace:'pre-wrap',background:'#061b2b',color:'#f2fbff',border:'1px solid #3b7188',borderRadius:10}}/><p style={{fontSize:12,color:'#ffd483'}}>Comprueba nombre de asesora, dirección y valor. No promete una fecha de entrega ni descuentos no verificados.</p></div>}
             <div style={{marginTop:14,display:'grid',gap:9}}>
-              <label style={{fontSize:12,color:'#d0e7fa'}}>Nota de gestión (máximo 500 caracteres)</label>
+              <label style={{fontSize:12,color:'#d0e7fa'}}>Nota de gestión opcional (máximo 500 caracteres)</label>
               <textarea value={notes[o.id]||''} maxLength={500} onChange={e=>setNotes(s=>({...s,[o.id]:e.target.value}))} rows={2} placeholder="Qué respondió el cliente o qué se debe corregir…" style={{width:'100%',background:'#06192c',border:'1px solid #41647b',borderRadius:9,padding:11,color:'#f0faff'}}/>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[['contacted','Contactado'],['no_answer','Sin respuesta'],['needs_correction','Corregir datos'],['confirmed','Confirmado'],['cancelled','Cancelado']].map(([action,label])=><button type="button" key={action} disabled={!actionEnabled||actionState.busy!==0||['confirmed','cancelled'].includes(o.status)} onClick={()=>updateOrder(o,action)} style={{padding:'9px 12px',border:'1px solid #40718e',borderRadius:9,background:'#123454',color:'#e7f9ff',opacity:!actionEnabled?.5:1,cursor:actionEnabled?'pointer':'not-allowed'}}>{label}</button>)}</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[['sent','Enviado'],['confirmed','Confirmado'],['cancelled','Cancelado']].map(([action,label])=><button type="button" key={action} disabled={!actionEnabled||actionState.busy!==0||(['confirmed','cancelled'].includes(o.status)||(action==='sent'&&o.status!=='pending'))} onClick={()=>setConfirmAction({order:o,action})} style={{padding:'9px 12px',border:'1px solid #40718e',borderRadius:9,background:'#123454',color:'#e7f9ff',opacity:!actionEnabled?.5:1,cursor:actionEnabled?'pointer':'not-allowed'}}>{label}</button>)}</div>
               {!actionEnabled&&<p style={{fontSize:12,color:'#ffd58c'}}>Las acciones están en modo protegido hasta activar ORDER_ACTIONS_ENABLED y validar la migración de auditoría.</p>}
             </div>
           </article>)}</div>}
           {actionState.message&&<div className="ao-note" role="status">{actionState.message}</div>}
+          {confirmAction&&<div role="presentation" style={{position:'fixed',inset:0,zIndex:99999,background:'rgba(0,8,19,.79)',display:'grid',placeItems:'center',padding:18}} onClick={()=>actionState.busy===0&&setConfirmAction(null)}>
+            <div role="dialog" aria-modal="true" aria-label="Confirmar cambio de estado" onClick={e=>e.stopPropagation()} style={{maxWidth:450,width:'100%',border:`1px solid ${STATUS_STYLES[confirmAction.action]?.border||'#47b9ef'}`,background:'linear-gradient(145deg,#102c43,#061725)',boxShadow:'0 24px 80px #000a',borderRadius:20,padding:26,color:'#eefbff'}}>
+              <ShieldCheck size={35} color={STATUS_STYLES[confirmAction.action]?.tag||'#47b9ef'}/>
+              <h3 style={{fontSize:23,margin:'12px 0 6px'}}>Confirmar {ORDER_STATUS_LABELS[confirmAction.action]}</h3>
+              <p style={{color:'#a9cfe3'}}>Pedido {confirmAction.order.number} · {confirmAction.order.customerName||'Cliente'}</p>
+              <p>¿Deseas cambiar el estado a <strong style={{color:STATUS_STYLES[confirmAction.action]?.tag}}>{ORDER_STATUS_LABELS[confirmAction.action]}</strong>?</p>
+              {['confirmed','cancelled'].includes(confirmAction.action)&&<p style={{color:'#ffd28b',fontSize:13}}>Esta acción cierra la tarea y no podrá modificarse después.</p>}
+              <p style={{color:'#a4bfd2',fontSize:12}}>La nota es opcional. El cambio quedará registrado en la auditoría.</p>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:22}}><button type="button" disabled={actionState.busy!==0} onClick={()=>setConfirmAction(null)} style={{padding:'11px 17px',borderRadius:10,border:'1px solid #507189',color:'#ecf8ff',background:'#1a3548'}}>Volver</button><button type="button" disabled={actionState.busy!==0} onClick={()=>updateOrder(confirmAction.order,confirmAction.action)} style={{padding:'11px 17px',borderRadius:10,border:0,fontWeight:800,color:'#051724',background:STATUS_STYLES[confirmAction.action]?.tag||'#47b9ef'}}>Sí, guardar estado</button></div>
+            </div>
+          </div>}
           {inbox.status==='idle'&&<div className="ao-empty"><LockKeyhole size={30}/><h3>Consulta segura</h3><p>Los pedidos solo se obtienen usando tu sesión de Firebase, con verificación del servidor.</p></div>}
         </section>}
         {tab==='estadisticas'&&admin&&<section className="ao-panel">
@@ -286,15 +343,18 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             <p style={{fontSize:12,color:'#98c8e1'}}>Período: {dashboard.data.from} a {dashboard.data.to} · Zona horaria Colombia</p>
             <div className="ao-grid" style={{margin:'15px 0'}}>{[
               ['Pedidos recibidos',dashboard.data.totals.received,'cyan'],
+              ['Pendientes',dashboard.data.totals.pending||0,'amber'],
+              ['Enviados',dashboard.data.totals.sent||0,'cyan'],
+              ['Alertas +48 h',dashboard.data.totals.overdue||0,'amber'],
               ['Confirmados',dashboard.data.totals.confirmed,'green'],
               ['Cancelados',dashboard.data.totals.cancelled,'amber'],
-              ['Sin respuesta',dashboard.data.totals.no_answer,'violet'],
+
               ['Sin asignar',dashboard.data.totals.unassigned,'cyan'],
               ['Tasa de confirmación',`${dashboard.data.totals.confirmationRate}%`,'green'],
               ['Tiempo medio hasta confirmar',dashboard.data.totals.averageConfirmationHours===null?'Sin datos':`${dashboard.data.totals.averageConfirmationHours} h`,'violet'],
             ].map(([label,val,tone])=><div key={label} className={`ao-card ${tone}`}><h4 style={{fontSize:12,color:'#b2daea'}}>{label}</h4><div className="ao-value" style={{fontSize:25}}>{val}</div></div>)}</div>
-            <div style={{overflowX:'auto',marginTop:20}}><h4 style={{fontSize:17,color:'#7ce7fa',marginBottom:10}}>Rendimiento por asesora</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}><thead><tr>{['Asesora','Recibidos','Confirmados','Cancelados','Sin respuesta','Contactados'].map(h=><th key={h} style={{padding:10,borderBottom:'1px solid #41657a',textAlign:'left',color:'#93dbe9'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.advisors.map(a=><tr key={a.advisorId}><td style={{padding:10,borderBottom:'1px solid #25445b'}}><button type="button" className="ao-tag cyan" style={{padding:'7px 10px'}} onClick={()=>{setAdminAdvisor(a.advisorId);setAdminPage(0);setAdminOpenedOrder(null);setTab('asesoras')}}>Ver asesora · {a.name}</button></td>{[a.received,a.confirmed,a.cancelled,a.no_answer,a.contacted].map((v,i)=><td key={i} style={{padding:10,borderBottom:'1px solid #25445b',color:'#f1faff'}}>{v}</td>)}</tr>)}</tbody></table>{!dashboard.data.advisors.length&&<p style={{color:'#b4cbe0'}}>No hay asignaciones en este período.</p>}</div>
-            <div style={{overflowX:'auto',marginTop:24}}><h4 style={{fontSize:17,color:'#cba9ff',marginBottom:10}}>Evolución diaria por fecha original</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:500}}><thead><tr>{['Fecha','Recibidos','Confirmados','Cancelados','Sin respuesta','Sin asignar'].map(h=><th key={h} style={{padding:10,textAlign:'left',borderBottom:'1px solid #41657a',color:'#cba9ff'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.daily.map(d=><tr key={d.date}>{[d.date,d.received,d.confirmed,d.cancelled,d.no_answer,d.unassigned].map((v,i)=><td key={i} style={{padding:9,color:'#f0faff',borderBottom:'1px solid #25445b'}}>{v}</td>)}</tr>)}</tbody></table></div>
+            <div style={{overflowX:'auto',marginTop:20}}><h4 style={{fontSize:17,color:'#7ce7fa',marginBottom:10}}>Rendimiento por asesora</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}><thead><tr>{['Asesora','Recibidos','Confirmados','Cancelados','Pendientes','Enviados','+48 h'].map(h=><th key={h} style={{padding:10,borderBottom:'1px solid #41657a',textAlign:'left',color:'#93dbe9'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.advisors.map(a=><tr key={a.advisorId}><td style={{padding:10,borderBottom:'1px solid #25445b'}}><button type="button" className="ao-tag cyan" style={{padding:'7px 10px'}} onClick={()=>{setAdminAdvisor(a.advisorId);setAdminPage(0);setAdminOpenedOrder(null);setTab('asesoras')}}>Ver asesora · {a.name}</button></td>{[a.received,a.confirmed,a.cancelled,a.pending,a.sent,a.overdue].map((v,i)=><td key={i} style={{padding:10,borderBottom:'1px solid #25445b',color:'#f1faff'}}>{v}</td>)}</tr>)}</tbody></table>{!dashboard.data.advisors.length&&<p style={{color:'#b4cbe0'}}>No hay asignaciones en este período.</p>}</div>
+            <div style={{overflowX:'auto',marginTop:24}}><h4 style={{fontSize:17,color:'#cba9ff',marginBottom:10}}>Evolución diaria por fecha original</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:500}}><thead><tr>{['Fecha','Recibidos','Confirmados','Cancelados','Pendientes','Enviados','+48 h','Sin asignar'].map(h=><th key={h} style={{padding:10,textAlign:'left',borderBottom:'1px solid #41657a',color:'#cba9ff'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.daily.map(d=><tr key={d.date}>{[d.date,d.received,d.confirmed,d.cancelled,d.pending,d.sent,d.overdue,d.unassigned].map((v,i)=><td key={i} style={{padding:9,color:'#f0faff',borderBottom:'1px solid #25445b'}}>{v}</td>)}</tr>)}</tbody></table></div>
             <p style={{fontSize:12,color:'#a7c4d6',marginTop:15}}>Excluidos por pruebas o descartes: {dashboard.data.totals.excluded}. Las cohortes pendientes pueden cambiar al confirmar pedidos posteriormente.</p>
           </>}
         </section>}
@@ -313,9 +373,9 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {adminOrders.status==='error'&&<div className="ao-note" role="alert">Error: {adminOrders.error}</div>}
           {adminOrders.status==='ready'&&<>
             {!adminOrders.orders.length&&<div className="ao-note">No hay pedidos asignados a esta asesora en esta página.</div>}
-            <div style={{display:'grid',gap:9}}>{adminOrders.orders.map(o=><article key={o.id} style={{padding:14,background:'#09243a',border:'1px solid #31536a',borderRadius:12}}>
+            <div style={{display:'grid',gap:9}}>{adminOrders.orders.map(o=><article key={o.id} style={{padding:14,background:STATUS_STYLES[o.status]?.background||'#09243a',border:`2px solid ${STATUS_STYLES[o.status]?.border||'#31536a'}`,borderRadius:12}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-                <div><strong style={{color:'#f0fbff'}}>Pedido {o.number}</strong> <span className="ao-tag cyan" style={{marginLeft:8}}>{ORDER_STATUS_LABELS[o.status]||o.status}</span><div style={{fontSize:12,color:'#a4c9dc',marginTop:5}}>{o.advisorName||'Asesora'} · {o.createdAt?new Date(o.createdAt).toLocaleString('es-CO'): 'Sin fecha'} · {money(o.total)}</div></div>
+                <div><strong style={{color:'#f0fbff'}}>Pedido {o.number}</strong> <span className="ao-tag cyan" style={{marginLeft:8}}>{isOverdueOrder(o)&&"⚠ +48h · "}{ORDER_STATUS_LABELS[o.status]||o.status}</span><div style={{fontSize:12,color:'#a4c9dc',marginTop:5}}>{o.advisorName||'Asesora'} · {o.createdAt?new Date(o.createdAt).toLocaleString('es-CO'): 'Sin fecha'} · {money(o.total)}</div></div>
                 <button type="button" className="ao-tag violet" style={{padding:'10px 12px'}} onClick={()=>setAdminOpenedOrder(adminOpenedOrder===o.id?null:o.id)}>{adminOpenedOrder===o.id?'Ocultar pedido':'Ver pedido y gestiones'}</button>
               </div>
               {adminOpenedOrder===o.id&&<div style={{marginTop:14,padding:12,background:'#061b2b',border:'1px solid #365c72',borderRadius:10}}>
