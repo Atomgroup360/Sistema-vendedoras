@@ -18,7 +18,6 @@ import {
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
 import { db } from './src/firebase';
-import { getDoc, doc } from 'firebase/firestore';
 import ConfirmationAdvisorPortal from './src/components/ConfirmationAdvisorPortal';
 
 // Intelligence V40: SOLO campos textuales aprobados; sin imágenes, base64 ni medios.
