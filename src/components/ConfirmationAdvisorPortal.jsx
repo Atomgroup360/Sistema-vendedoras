@@ -13,6 +13,7 @@ const STATUSES = [
   { name: 'WhatsApp', value: 'Manual', detail: 'Contacto desde el móvil de cada asesora', color: 'violet', icon: Radio },
   { name: 'Alertas recientes', value: 'Vista previa', detail: 'Análisis protegido en el Worker', color: 'green', icon: Sparkles },
 ];
+const ORDER_STATUS_LABELS = {assigned:'Pendiente de contacto',contacted:'Contactado',no_answer:'Sin respuesta',needs_correction:'Requiere corrección',confirmed:'Confirmado',cancelled:'Cancelado'};
 const ALERTS = [
   { title: 'Cliente con pedido reciente', detail: 'Verifica si está preguntando por el pedido anterior antes de confirmar uno nuevo.', tone: 'cyan', icon: Clock3 },
   { title: 'Posible pedido duplicado', detail: 'Mismo teléfono, productos o dirección: revisar manualmente; no cancelar de forma automática.', tone: 'amber', icon: AlertTriangle },
@@ -118,7 +119,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {inbox.status==='loading'&&<div className="ao-empty"><Clock3 size={28}/><h3>Consultando pedidos autorizados…</h3></div>}
           {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><LockKeyhole size={30}/><h3>No tienes pedidos asignados por ahora</h3><p>La bandeja está conectada y autorizada. Los pedidos aparecerán aquí cuando el reparto seguro sea habilitado.</p></div>}
           {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:14}}>{inbox.orders.map(o=><article key={o.id} className="ao-mini" style={{padding:18,border:'1px solid #3f728c',borderRadius:14}}>
-            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}><strong style={{fontSize:18,color:'#e9faff'}}>Pedido {o.number}</strong><span className="ao-tag cyan">{o.status==='assigned'?'Pendiente de contacto':o.status}</span></div>
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}><strong style={{fontSize:18,color:'#e9faff'}}>Pedido {o.number}</strong><span className="ao-tag cyan">{ORDER_STATUS_LABELS[o.status]||o.status}</span></div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:13,marginTop:16}}>
               <div><p><b style={{color:'#6de7ff'}}>CLIENTE</b></p><p style={{color:'#e6f4ff'}}>{o.customerName||'No registrado'}</p><p>Teléfono: {o.customerPhone||'No registrado'}</p><p>Ciudad: {o.city||'No registrada'}</p></div>
               <div><p><b style={{color:'#f9c56b'}}>DIRECCIÓN DE ENTREGA</b></p><p>{[o.address?.address1,o.address?.address2].filter(Boolean).join(', ')||'No registrada'}</p><p>{[o.address?.city,o.address?.province,o.address?.zip].filter(Boolean).join(' · ')||'Ubicación incompleta'}</p><p style={{fontSize:11,color:'#a8becf'}}>Dirección original Shopify; verificar antes de confirmar.</p></div>
