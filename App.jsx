@@ -22905,21 +22905,6 @@ function CalculadoraIndependienteV532() {
   </div>;
 }
 
-// V5.33 · Atomic Premium visual layer; pure presentation and reduced-motion aware.
-function AtomicAmbient({ small = false }) {
-  return <div className={`tpc-atomic-field ${small ? 'is-small' : ''}`} aria-hidden="true">
-    <div className="tpc-atom tpc-atom-one"><span className="tpc-atom-core" /><span className="tpc-atom-orbit orbit-one"><i /></span><span className="tpc-atom-orbit orbit-two"><i /></span><span className="tpc-atom-orbit orbit-three"><i /></span></div>
-    <div className="tpc-atom tpc-atom-two"><span className="tpc-atom-core" /><span className="tpc-atom-orbit orbit-one"><i /></span><span className="tpc-atom-orbit orbit-two"><i /></span><span className="tpc-atom-orbit orbit-three"><i /></span></div>
-  </div>;
-}
-function AiConnectivityIndicator({ status, compact = false }) {
-  const online = status === 'online';
-  const label = online ? 'IA conectada' : status === 'checking' ? 'Comprobando IA' : 'IA sin verificar';
-  return <span className={`tpc-ai-indicator ${online ? 'is-online' : status === 'checking' ? 'is-checking' : 'is-unverified'}`} title={online ? 'Worker de inteligencia respondió correctamente a /health' : 'No se ha podido confirmar la conexión del Worker; no implica que DeepSeek esté desconectado'}>
-    <span className="tpc-ai-dot"/><span>{label}</span>{!compact && <span className="tpc-ai-indicator-note">{online ? 'Worker disponible' : 'Estado del Worker'}</span>}
-  </span>;
-}
-
 export default function App() {
   const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
@@ -22928,23 +22913,6 @@ export default function App() {
   const [campaignMenuCampaigns, setCampaignMenuCampaigns] = useState([]);
   const [campaignMenuReviews, setCampaignMenuReviews] = useState([]);
   const [activeTab, setTabState] = useState('dashboard');
-  const [aiConnectivity, setAiConnectivity] = useState('checking');
-  useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 6500);
-    fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/health', { signal: controller.signal, cache: 'no-store' })
-      .then(async response => {
-        if (!response.ok) return false;
-        const body = await response.json().catch(() => null);
-        return Boolean(body && typeof body === 'object');
-      })
-      .then(verified => { if (mounted) setAiConnectivity(verified ? 'online' : 'unverified'); })
-      .catch(() => { if (mounted) setAiConnectivity('unverified'); })
-      .finally(() => window.clearTimeout(timeout));
-    return () => { mounted = false; controller.abort(); window.clearTimeout(timeout); };
-  }, [user?.uid]);
-
   const [navigationLoading, setNavigationLoading] = useState(false);
   const navigationLoadingTimer = useRef(null);
 
@@ -23021,143 +22989,10 @@ export default function App() {
   };
 
   return (
-    <div className="tpc-app-shell tpc-atomic-premium min-h-screen bg-[#080e22] text-slate-100" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="tpc-app-shell min-h-screen bg-[#f6f8fc] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <Brief01ExtensionBridge />
       <TuPedidoLoadingOverlay active={navigationLoading} label="Cargando módulo..." />
       <style>{`
-
-        /* V5.33 · Atomic Premium visual system, shared across every main module */
-        .tpc-atomic-premium { background:#080e22; --tpc-azure:#5bceff; --tpc-violet:#9b88ff; }
-        .tpc-premium-sidebar { background:linear-gradient(172deg,#101d3c 0%,#0a1430 55%,#080e20 100%); box-shadow:9px 0 34px rgba(0,3,14,.28), inset -1px 0 rgba(114,161,255,.09); }
-        .tpc-premium-sidebar:before { content:"";pointer-events:none;position:absolute;inset:0;background:radial-gradient(circle at 10% 10%,rgba(51,179,255,.17),transparent 36%),radial-gradient(circle at 90% 82%,rgba(123,76,255,.13),transparent 44%); }
-        .tpc-premium-sidebar > * { position:relative;z-index:1; }
-        .tpc-premium-sidebar .tpc-side-nav-item { transition:background .22s ease,transform .22s ease,box-shadow .22s ease,border-color .22s ease; }
-        .tpc-premium-sidebar .tpc-side-nav-item:hover { transform:translateX(3px); }
-        .tpc-atomic-premium .tpc-side-nav-item.is-active { background:linear-gradient(110deg,rgba(36,113,185,.4),rgba(104,83,185,.21));box-shadow:inset 3px 0 #62ddff,0 0 26px rgba(20,153,240,.15); }
-        .tpc-atomic-premium .tpc-side-nav-item.is-active > span:first-child { background:linear-gradient(135deg,#31c9ec,#787bfc)!important;color:#06142f!important;box-shadow:0 0 15px rgba(62,204,244,.26); }
-        .tpc-premium-workspace { position:relative;isolation:isolate;overflow:hidden;min-height:100vh;background:radial-gradient(ellipse 65% 46% at 96% 0%,rgba(78,78,164,.22),transparent),radial-gradient(ellipse 50% 46% at 4% 87%,rgba(13,128,184,.18),transparent),#080e22; }
-        .tpc-premium-workspace:before { content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.2;background-image:linear-gradient(rgba(92,145,236,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(92,145,236,.13) 1px,transparent 1px);background-size:40px 40px; }
-        .tpc-premium-header,.tpc-premium-mobile-header { background:rgba(11,21,46,.91);border-bottom:1px solid rgba(103,148,221,.21);box-shadow:0 8px 25px rgba(2,7,22,.14); }
-        .tpc-premium-header p,.tpc-premium-mobile-header p { color:#a6b8d6!important; }
-        .tpc-premium-header h1,.tpc-premium-mobile-header p:last-child { color:#eff7ff!important; }
-        .tpc-premium-header .w-px { background:#415174!important; }
-        .tpc-premium-enter { position:relative;z-index:1;animation:tpcPremiumEnter .35s ease both; }
-        @keyframes tpcPremiumEnter { from{opacity:.64;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
-        .tpc-premium-enter > div { min-width:0; }
-        .tpc-atomic-premium .tpc-main-surface > div > section,
-        .tpc-atomic-premium .tpc-main-surface > section { animation:tpcPremiumEnter .4s ease both; }
-        .tpc-atomic-premium .tpc-main-surface > div,
-        .tpc-atomic-premium .tpc-main-surface > section { filter:drop-shadow(0 14px 28px rgba(0,5,19,.1)); }
-        .tpc-atomic-premium .tpc-main-surface :is(.bg-white,.bg-white\/95,.bg-white\/90) { box-shadow:0 10px 25px rgba(0,9,30,.075); }
-        .tpc-atomic-premium .tpc-main-surface button { transition:transform .18s ease,box-shadow .18s ease,filter .18s ease; }
-        @media(hover:hover) { .tpc-atomic-premium .tpc-main-surface button:not(:disabled):hover { filter:brightness(1.035); } }
-        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select):focus { outline-color:#53a9ee; }
-        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select) { transition:border-color .2s ease,box-shadow .2s ease; }
-        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select):focus-visible { box-shadow:0 0 0 3px rgba(72,190,255,.13); }
-        .tpc-atomic-field { pointer-events:none;position:absolute;z-index:0;inset:0;overflow:hidden;opacity:.25; }
-        .tpc-atom { position:absolute;width:360px;height:360px;filter:drop-shadow(0 0 18px rgba(69,177,255,.16)); }
-        .tpc-atom-one { top:85px;right:-100px; }
-        .tpc-atom-two { left:-115px;top:58%;width:250px;height:250px;opacity:.65; }
-        .tpc-atom-core { position:absolute;top:50%;left:50%;height:18px;width:18px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 30% 20%,#fff,#6edfff 48%,#7774fb);box-shadow:0 0 24px 8px rgba(96,154,255,.35);animation:tpcNucleus 4s ease-in-out infinite; }
-        .tpc-atom-orbit { position:absolute;inset:14%;border:1px solid rgba(127,200,255,.5);border-radius:50%; }
-        .tpc-atom-orbit.orbit-one { animation:tpcOrbitOne 24s linear infinite; }
-        .tpc-atom-orbit.orbit-two { animation:tpcOrbitTwo 29s linear infinite; }
-        .tpc-atom-orbit.orbit-three { animation:tpcOrbitThree 34s linear infinite; }
-        .tpc-atom-orbit i { position:absolute;left:50%;top:-4px;width:8px;height:8px;transform:translateX(-50%);border-radius:50%;background:#baf5ff;box-shadow:0 0 12px 3px rgba(70,210,255,.68); }
-        @keyframes tpcOrbitOne {from{transform:rotate(0deg) scaleY(.53)}to{transform:rotate(360deg) scaleY(.53)}}
-        @keyframes tpcOrbitTwo {from{transform:rotate(65deg) scaleY(.53)}to{transform:rotate(425deg) scaleY(.53)}}
-        @keyframes tpcOrbitThree {from{transform:rotate(-65deg) scaleY(.53)}to{transform:rotate(295deg) scaleY(.53)}}
-        @keyframes tpcNucleus {50%{box-shadow:0 0 30px 12px rgba(96,154,255,.5)}}
-        .tpc-ai-indicator { display:inline-flex;align-items:center;gap:8px;white-space:nowrap;border-radius:999px;padding:7px 11px;border:1px solid rgba(81,182,223,.32);background:rgba(22,58,83,.41);color:#b6eefa;font-size:10px;font-weight:800;letter-spacing:.02em; }
-        .tpc-ai-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:#f8c96a;box-shadow:0 0 10px rgba(251,202,106,.32);flex-shrink:0; }
-        .tpc-ai-indicator.is-online .tpc-ai-dot { background:#55ebbe;box-shadow:0 0 12px #55ebbe;animation:tpcNucleus 3s infinite; }
-        .tpc-ai-indicator.is-unverified { border-color:rgba(184,193,213,.3);color:#aabbd5; }
-        .tpc-ai-indicator.is-unverified .tpc-ai-dot { background:#8394b4;box-shadow:none; }
-        .tpc-ai-indicator-note { color:#91a3c3;font-size:9px;font-weight:500; }
-        .tpc-atomic-premium .tpc-mobile-nav { background:rgba(12,23,49,.96)!important;border-color:#324768!important;box-shadow:0 -8px 28px rgba(0,5,22,.33)!important; }
-        .tpc-atomic-premium .tpc-mobile-nav button span:last-child { color:#a8bad6!important; }
-        .tpc-atomic-premium .tpc-mobile-nav button .bg-\[\#12386B\] { background:#244e7b!important; }
-        @media(max-width:1023px){ .tpc-atom-one{right:-180px;top:125px}.tpc-atom-two{left:-170px} }
-        @media(prefers-reduced-motion:reduce){.tpc-atom-orbit,.tpc-atom-core,.tpc-premium-enter,.tpc-ai-dot{animation:none!important}.tpc-atomic-premium *{scroll-behavior:auto!important;}}
-        /* V5.34 - Atomic Premium COMPLETE: dark surfaces across all routed modules.
-           Scoped to main surface to preserve printable documents, external overlays and semantics. */
-        .tpc-atomic-premium { color:#e6efff; --tpc-card:#111d36; --tpc-card-2:#152643; --tpc-line:#314967; --tpc-ink:#eaf2ff; --tpc-sub:#a1b7d4; color-scheme:dark; }
-        .tpc-atomic-premium .tpc-main-surface { color:#e6efff; }
-        .tpc-atomic-premium .tpc-main-surface :is(.bg-white,.bg-slate-50,.bg-slate-100,.bg-slate-200,.bg-gray-50,.bg-gray-100,.bg-zinc-50,.bg-zinc-100,.bg-neutral-50,.bg-white\/90,.bg-white\/95,.bg-white\/80,.bg-slate-50\/70) { background-color:rgba(19,32,57,.94)!important; color:#eaf2ff; border-color:rgba(91,126,170,.35); }
-        .tpc-atomic-premium .tpc-main-surface :is(.bg-blue-50,.bg-indigo-50,.bg-violet-50,.bg-purple-50,.bg-sky-50,.bg-cyan-50,.bg-blue-100,.bg-indigo-100,.bg-violet-100,.bg-purple-100) { background-color:rgba(40,66,115,.46)!important; border-color:rgba(83,149,225,.38)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.bg-emerald-50,.bg-green-50,.bg-teal-50,.bg-emerald-100,.bg-green-100,.bg-teal-100) { background-color:rgba(19,87,81,.35)!important; border-color:rgba(74,200,161,.35)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.bg-amber-50,.bg-yellow-50,.bg-orange-50,.bg-amber-100,.bg-yellow-100,.bg-orange-100) { background-color:rgba(106,77,35,.32)!important; border-color:rgba(225,169,87,.34)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.bg-rose-50,.bg-red-50,.bg-pink-50,.bg-rose-100,.bg-red-100,.bg-pink-100) { background-color:rgba(110,49,75,.31)!important; border-color:rgba(225,119,151,.35)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.text-slate-900,.text-slate-800,.text-slate-700,.text-zinc-900,.text-zinc-800,.text-gray-900,.text-black,.text-\[\#12386B\],.text-\[\#032A78\]) { color:#eaf2ff!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.text-slate-600,.text-slate-500,.text-slate-400,.text-zinc-600,.text-zinc-500,.text-gray-600,.text-gray-500) { color:#a6b8d5!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.text-blue-700,.text-blue-800,.text-indigo-700,.text-indigo-800,.text-purple-700,.text-violet-700) { color:#aebdff!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.text-emerald-700,.text-emerald-800,.text-emerald-600,.text-green-700,.text-teal-700) { color:#68e4c4!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.text-rose-700,.text-rose-800,.text-rose-600,.text-red-700,.text-red-800) { color:#ffa5b7!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.text-amber-700,.text-amber-800,.text-yellow-800,.text-orange-700) { color:#f6d192!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.border-slate-100,.border-slate-200,.border-slate-300,.border-gray-200,.border-zinc-200,.border-white\/80,.border-white\/70) { border-color:rgba(105,143,188,.31)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.border-blue-100,.border-blue-200,.border-indigo-100,.border-indigo-200) { border-color:rgba(93,148,248,.44)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.border-emerald-100,.border-emerald-200,.border-green-200) { border-color:rgba(60,196,152,.4)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.border-rose-200,.border-red-200) { border-color:rgba(232,116,156,.38)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(.border-amber-200,.border-amber-300,.border-yellow-200) { border-color:rgba(233,190,105,.41)!important; }
-        /* Inputs, selectors, tables, cards and expandable audits belong to the same design system. */
-        .tpc-atomic-premium .tpc-main-surface :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea) { background-color:#0a1830!important; color:#edf6ff!important; border:1px solid #3c577c!important; border-radius:10px; caret-color:#57dbff; }
-        .tpc-atomic-premium .tpc-main-surface :is(input,textarea)::placeholder { color:#8299bc!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(input,select,textarea):focus-visible { outline:2px solid #58dafa!important;outline-offset:1px;box-shadow:0 0 0 4px rgba(57,184,251,.14)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(input[type=checkbox],input[type=radio],input[type=range]) { accent-color:#53d5f8; }
-        .tpc-atomic-premium .tpc-main-surface :is(table) { color:#dceaff; }
-        .tpc-atomic-premium .tpc-main-surface :is(thead,th) { background-color:#192f50!important;color:#d5eaff!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(td,tr) { border-color:#345070!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(tr:hover) { background-color:rgba(46,77,123,.19); }
-        .tpc-atomic-premium .tpc-main-surface :is(hr) { border-color:#354a6b; }
-        .tpc-atomic-premium .tpc-main-surface :is(details) { border-color:#3b577b; }
-        .tpc-atomic-premium .tpc-main-surface :is(summary) { cursor:pointer; }
-        .tpc-atomic-premium .tpc-main-surface :is(.shadow,.shadow-sm,.shadow-md,.shadow-lg,.shadow-xl) { box-shadow:0 12px 30px rgba(0,5,24,.28),inset 0 1px rgba(160,199,255,.04)!important; }
-        .tpc-atomic-premium .tpc-main-surface :is(button):not(:disabled):active { transform:scale(.985); }
-        @media(hover:hover){.tpc-atomic-premium .tpc-main-surface :is(.bg-white,.bg-slate-50,.bg-slate-100):hover{border-color:rgba(92,181,248,.52)!important;transition:border-color .24s, box-shadow .24s;}}
-        /* Preserve accents on semantic status buttons: gradients and solid actions remain colorful. */
-        .tpc-atomic-premium .tpc-main-surface :is(button.bg-white,button.bg-slate-50,button.bg-slate-100){color:#cdeeff!important;border:1px solid rgba(95,149,215,.47)!important;background:linear-gradient(120deg,#1a395b,#1d2854)!important;}
-        .tpc-atomic-premium .tpc-main-surface :is(button.bg-white,button.bg-slate-50,button.bg-slate-100):hover{box-shadow:0 0 22px rgba(68,182,248,.2)!important;transform:translateY(-1px);}
-        /* Visible orbits. Do not allow translucent content to hide them. */
-        .tpc-atomic-field{opacity:.56!important;}
-        .tpc-atom-one{width:410px;height:410px;right:-70px;top:110px;}
-        .tpc-atom-two{left:-110px;top:56%;width:310px;height:310px;}
-        .tpc-atom-orbit{border-color:rgba(125,208,255,.66)}
-        .tpc-atom-orbit i{box-shadow:0 0 12px 4px rgba(94,222,255,.8),0 0 25px 9px rgba(99,106,255,.25)}
-        .tpc-premium-workspace:before{opacity:.34;}
-        .tpc-atomic-premium .tpc-main-surface{position:relative;z-index:1}
-        /* Enhanced entrance and interactive cards; no heavy animation on tables/inputs. */
-        .tpc-premium-enter{animation:tpcPremiumAppear .48s cubic-bezier(.2,.65,.26,1) both!important}
-        @keyframes tpcPremiumAppear{from{opacity:0;transform:translateY(13px)}to{opacity:1;transform:translateY(0)}}
-        .tpc-atomic-premium .tpc-main-surface :is(.rounded-2xl,.rounded-3xl){transition:border-color .23s ease,box-shadow .23s ease,background-color .23s ease;}
-        .tpc-atomic-premium .tpc-ai-indicator.is-online{box-shadow:0 0 16px rgba(42,221,182,.14);}
-        @media(prefers-reduced-motion:reduce){.tpc-atomic-premium .tpc-premium-enter{animation:none!important}.tpc-atomic-premium .tpc-main-surface *{transition:none!important}}
-        /* V5.35 - DARK CONTRAST RECONCILIATION */
-        /* Tailwind opacity variants and dynamic class strings missed by V5.34. */
-        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-white/100"],[class~="bg-white/105"],[class~="bg-white/75"],[class~="bg-white/70"],[class~="bg-white/60"],[class~="bg-white/50"],[class~="bg-white/40"],[class~="bg-white/30"],[class~="bg-slate-50/80"],[class~="bg-slate-100/80"],[class~="bg-gray-50/70"],[class~="bg-zinc-50/80"],[class~="bg-neutral-100"],[class~="bg-stone-50"]){background:rgba(19,32,57,.95)!important;border-color:#365171!important;color:#eaf2ff!important;}
-        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-blue-50/40"],[class~="bg-blue-50/50"],[class~="bg-blue-50/60"],[class~="bg-indigo-50/40"],[class~="bg-indigo-50/50"],[class~="bg-violet-50/50"],[class~="bg-cyan-50/50"],[class~="bg-sky-50/50"]){background:rgba(36,70,116,.55)!important;border-color:#426ca2!important;color:#dcecff!important;}
-        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-green-50/50"],[class~="bg-emerald-50/50"],[class~="bg-teal-50/50"]){background:rgba(14,87,80,.48)!important;color:#a5f8e0!important;}
-        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-amber-50/50"],[class~="bg-yellow-50/50"],[class~="bg-orange-50/50"]){background:rgba(95,70,34,.52)!important;color:#fbe4aa!important;}
-        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-rose-50/50"],[class~="bg-red-50/50"],[class~="bg-pink-50/50"]){background:rgba(103,44,70,.46)!important;color:#ffc5d1!important;}
-        /* Text on neutral surfaces, including headings and secondary labels. */
-        .tpc-atomic-premium .tpc-main-surface :is(.text-zinc-950,.text-gray-950,.text-slate-950,.text-neutral-950,.text-neutral-900,.text-neutral-800,.text-stone-900,.text-indigo-900,.text-blue-900,.text-emerald-900,.text-amber-900,.text-rose-900,.text-violet-800,.text-zinc-700,.text-gray-700){color:#edf5ff!important;}
-        .tpc-atomic-premium .tpc-main-surface :is(.text-slate-300,.text-zinc-400,.text-indigo-600,.text-blue-600,.text-cyan-700,.text-rose-500,.text-amber-600,.text-green-600,.text-orange-600,.text-emerald-500){color:#b8cbeb!important;}
-        .tpc-atomic-premium .tpc-main-surface :is(label,legend,summary){color:inherit;}
-        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select){font-weight:500;}
-        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select):disabled{background:#1e2c43!important;color:#99adc8!important;opacity:.8;}
-        /* Inset table rows and metadata cells must never appear as white islands. */
-        .tpc-atomic-premium .tpc-main-surface :is(tbody tr:nth-child(even)){background-color:rgba(21,37,65,.42);}
-        .tpc-atomic-premium .tpc-main-surface :is(tbody tr:hover){background-color:rgba(48,89,145,.30)!important;}
-        .tpc-atomic-premium .tpc-main-surface :is(th,td){color:inherit;}
-        /* White text is correct on dark saturated buttons, but not on recolored neutral labels. */
-        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-white/100"],[class~="bg-white/105"],[class~="bg-white/75"],[class~="bg-white/90"],[class~="bg-white/95"],[class~="bg-white"],[class~="bg-slate-50"],[class~="bg-slate-100"]) :is(.text-white,.text-black){color:#edf5ff!important;}
-        .tpc-atomic-premium .tpc-main-surface :is(button.bg-white,button.bg-slate-50,button.bg-slate-100,button[class~="bg-white/100"],button[class~="bg-white/75"]){background:linear-gradient(110deg,#1c395a,#212f58)!important;color:#e7f5ff!important;border:1px solid #5071a0!important;}
-        /* Inline background values in existing legacy modules: override only purely white/very pale inline backgrounds. */
-        .tpc-atomic-premium .tpc-main-surface :is([style*="background: rgb(255, 255, 255)"],[style*="background:#fff"],[style*="background: #fff"],[style*="backgroundColor: '#fff'"]){background:#142440!important;color:#eaf3ff!important;}
-        /* More accessible emphasis, selection and focus indicators. */
-        .tpc-atomic-premium .tpc-main-surface :is(a:not([class*="text-"]),button:not([class*="text-"])):focus-visible{outline:2px solid #74e4ff;outline-offset:2px;}
-        .tpc-atomic-premium .tpc-main-surface ::selection{background:#4273bc;color:#fff;}
-        /* End V5.35 */
-        /* End V5.34 */
         .tpc-app-shell {
           --tpc-blue: #12386B;
           --tpc-blue-deep: #0B2347;
@@ -23213,7 +23048,7 @@ export default function App() {
       `}</style>
 
       {/* SIDEBAR DESKTOP · IDENTIDAD TU PEDIDO COLOMBIA */}
-      <aside className="tpc-premium-sidebar hidden lg:flex fixed inset-y-0 left-0 z-50 w-[272px] flex-col border-r border-[#34466b]">
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-[272px] flex-col bg-[linear-gradient(180deg,#0F2B59_0%,#14366C_100%)] border-r border-[#21457E] shadow-[8px_0_28px_rgba(10,26,54,0.12)]">
         <div className="p-4 border-b border-white/10">
           <div className="flex justify-center">
             <div className="w-[118px] h-[118px] rounded-full bg-white/95 p-1.5 shadow-[0_16px_40px_rgba(2,18,61,0.22)] ring-1 ring-white/30">
@@ -23250,7 +23085,6 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-white/10">
-          <div className="mb-3 flex justify-center"><AiConnectivityIndicator status={aiConnectivity} /></div>
           <div className="rounded-2xl bg-white/10 border border-white/10 p-3 mb-2 backdrop-blur-sm">
             <p className="text-[8px] text-white/40 font-black uppercase tracking-widest">Sesión activa</p>
             <p className="text-[10px] text-white font-bold truncate mt-1">{user?.email || 'Usuario Winner'}</p>
@@ -23260,7 +23094,7 @@ export default function App() {
       </aside>
 
       {/* HEADER MÓVIL */}
-      <header className="tpc-premium-mobile-header lg:hidden sticky top-0 z-50 backdrop-blur-xl">
+      <header className="lg:hidden sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
         <div className="h-[64px] px-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-10 h-10 rounded-full bg-white ring-1 ring-[#F7C928]/45 shadow-[0_8px_18px_rgba(3,42,120,0.12)] flex items-center justify-center shrink-0 overflow-hidden">
@@ -23271,14 +23105,13 @@ export default function App() {
               <p className="text-[13px] font-black text-[#032A78] truncate">{currentTab.label}</p>
             </div>
           </div>
-          <AiConnectivityIndicator status={aiConnectivity} compact />
+          <div className="px-2.5 py-1.5 rounded-xl bg-[#F4C430]/18 border border-[#F4C430]/35 text-[#12386B] text-[8px] font-black uppercase">Winner 360</div>
         </div>
       </header>
 
-      <div className="tpc-premium-workspace lg:pl-[272px] min-h-screen">
-        <AtomicAmbient />
+      <div className="lg:pl-[272px] min-h-screen">
         {/* HEADER DESKTOP */}
-        <header className="tpc-premium-header hidden lg:flex sticky top-0 z-40 h-[72px] backdrop-blur-xl items-center justify-between px-6 xl:px-8">
+        <header className="hidden lg:flex sticky top-0 z-40 h-[72px] bg-white/92 backdrop-blur-xl border-b border-slate-200 items-center justify-between px-6 xl:px-8">
           <div className="flex items-center gap-3">
             <div className="relative w-11 h-11 rounded-full bg-white ring-1 ring-[#F7C928]/45 shadow-[0_8px_18px_rgba(3,42,120,0.12)] overflow-hidden shrink-0">
               <img src={TU_PEDIDO_COLOMBIA_LOGO} alt="Tu Pedido Colombia" className="w-full h-full object-contain rounded-full" />
@@ -23290,7 +23123,6 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <AiConnectivityIndicator status={aiConnectivity} compact />
             <div className="hidden xl:block text-right">
               <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Entorno</p>
               <p className="text-[10px] font-black text-slate-700">Operación Colombia</p>
@@ -23300,7 +23132,7 @@ export default function App() {
           </div>
         </header>
 
-        <main key={activeTab} className={`tpc-main-surface tpc-premium-enter mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6 ${activeTab === 'campaignControl' ? 'max-w-[1600px]' : (activeTab === 'brief01' || activeTab === 'brief02') ? 'max-w-[1400px]' : 'max-w-[1280px]'}`}>
+        <main className={`tpc-main-surface mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6 ${activeTab === 'campaignControl' ? 'max-w-[1600px]' : (activeTab === 'brief01' || activeTab === 'brief02') ? 'max-w-[1400px]' : 'max-w-[1280px]'}`}>
           {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
           {activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
           {activeTab === 'config' && <VistaConfig configs={configs} />}
