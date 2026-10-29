@@ -22905,6 +22905,21 @@ function CalculadoraIndependienteV532() {
   </div>;
 }
 
+// V5.33 · Atomic Premium visual layer; pure presentation and reduced-motion aware.
+function AtomicAmbient({ small = false }) {
+  return <div className={`tpc-atomic-field ${small ? 'is-small' : ''}`} aria-hidden="true">
+    <div className="tpc-atom tpc-atom-one"><span className="tpc-atom-core" /><span className="tpc-atom-orbit orbit-one"><i /></span><span className="tpc-atom-orbit orbit-two"><i /></span><span className="tpc-atom-orbit orbit-three"><i /></span></div>
+    <div className="tpc-atom tpc-atom-two"><span className="tpc-atom-core" /><span className="tpc-atom-orbit orbit-one"><i /></span><span className="tpc-atom-orbit orbit-two"><i /></span><span className="tpc-atom-orbit orbit-three"><i /></span></div>
+  </div>;
+}
+function AiConnectivityIndicator({ status, compact = false }) {
+  const online = status === 'online';
+  const label = online ? 'IA conectada' : status === 'checking' ? 'Comprobando IA' : 'IA sin verificar';
+  return <span className={`tpc-ai-indicator ${online ? 'is-online' : status === 'checking' ? 'is-checking' : 'is-unverified'}`} title={online ? 'Worker de inteligencia respondió correctamente a /health' : 'No se ha podido confirmar la conexión del Worker; no implica que DeepSeek esté desconectado'}>
+    <span className="tpc-ai-dot"/><span>{label}</span>{!compact && <span className="tpc-ai-indicator-note">{online ? 'Worker disponible' : 'Estado del Worker'}</span>}
+  </span>;
+}
+
 export default function App() {
   const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
@@ -22913,6 +22928,23 @@ export default function App() {
   const [campaignMenuCampaigns, setCampaignMenuCampaigns] = useState([]);
   const [campaignMenuReviews, setCampaignMenuReviews] = useState([]);
   const [activeTab, setTabState] = useState('dashboard');
+  const [aiConnectivity, setAiConnectivity] = useState('checking');
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 6500);
+    fetch('https://winner-os-intelligence-api.julian-1818.workers.dev/health', { signal: controller.signal, cache: 'no-store' })
+      .then(async response => {
+        if (!response.ok) return false;
+        const body = await response.json().catch(() => null);
+        return Boolean(body && typeof body === 'object');
+      })
+      .then(verified => { if (mounted) setAiConnectivity(verified ? 'online' : 'unverified'); })
+      .catch(() => { if (mounted) setAiConnectivity('unverified'); })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { mounted = false; controller.abort(); window.clearTimeout(timeout); };
+  }, [user?.uid]);
+
   const [navigationLoading, setNavigationLoading] = useState(false);
   const navigationLoadingTimer = useRef(null);
 
@@ -22989,10 +23021,64 @@ export default function App() {
   };
 
   return (
-    <div className="tpc-app-shell min-h-screen bg-[#f6f8fc] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="tpc-app-shell tpc-atomic-premium min-h-screen bg-[#080e22] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <Brief01ExtensionBridge />
       <TuPedidoLoadingOverlay active={navigationLoading} label="Cargando módulo..." />
       <style>{`
+
+        /* V5.33 · Atomic Premium visual system, shared across every main module */
+        .tpc-atomic-premium { background:#080e22; --tpc-azure:#5bceff; --tpc-violet:#9b88ff; }
+        .tpc-premium-sidebar { background:linear-gradient(172deg,#101d3c 0%,#0a1430 55%,#080e20 100%); box-shadow:9px 0 34px rgba(0,3,14,.28), inset -1px 0 rgba(114,161,255,.09); }
+        .tpc-premium-sidebar:before { content:"";pointer-events:none;position:absolute;inset:0;background:radial-gradient(circle at 10% 10%,rgba(51,179,255,.17),transparent 36%),radial-gradient(circle at 90% 82%,rgba(123,76,255,.13),transparent 44%); }
+        .tpc-premium-sidebar > * { position:relative;z-index:1; }
+        .tpc-premium-sidebar .tpc-side-nav-item { transition:background .22s ease,transform .22s ease,box-shadow .22s ease,border-color .22s ease; }
+        .tpc-premium-sidebar .tpc-side-nav-item:hover { transform:translateX(3px); }
+        .tpc-atomic-premium .tpc-side-nav-item.is-active { background:linear-gradient(110deg,rgba(36,113,185,.4),rgba(104,83,185,.21));box-shadow:inset 3px 0 #62ddff,0 0 26px rgba(20,153,240,.15); }
+        .tpc-atomic-premium .tpc-side-nav-item.is-active > span:first-child { background:linear-gradient(135deg,#31c9ec,#787bfc)!important;color:#06142f!important;box-shadow:0 0 15px rgba(62,204,244,.26); }
+        .tpc-premium-workspace { position:relative;isolation:isolate;overflow:hidden;min-height:100vh;background:radial-gradient(ellipse 65% 46% at 96% 0%,rgba(78,78,164,.22),transparent),radial-gradient(ellipse 50% 46% at 4% 87%,rgba(13,128,184,.18),transparent),#080e22; }
+        .tpc-premium-workspace:before { content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.2;background-image:linear-gradient(rgba(92,145,236,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(92,145,236,.13) 1px,transparent 1px);background-size:40px 40px; }
+        .tpc-premium-header,.tpc-premium-mobile-header { background:rgba(11,21,46,.91);border-bottom:1px solid rgba(103,148,221,.21);box-shadow:0 8px 25px rgba(2,7,22,.14); }
+        .tpc-premium-header p,.tpc-premium-mobile-header p { color:#a6b8d6!important; }
+        .tpc-premium-header h1,.tpc-premium-mobile-header p:last-child { color:#eff7ff!important; }
+        .tpc-premium-header .w-px { background:#415174!important; }
+        .tpc-premium-enter { position:relative;z-index:1;animation:tpcPremiumEnter .35s ease both; }
+        @keyframes tpcPremiumEnter { from{opacity:.64;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
+        .tpc-premium-enter > div { min-width:0; }
+        .tpc-atomic-premium .tpc-main-surface > div > section,
+        .tpc-atomic-premium .tpc-main-surface > section { animation:tpcPremiumEnter .4s ease both; }
+        .tpc-atomic-premium .tpc-main-surface > div,
+        .tpc-atomic-premium .tpc-main-surface > section { filter:drop-shadow(0 14px 28px rgba(0,5,19,.1)); }
+        .tpc-atomic-premium .tpc-main-surface :is(.bg-white,.bg-white\/95,.bg-white\/90) { box-shadow:0 10px 25px rgba(0,9,30,.075); }
+        .tpc-atomic-premium .tpc-main-surface button { transition:transform .18s ease,box-shadow .18s ease,filter .18s ease; }
+        @media(hover:hover) { .tpc-atomic-premium .tpc-main-surface button:not(:disabled):hover { filter:brightness(1.035); } }
+        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select):focus { outline-color:#53a9ee; }
+        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select) { transition:border-color .2s ease,box-shadow .2s ease; }
+        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select):focus-visible { box-shadow:0 0 0 3px rgba(72,190,255,.13); }
+        .tpc-atomic-field { pointer-events:none;position:absolute;z-index:0;inset:0;overflow:hidden;opacity:.25; }
+        .tpc-atom { position:absolute;width:360px;height:360px;filter:drop-shadow(0 0 18px rgba(69,177,255,.16)); }
+        .tpc-atom-one { top:85px;right:-100px; }
+        .tpc-atom-two { left:-115px;top:58%;width:250px;height:250px;opacity:.65; }
+        .tpc-atom-core { position:absolute;top:50%;left:50%;height:18px;width:18px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 30% 20%,#fff,#6edfff 48%,#7774fb);box-shadow:0 0 24px 8px rgba(96,154,255,.35);animation:tpcNucleus 4s ease-in-out infinite; }
+        .tpc-atom-orbit { position:absolute;inset:14%;border:1px solid rgba(127,200,255,.5);border-radius:50%; }
+        .tpc-atom-orbit.orbit-one { animation:tpcOrbitOne 24s linear infinite; }
+        .tpc-atom-orbit.orbit-two { animation:tpcOrbitTwo 29s linear infinite; }
+        .tpc-atom-orbit.orbit-three { animation:tpcOrbitThree 34s linear infinite; }
+        .tpc-atom-orbit i { position:absolute;left:50%;top:-4px;width:8px;height:8px;transform:translateX(-50%);border-radius:50%;background:#baf5ff;box-shadow:0 0 12px 3px rgba(70,210,255,.68); }
+        @keyframes tpcOrbitOne {from{transform:rotate(0deg) scaleY(.53)}to{transform:rotate(360deg) scaleY(.53)}}
+        @keyframes tpcOrbitTwo {from{transform:rotate(65deg) scaleY(.53)}to{transform:rotate(425deg) scaleY(.53)}}
+        @keyframes tpcOrbitThree {from{transform:rotate(-65deg) scaleY(.53)}to{transform:rotate(295deg) scaleY(.53)}}
+        @keyframes tpcNucleus {50%{box-shadow:0 0 30px 12px rgba(96,154,255,.5)}}
+        .tpc-ai-indicator { display:inline-flex;align-items:center;gap:8px;white-space:nowrap;border-radius:999px;padding:7px 11px;border:1px solid rgba(81,182,223,.32);background:rgba(22,58,83,.41);color:#b6eefa;font-size:10px;font-weight:800;letter-spacing:.02em; }
+        .tpc-ai-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:#f8c96a;box-shadow:0 0 10px rgba(251,202,106,.32);flex-shrink:0; }
+        .tpc-ai-indicator.is-online .tpc-ai-dot { background:#55ebbe;box-shadow:0 0 12px #55ebbe;animation:tpcNucleus 3s infinite; }
+        .tpc-ai-indicator.is-unverified { border-color:rgba(184,193,213,.3);color:#aabbd5; }
+        .tpc-ai-indicator.is-unverified .tpc-ai-dot { background:#8394b4;box-shadow:none; }
+        .tpc-ai-indicator-note { color:#91a3c3;font-size:9px;font-weight:500; }
+        .tpc-atomic-premium .tpc-mobile-nav { background:rgba(12,23,49,.96)!important;border-color:#324768!important;box-shadow:0 -8px 28px rgba(0,5,22,.33)!important; }
+        .tpc-atomic-premium .tpc-mobile-nav button span:last-child { color:#a8bad6!important; }
+        .tpc-atomic-premium .tpc-mobile-nav button .bg-\[\#12386B\] { background:#244e7b!important; }
+        @media(max-width:1023px){ .tpc-atom-one{right:-180px;top:125px}.tpc-atom-two{left:-170px} }
+        @media(prefers-reduced-motion:reduce){.tpc-atom-orbit,.tpc-atom-core,.tpc-premium-enter,.tpc-ai-dot{animation:none!important}.tpc-atomic-premium *{scroll-behavior:auto!important;}}
         .tpc-app-shell {
           --tpc-blue: #12386B;
           --tpc-blue-deep: #0B2347;
@@ -23048,7 +23134,7 @@ export default function App() {
       `}</style>
 
       {/* SIDEBAR DESKTOP · IDENTIDAD TU PEDIDO COLOMBIA */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-[272px] flex-col bg-[linear-gradient(180deg,#0F2B59_0%,#14366C_100%)] border-r border-[#21457E] shadow-[8px_0_28px_rgba(10,26,54,0.12)]">
+      <aside className="tpc-premium-sidebar hidden lg:flex fixed inset-y-0 left-0 z-50 w-[272px] flex-col border-r border-[#34466b]">
         <div className="p-4 border-b border-white/10">
           <div className="flex justify-center">
             <div className="w-[118px] h-[118px] rounded-full bg-white/95 p-1.5 shadow-[0_16px_40px_rgba(2,18,61,0.22)] ring-1 ring-white/30">
@@ -23085,6 +23171,7 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-white/10">
+          <div className="mb-3 flex justify-center"><AiConnectivityIndicator status={aiConnectivity} /></div>
           <div className="rounded-2xl bg-white/10 border border-white/10 p-3 mb-2 backdrop-blur-sm">
             <p className="text-[8px] text-white/40 font-black uppercase tracking-widest">Sesión activa</p>
             <p className="text-[10px] text-white font-bold truncate mt-1">{user?.email || 'Usuario Winner'}</p>
@@ -23094,7 +23181,7 @@ export default function App() {
       </aside>
 
       {/* HEADER MÓVIL */}
-      <header className="lg:hidden sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-[0_4px_18px_rgba(15,23,42,0.04)]">
+      <header className="tpc-premium-mobile-header lg:hidden sticky top-0 z-50 backdrop-blur-xl">
         <div className="h-[64px] px-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-10 h-10 rounded-full bg-white ring-1 ring-[#F7C928]/45 shadow-[0_8px_18px_rgba(3,42,120,0.12)] flex items-center justify-center shrink-0 overflow-hidden">
@@ -23105,13 +23192,14 @@ export default function App() {
               <p className="text-[13px] font-black text-[#032A78] truncate">{currentTab.label}</p>
             </div>
           </div>
-          <div className="px-2.5 py-1.5 rounded-xl bg-[#F4C430]/18 border border-[#F4C430]/35 text-[#12386B] text-[8px] font-black uppercase">Winner 360</div>
+          <AiConnectivityIndicator status={aiConnectivity} compact />
         </div>
       </header>
 
-      <div className="lg:pl-[272px] min-h-screen">
+      <div className="tpc-premium-workspace lg:pl-[272px] min-h-screen">
+        <AtomicAmbient />
         {/* HEADER DESKTOP */}
-        <header className="hidden lg:flex sticky top-0 z-40 h-[72px] bg-white/92 backdrop-blur-xl border-b border-slate-200 items-center justify-between px-6 xl:px-8">
+        <header className="tpc-premium-header hidden lg:flex sticky top-0 z-40 h-[72px] backdrop-blur-xl items-center justify-between px-6 xl:px-8">
           <div className="flex items-center gap-3">
             <div className="relative w-11 h-11 rounded-full bg-white ring-1 ring-[#F7C928]/45 shadow-[0_8px_18px_rgba(3,42,120,0.12)] overflow-hidden shrink-0">
               <img src={TU_PEDIDO_COLOMBIA_LOGO} alt="Tu Pedido Colombia" className="w-full h-full object-contain rounded-full" />
@@ -23123,6 +23211,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <AiConnectivityIndicator status={aiConnectivity} compact />
             <div className="hidden xl:block text-right">
               <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">Entorno</p>
               <p className="text-[10px] font-black text-slate-700">Operación Colombia</p>
@@ -23132,7 +23221,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className={`tpc-main-surface mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6 ${activeTab === 'campaignControl' ? 'max-w-[1600px]' : (activeTab === 'brief01' || activeTab === 'brief02') ? 'max-w-[1400px]' : 'max-w-[1280px]'}`}>
+        <main key={activeTab} className={`tpc-main-surface tpc-premium-enter mx-auto px-4 sm:px-5 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6 ${activeTab === 'campaignControl' ? 'max-w-[1600px]' : (activeTab === 'brief01' || activeTab === 'brief02') ? 'max-w-[1400px]' : 'max-w-[1280px]'}`}>
           {activeTab === 'dashboard' && <VistaDashboard configs={configs} months={months} />}
           {activeTab === 'records' && <VistaRegistro configs={configs} months={months} activeTab={activeTab} />}
           {activeTab === 'config' && <VistaConfig configs={configs} />}
