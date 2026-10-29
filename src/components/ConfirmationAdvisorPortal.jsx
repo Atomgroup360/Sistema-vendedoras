@@ -30,6 +30,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [actionEnabled, setActionEnabled] = useState(false);
   const [actionState,setActionState]=useState({busy:0,message:''});
   const [notes,setNotes]=useState({});
+  const [advisorName,setAdvisorName]=useState('');
+  const [messagePreview,setMessagePreview]=useState(null);
   const fetchInbox = async () => {
     if (!user?.getIdToken) {setInbox({status:'error',orders:[],error:'Sesión Firebase no disponible'});return;}
     setInbox(prev=>({...prev,status:'loading',error:''}));
@@ -59,15 +61,32 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       await fetchInbox();
     }catch(e){setActionState({busy:0,message:String(e.message||'Error')});}
   };
+  const money = value => {
+    const n=Number(String(value||'').replace(/[^0-9.]/g,''));
+    return Number.isFinite(n)&&n>0 ? '$'+Math.round(n).toLocaleString('es-CO') : 'Valor por verificar';
+  };
+  const clean = value => String(value||'').trim();
+  const formatConfirmMessage = (o) => {
+    const seller=clean(advisorName)||clean(o.advisorName)||clean(user?.displayName)||'ASESORA';
+    const customer=clean(o.customerName)||'CLIENTE';
+    const details=(o.items||[]).map((item,i)=>`${i+1}️⃣ ${String(item.title||'PRODUCTO').toUpperCase()}${item.variant?' ('+item.variant+')':''}${Number(item.quantity)>1?' — CANTIDAD: '+item.quantity:''}`).join('\n\n')||'Producto por verificar';
+    const address=[o.address?.address1,o.address?.address2,o.address?.city,o.address?.province].map(clean).filter(Boolean).join(' / ');
+    const phone=clean(o.customerPhone)||'Por verificar';
+    return `📦 ¡PEDIDO ${o.number} RECIBIDO!\n\n👋 Hola, ${customer}. Hablas con ${seller} de la tienda TU PEDIDO COLOMBIA 🇨🇴, recibimos la siguiente solicitud de pedido a tu nombre en nuestra página WEB:\n\n${details}\n\n💰 Valor total a pagar al momento de recibir en casa: ${money(o.total)}\n\n📱 ${phone}\n\n🏡 Dirección para el envío:\n${address||'DIRECCIÓN PENDIENTE DE VERIFICAR'}\n\n✅ YA ESTAMOS PROCESANDO TU PEDIDO. Por favor, confírmanos que los datos están correctos para que la transportadora pueda realizar la entrega sin retrasos. ⏱️`;
+  };
   const whatsAppLink=o=>{
     const digits=String(o.customerPhone||'').replace(/\D/g,'');
     const valid=/^(57)?3\d{9}$/.test(digits);
     if(!valid)return null;
     const normalized=digits.startsWith('57')?digits:'57'+digits;
-    const message=`Hola, te escribimos de Tu Pedido Colombia para verificar los datos de tu pedido ${o.number}. ¿Nos confirmas si deseas continuar con la compra?`;
-    return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+    return `https://wa.me/${normalized}?text=${encodeURIComponent(formatConfirmMessage(o))}`;
   };
-  useEffect(()=>{if(tab==='pedidos')fetchInbox();},[tab,user?.uid]);
+  const copyMessage = async o=>{
+    try{await navigator.clipboard.writeText(formatConfirmMessage(o));setActionState({busy:0,message:'Mensaje copiado. Revísalo antes de enviarlo.'});}
+    catch{setMessagePreview(o.id);setActionState({busy:0,message:'Selecciona el mensaje de vista previa para copiarlo.'});}
+  };
+  useEffect(()=>{if(['pedidos','resumen','alertas'].includes(tab))fetchInbox();},[tab,user?.uid]);
+  const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
   const current = TABS.find(t => t.id === tab);
   return <div className="ao-root">
@@ -113,8 +132,13 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         {TABS.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
-        {tab==='resumen'&&<><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Sin acceso a datos todavía</span></div><p>El área quedará preparada para pedidos asignados, confirmaciones y cancelaciones, sin inventar indicadores de ventas.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Confirmados</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Cancelados</h4><strong>—</strong><p>Sin lectura autorizada</p></div></div><div className="ao-note">Distribución automática desactivada. Ninguna asesora recibirá pedidos hasta validar su cuenta y su autorización en Cloudflare.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
+        {tab==='resumen'&&<><section className="ao-panel" style={{marginBottom:14}}><div className="ao-section-head"><h3>Indicadores de pedidos asignados</h3><span className="ao-tag cyan">{inbox.status==='ready'?'Datos reales · hasta 100 asignaciones':'Consultando bandeja'}</span></div><div className="ao-minis"><div className="ao-mini"><h4>Asignados visibles</h4><strong>{inbox.status==='ready'?stats.total:'—'}</strong></div><div className="ao-mini"><h4>Confirmados</h4><strong>{inbox.status==='ready'?(stats.confirmed||0):'—'}</strong></div><div className="ao-mini"><h4>Sin respuesta</h4><strong>{inbox.status==='ready'?(stats.no_answer||0):'—'}</strong></div></div><p style={{fontSize:12,color:'#a5d9ec'}}>Cifras de la bandeja autorizada, no del total de pedidos Shopify ni de cohortes mensuales.</p></section><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Datos de bandeja autorizada</span></div><p>Los indicadores superiores utilizan exclusivamente los pedidos asignados visibles para esta cuenta.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Confirmados</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Cancelados</h4><strong>—</strong><p>Sin lectura autorizada</p></div></div><div className="ao-note">La recepción Shopify sigue independiente; no se activa el reparto automático en esta entrega.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
         {tab==='pedidos'&&<section className="ao-panel"><div className="ao-section-head"><h3>{admin?'Bandeja general de confirmaciones':'Mis pedidos asignados'}</h3><button type="button" className="ao-tag cyan" onClick={fetchInbox} disabled={inbox.status==='loading'}>{inbox.status==='loading'?'Consultando…':'Actualizar bandeja'}</button></div>
+          <div style={{margin:'12px 0',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+            <label htmlFor="ao-advisor-name" style={{fontSize:13,color:'#9bdff0',fontWeight:700}}>Nombre que aparecerá en el WhatsApp:</label>
+            <input id="ao-advisor-name" value={advisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{border:'1px solid #447a97',background:'#061c30',color:'#fff',borderRadius:9,padding:'9px 12px',width:260,maxWidth:'100%'}}/>
+            <span style={{color:'#c1d4df',fontSize:12}}>Se usa solo en este navegador y no cambia tu usuario de Firebase.</span>
+          </div>
           {inbox.status==='error'&&<div className="ao-note">Conexión pendiente o acceso no autorizado: {inbox.error}. No se muestran datos de clientes.</div>}
           {inbox.status==='loading'&&<div className="ao-empty"><Clock3 size={28}/><h3>Consultando pedidos autorizados…</h3></div>}
           {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><LockKeyhole size={30}/><h3>No tienes pedidos asignados por ahora</h3><p>La bandeja está conectada y autorizada. Los pedidos aparecerán aquí cuando el reparto seguro sea habilitado.</p></div>}
@@ -125,10 +149,13 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
               <div><p><b style={{color:'#f9c56b'}}>DIRECCIÓN DE ENTREGA</b></p><p>{[o.address?.address1,o.address?.address2].filter(Boolean).join(', ')||'No registrada'}</p><p>{[o.address?.city,o.address?.province,o.address?.zip].filter(Boolean).join(' · ')||'Ubicación incompleta'}</p><p style={{fontSize:11,color:'#a8becf'}}>Dirección original Shopify; verificar antes de confirmar.</p></div>
               <div><p><b style={{color:'#c7a4ff'}}>PEDIDO</b></p><p>{(o.items||[]).map(i=>`${i.quantity} × ${i.title}${i.variant?' ('+i.variant+')':''}`).join(' · ')||'Sin detalle'}</p><p>Valor: {o.total||'—'}</p><p>Fecha: {o.createdAt}</p></div>
             </div>
+            {o.recentOrders?.length>0&&<div className="ao-note" style={{marginTop:12,borderColor:'#edb65a'}} role="status"><strong>⚠️ Cliente con pedidos recientes: {o.recentOrders.length}</strong><p style={{marginTop:6}}>Coincide el teléfono en los últimos 7 días. Revisar antes de confirmar: {o.recentOrders.map(r=>r.number).join(', ')}. Esto no significa necesariamente duplicación.</p></div>}
+            {o.timeline?.length>0&&<details style={{marginTop:14,border:'1px solid #34576d',padding:12,borderRadius:10}}><summary style={{cursor:'pointer',fontWeight:750,color:'#8fe5f7'}}>Historial de gestiones ({o.timeline.length})</summary>{o.timeline.map((event,i)=><div key={i} style={{borderTop:'1px solid #25445b',padding:'9px 0',fontSize:12}}><b>{ORDER_STATUS_LABELS[event.action]||event.action}</b> · {new Date(event.at).toLocaleString('es-CO')} · {event.note||'Sin nota'}</div>)}</details>}
             <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:16,alignItems:'center'}}>
-              {whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
-              <span style={{color:'#b1cddd',fontSize:11}}>Abrir WhatsApp no registra contacto ni envía automáticamente.</span>
+              <button type="button" onClick={()=>setMessagePreview(messagePreview===o.id?null:o.id)} className="ao-tag cyan" style={{padding:'10px 14px'}}>Vista previa del mensaje</button><button type="button" onClick={()=>copyMessage(o)} className="ao-tag violet" style={{padding:'10px 14px'}}>Copiar mensaje</button>{whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
+              <span style={{color:'#b1cddd',fontSize:11}}>La asesora revisa y envía manualmente. Abrir WhatsApp no registra contacto.</span>
             </div>
+            {messagePreview===o.id&&<div style={{marginTop:10,padding:16,border:'1px solid #3886a7',background:'#09263d',borderRadius:12}}><div style={{fontWeight:800,color:'#74e8fa',marginBottom:10}}>Mensaje preparado para revisar y copiar</div><textarea readOnly value={formatConfirmMessage(o)} rows={15} style={{width:'100%',padding:12,whiteSpace:'pre-wrap',background:'#061b2b',color:'#f2fbff',border:'1px solid #3b7188',borderRadius:10}}/><p style={{fontSize:12,color:'#ffd483'}}>Comprueba nombre de asesora, dirección y valor. No promete una fecha de entrega ni descuentos no verificados.</p></div>}
             <div style={{marginTop:14,display:'grid',gap:9}}>
               <label style={{fontSize:12,color:'#d0e7fa'}}>Nota de gestión (máximo 500 caracteres)</label>
               <textarea value={notes[o.id]||''} maxLength={500} onChange={e=>setNotes(s=>({...s,[o.id]:e.target.value}))} rows={2} placeholder="Qué respondió el cliente o qué se debe corregir…" style={{width:'100%',background:'#06192c',border:'1px solid #41647b',borderRadius:9,padding:11,color:'#f0faff'}}/>
@@ -139,7 +166,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {actionState.message&&<div className="ao-note" role="status">{actionState.message}</div>}
           {inbox.status==='idle'&&<div className="ao-empty"><LockKeyhole size={30}/><h3>Consulta segura</h3><p>Los pedidos solo se obtienen usando tu sesión de Firebase, con verificación del servidor.</p></div>}
         </section>}
-        {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div><p>Señales que WINNER OS revisará con los pedidos recibidos. Las alertas reales por cliente se mostrarán aquí cuando el servidor autorice la consulta.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
+        {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div>{inbox.status==='ready'&&<div style={{display:'grid',gap:8,margin:'12px 0'}}>{inbox.orders.filter(o=>o.recentOrders?.length>0).length===0?<div className="ao-note">No se detectaron coincidencias telefónicas recientes entre los pedidos de esta bandeja.</div>:inbox.orders.filter(o=>o.recentOrders?.length>0).map(o=><div className="ao-note" key={o.id}>⚠️ <strong>{o.number}</strong> · {o.recentOrders.length} pedido(s) coincidentes: {o.recentOrders.map(r=>r.number).join(', ')}. Revisar con el cliente.</div>)}</div>}<p>Señales que WINNER OS revisará con los pedidos recibidos. Las coincidencias telefónicas de los últimos siete días se muestran arriba cuando existen; requieren revisión humana.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. No hay conexión de lectura de pedidos de asesoras en esta versión.</div></section>}
       </main>
     </div>
