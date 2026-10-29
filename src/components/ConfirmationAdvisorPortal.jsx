@@ -26,7 +26,7 @@ function Atom() {
 }
 
 export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'confirmaciones' }) {
-  const [tab, setTab] = useState('resumen');
+  const [tab, setTab] = useState(() => role === 'admin' ? 'estadisticas' : 'resumen');
   const [dashboard, setDashboard] = useState({status:'idle',data:null,error:''});
   const [dateRange,setDateRange]=useState({from:'',to:''});
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
@@ -107,7 +107,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const current = TABS.find(t => t.id === tab);
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
+  const current = visibleTabs.find(t => t.id === tab) || visibleTabs[0];
   return <div className="ao-root">
     <style>{`
       .ao-root{--ao-text:#eaf5ff;--ao-muted:#b4cbe0;--ao-cyan:#51e5ff;--ao-amber:#ffd37a;--ao-violet:#d2a2ff;--ao-green:#76f3bc;position:relative;isolation:isolate;width:100%;min-width:0;min-height:calc(100vh - 90px);overflow:hidden;border-radius:18px;color:var(--ao-text);font-family:Inter,system-ui,sans-serif;background:radial-gradient(ellipse at 75% 0%,#173f68 0%,transparent 34%),linear-gradient(135deg,#061426,#071a32 60%,#071222);}
@@ -143,12 +144,12 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     <div className="ao-back"/><svg className="ao-path" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true"><path d="M0 160 H150 V100 H390 V270 H590 V80 H800 V170 H1200" stroke="#56e5ff" fill="none" strokeWidth="1.5"/><path d="M0 610 H180 V450 H460 V590 H800 V420 H1200" stroke="#a68cfa" fill="none" strokeWidth="1.3"/><path d="M1200 90 H1000 V320 H740 V240 H500 V420 H100 V680" stroke="#4ceac2" fill="none" strokeWidth="1.3"/></svg>
     <div className="ao-content">
       <header className="ao-head">
-        <div style={{minWidth:0,flex:1}}><div className="ao-eyebrow">WINNER OS / ATOM PREMIUM · CONFIRMACIONES IA</div><h2 className="ao-title">Centro de <span className="ao-gradient">Confirmaciones Inteligentes</span></h2><p className="ao-desc">Panel operativo con prioridades claras, alertas de reincidencia y seguimiento de pedidos. Los datos personales permanecerán protegidos hasta completar la autorización del backend.</p></div>
+        <div style={{minWidth:0,flex:1}}><div className="ao-eyebrow">{admin?'WINNER OS / ADMINISTRACIÓN · CONFIRMACIONES IA':'WINNER OS / ATOM PREMIUM · CONFIRMACIONES IA'}</div><h2 className="ao-title">{admin?<>Dashboard de <span className="ao-gradient">Confirmaciones IA</span></>:<>Centro de <span className="ao-gradient">Confirmaciones Inteligentes</span></>}</h2><p className="ao-desc">{admin?'Resultados globales desde D1, cohortes por fecha de Shopify y rendimiento por asesora.':'Panel operativo de pedidos, confirmación manual por WhatsApp y seguimiento.'}</p></div>
         <div className="ao-atom-wrap"><Atom/></div>
         <div className="ao-user"><div><small style={{color:'#8cdaed',fontWeight:800}}>{admin?'ADMINISTRADOR':'ASESORA'}</small><span>{user?.email||'Sesión activa'}</span></div>{!admin&&<button type="button" onClick={onLogout}><LogOut size={15}/> Salir</button>}</div>
       </header>
       <nav className="ao-nav" aria-label="Secciones del módulo de confirmaciones" role="tablist">
-        {TABS.filter(item=>admin||item.id!=='estadisticas').map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
+        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
         {tab==='resumen'&&<><section className="ao-panel" style={{marginBottom:14}}><div className="ao-section-head"><h3>Indicadores de pedidos asignados</h3><span className="ao-tag cyan">{inbox.status==='ready'?'Datos reales · hasta 100 asignaciones':'Consultando bandeja'}</span></div><div className="ao-minis"><div className="ao-mini"><h4>Asignados visibles</h4><strong>{inbox.status==='ready'?stats.total:'—'}</strong></div><div className="ao-mini"><h4>Confirmados</h4><strong>{inbox.status==='ready'?(stats.confirmed||0):'—'}</strong></div><div className="ao-mini"><h4>Sin respuesta</h4><strong>{inbox.status==='ready'?(stats.no_answer||0):'—'}</strong></div></div><p style={{fontSize:12,color:'#a5d9ec'}}>Cifras de la bandeja autorizada, no del total de pedidos Shopify ni de cohortes mensuales.</p></section><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Datos de bandeja autorizada</span></div><p>Los indicadores superiores utilizan exclusivamente los pedidos asignados visibles para esta cuenta.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Confirmados</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Cancelados</h4><strong>—</strong><p>Sin lectura autorizada</p></div></div><div className="ao-note">La recepción Shopify sigue independiente; no se activa el reparto automático en esta entrega.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
