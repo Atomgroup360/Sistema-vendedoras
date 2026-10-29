@@ -23178,7 +23178,7 @@ function LegacyWinnerApp() {
 
 // CONFIRMACIONES V1.5 — Puerta por rol antes de montar cualquier módulo existente.
 // Firestore protege colecciones administrativas; esta puerta evita montar listeners de App del admin.
-const WINNER_ADMIN_UID_V15 = 'CnbjvJXpKrXxlhWbgDREWZf9TR73';
+const WINNER_ADMIN_UID_V15 = 'eKNfgyGQAchUVeerygOg3lTnrun1';
 
 export default function App() {
   const { user, loading, logout } = useAuth();
