@@ -22974,7 +22974,8 @@ function LegacyWinnerApp() {
     { id: 'campaignControl', icon: BarChart3, label: 'Campañas', notificationCount: campaignMenuPendingCount },
     { id: 'brief01', icon: FlaskConical, label: 'BRIEF 01' },
     { id: 'brief02', icon: Target, label: 'BRIEF 02' },
-    { id: 'calculadora', icon: Calculator, label: 'Calculadora' }
+    { id: 'calculadora', icon: Calculator, label: 'Calculadora' },
+    { id: 'confirmaciones', icon: ShieldCheck, label: 'Confirmaciones IA' }
   ];
   const currentTab = tabs.find(t => t.id === activeTab) || tabs[0];
   const renderDesktopNavButton = (tab) => {
@@ -23077,7 +23078,7 @@ function LegacyWinnerApp() {
           </div>
           <div>
             <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Operación</p>
-            <div className="space-y-1">{renderDesktopNavButton(tabs[1])}{renderDesktopNavButton(tabs[2])}</div>
+            <div className="space-y-1">{renderDesktopNavButton(tabs[1])}{renderDesktopNavButton(tabs[2])}{renderDesktopNavButton(tabs[8])}</div>
           </div>
           <div>
             <p className="px-3 mb-2 text-[8px] font-black uppercase tracking-[0.2em] text-white/30">Marketing</p>
@@ -23150,6 +23151,7 @@ function LegacyWinnerApp() {
           {activeTab === 'brief01' && <Brief01Module />}
           {activeTab === 'brief02' && <Brief02Module />}
           {activeTab === 'calculadora' && <CalculadoraIndependienteV532 />}
+          {activeTab === 'confirmaciones' && <ConfirmationAdvisorPortal user={user} onLogout={() => import('./src/firebase').then(({ logout }) => logout())} />}
         </main>
       </div>
 
