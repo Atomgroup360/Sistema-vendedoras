@@ -23131,6 +23131,32 @@ export default function App() {
         .tpc-atomic-premium .tpc-main-surface :is(.rounded-2xl,.rounded-3xl){transition:border-color .23s ease,box-shadow .23s ease,background-color .23s ease;}
         .tpc-atomic-premium .tpc-ai-indicator.is-online{box-shadow:0 0 16px rgba(42,221,182,.14);}
         @media(prefers-reduced-motion:reduce){.tpc-atomic-premium .tpc-premium-enter{animation:none!important}.tpc-atomic-premium .tpc-main-surface *{transition:none!important}}
+        /* V5.35 - DARK CONTRAST RECONCILIATION */
+        /* Tailwind opacity variants and dynamic class strings missed by V5.34. */
+        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-white/100"],[class~="bg-white/105"],[class~="bg-white/75"],[class~="bg-white/70"],[class~="bg-white/60"],[class~="bg-white/50"],[class~="bg-white/40"],[class~="bg-white/30"],[class~="bg-slate-50/80"],[class~="bg-slate-100/80"],[class~="bg-gray-50/70"],[class~="bg-zinc-50/80"],[class~="bg-neutral-100"],[class~="bg-stone-50"]){background:rgba(19,32,57,.95)!important;border-color:#365171!important;color:#eaf2ff!important;}
+        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-blue-50/40"],[class~="bg-blue-50/50"],[class~="bg-blue-50/60"],[class~="bg-indigo-50/40"],[class~="bg-indigo-50/50"],[class~="bg-violet-50/50"],[class~="bg-cyan-50/50"],[class~="bg-sky-50/50"]){background:rgba(36,70,116,.55)!important;border-color:#426ca2!important;color:#dcecff!important;}
+        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-green-50/50"],[class~="bg-emerald-50/50"],[class~="bg-teal-50/50"]){background:rgba(14,87,80,.48)!important;color:#a5f8e0!important;}
+        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-amber-50/50"],[class~="bg-yellow-50/50"],[class~="bg-orange-50/50"]){background:rgba(95,70,34,.52)!important;color:#fbe4aa!important;}
+        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-rose-50/50"],[class~="bg-red-50/50"],[class~="bg-pink-50/50"]){background:rgba(103,44,70,.46)!important;color:#ffc5d1!important;}
+        /* Text on neutral surfaces, including headings and secondary labels. */
+        .tpc-atomic-premium .tpc-main-surface :is(.text-zinc-950,.text-gray-950,.text-slate-950,.text-neutral-950,.text-neutral-900,.text-neutral-800,.text-stone-900,.text-indigo-900,.text-blue-900,.text-emerald-900,.text-amber-900,.text-rose-900,.text-violet-800,.text-zinc-700,.text-gray-700){color:#edf5ff!important;}
+        .tpc-atomic-premium .tpc-main-surface :is(.text-slate-300,.text-zinc-400,.text-indigo-600,.text-blue-600,.text-cyan-700,.text-rose-500,.text-amber-600,.text-green-600,.text-orange-600,.text-emerald-500){color:#b8cbeb!important;}
+        .tpc-atomic-premium .tpc-main-surface :is(label,legend,summary){color:inherit;}
+        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select){font-weight:500;}
+        .tpc-atomic-premium .tpc-main-surface :is(input,textarea,select):disabled{background:#1e2c43!important;color:#99adc8!important;opacity:.8;}
+        /* Inset table rows and metadata cells must never appear as white islands. */
+        .tpc-atomic-premium .tpc-main-surface :is(tbody tr:nth-child(even)){background-color:rgba(21,37,65,.42);}
+        .tpc-atomic-premium .tpc-main-surface :is(tbody tr:hover){background-color:rgba(48,89,145,.30)!important;}
+        .tpc-atomic-premium .tpc-main-surface :is(th,td){color:inherit;}
+        /* White text is correct on dark saturated buttons, but not on recolored neutral labels. */
+        .tpc-atomic-premium .tpc-main-surface :is([class~="bg-white/100"],[class~="bg-white/105"],[class~="bg-white/75"],[class~="bg-white/90"],[class~="bg-white/95"],[class~="bg-white"],[class~="bg-slate-50"],[class~="bg-slate-100"]) :is(.text-white,.text-black){color:#edf5ff!important;}
+        .tpc-atomic-premium .tpc-main-surface :is(button.bg-white,button.bg-slate-50,button.bg-slate-100,button[class~="bg-white/100"],button[class~="bg-white/75"]){background:linear-gradient(110deg,#1c395a,#212f58)!important;color:#e7f5ff!important;border:1px solid #5071a0!important;}
+        /* Inline background values in existing legacy modules: override only purely white/very pale inline backgrounds. */
+        .tpc-atomic-premium .tpc-main-surface :is([style*="background: rgb(255, 255, 255)"],[style*="background:#fff"],[style*="background: #fff"],[style*="backgroundColor: '#fff'"]){background:#142440!important;color:#eaf3ff!important;}
+        /* More accessible emphasis, selection and focus indicators. */
+        .tpc-atomic-premium .tpc-main-surface :is(a:not([class*="text-"]),button:not([class*="text-"])):focus-visible{outline:2px solid #74e4ff;outline-offset:2px;}
+        .tpc-atomic-premium .tpc-main-surface ::selection{background:#4273bc;color:#fff;}
+        /* End V5.35 */
         /* End V5.34 */
         .tpc-app-shell {
           --tpc-blue: #12386B;
