@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, Bell, CheckCircle2, Clock3, LayoutDashboard, L
 const TABS = [
   { id: 'resumen', title: 'Resumen', icon: LayoutDashboard },
   { id: 'pedidos', title: 'Mis pedidos', icon: Package },
+  { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
   { id: 'alertas', title: 'Alertas IA', icon: Bell },
   { id: 'sistema', title: 'Estado del sistema', icon: Activity },
 ];
@@ -26,6 +27,8 @@ function Atom() {
 
 export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'confirmaciones' }) {
   const [tab, setTab] = useState('resumen');
+  const [dashboard, setDashboard] = useState({status:'idle',data:null,error:''});
+  const [dateRange,setDateRange]=useState({from:'',to:''});
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
   const [actionEnabled, setActionEnabled] = useState(false);
   const [actionState,setActionState]=useState({busy:0,message:''});
@@ -45,6 +48,21 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       setActionEnabled(data.orderActionsEnabled===true);
       setInbox({status:'ready',orders:Array.isArray(data.orders)?data.orders:[],error:''});
     }catch(e){setInbox({status:'error',orders:[],error:String(e.message||'ERROR')});}
+  };
+  const fetchDashboard = async () => {
+    if(role!=='admin')return;
+    setDashboard(s=>({...s,status:'loading',error:''}));
+    try{
+      const token=await user.getIdToken();
+      const params=new URLSearchParams();
+      if(dateRange.from)params.set('from',dateRange.from);
+      if(dateRange.to)params.set('to',dateRange.to);
+      const res=await fetch(`https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/confirmations-dashboard?${params}`,{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store'
+      });
+      const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.code||'ERROR_DASHBOARD');
+      setDashboard({status:'ready',data,error:''});
+    }catch(e){setDashboard({status:'error',data:null,error:String(e.message||'ERROR')});}
   };
   const updateOrder = async (o, action) => {
     if (!actionEnabled) return;
@@ -86,6 +104,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     catch{setMessagePreview(o.id);setActionState({busy:0,message:'Selecciona el mensaje de vista previa para copiarlo.'});}
   };
   useEffect(()=>{if(['pedidos','resumen','alertas'].includes(tab))fetchInbox();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
   const current = TABS.find(t => t.id === tab);
@@ -129,7 +148,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         <div className="ao-user"><div><small style={{color:'#8cdaed',fontWeight:800}}>{admin?'ADMINISTRADOR':'ASESORA'}</small><span>{user?.email||'Sesión activa'}</span></div>{!admin&&<button type="button" onClick={onLogout}><LogOut size={15}/> Salir</button>}</div>
       </header>
       <nav className="ao-nav" aria-label="Secciones del módulo de confirmaciones" role="tablist">
-        {TABS.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
+        {TABS.filter(item=>admin||item.id!=='estadisticas').map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
         {tab==='resumen'&&<><section className="ao-panel" style={{marginBottom:14}}><div className="ao-section-head"><h3>Indicadores de pedidos asignados</h3><span className="ao-tag cyan">{inbox.status==='ready'?'Datos reales · hasta 100 asignaciones':'Consultando bandeja'}</span></div><div className="ao-minis"><div className="ao-mini"><h4>Asignados visibles</h4><strong>{inbox.status==='ready'?stats.total:'—'}</strong></div><div className="ao-mini"><h4>Confirmados</h4><strong>{inbox.status==='ready'?(stats.confirmed||0):'—'}</strong></div><div className="ao-mini"><h4>Sin respuesta</h4><strong>{inbox.status==='ready'?(stats.no_answer||0):'—'}</strong></div></div><p style={{fontSize:12,color:'#a5d9ec'}}>Cifras de la bandeja autorizada, no del total de pedidos Shopify ni de cohortes mensuales.</p></section><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Datos de bandeja autorizada</span></div><p>Los indicadores superiores utilizan exclusivamente los pedidos asignados visibles para esta cuenta.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Confirmados</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Cancelados</h4><strong>—</strong><p>Sin lectura autorizada</p></div></div><div className="ao-note">La recepción Shopify sigue independiente; no se activa el reparto automático en esta entrega.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
@@ -165,6 +184,32 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           </article>)}</div>}
           {actionState.message&&<div className="ao-note" role="status">{actionState.message}</div>}
           {inbox.status==='idle'&&<div className="ao-empty"><LockKeyhole size={30}/><h3>Consulta segura</h3><p>Los pedidos solo se obtienen usando tu sesión de Firebase, con verificación del servidor.</p></div>}
+        </section>}
+        {tab==='estadisticas'&&admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>Confirmaciones · Dashboard administrativo</h3><span className="ao-tag violet">Cohortes por fecha de pedido</span></div>
+          <p style={{fontSize:13,color:'#b4cbe0'}}>Datos reales de D1, separados del Dashboard comercial de WINNER OS. Los pedidos confirmados después siguen atribuidos a su fecha original.</p>
+          <div style={{display:'flex',gap:12,alignItems:'end',flexWrap:'wrap',margin:'18px 0'}}>
+            <label style={{fontSize:12,color:'#87e6fa'}}>Desde <input type="date" value={dateRange.from} onChange={e=>setDateRange(x=>({...x,from:e.target.value}))} style={{display:'block',color:'#fff',background:'#09243a',border:'1px solid #47748f',borderRadius:9,padding:9}}/></label>
+            <label style={{fontSize:12,color:'#87e6fa'}}>Hasta <input type="date" value={dateRange.to} onChange={e=>setDateRange(x=>({...x,to:e.target.value}))} style={{display:'block',color:'#fff',background:'#09243a',border:'1px solid #47748f',borderRadius:9,padding:9}}/></label>
+            <button type="button" onClick={fetchDashboard} disabled={dashboard.status==='loading'} className="ao-tag cyan" style={{padding:11}}>Consultar estadísticas</button>
+          </div>
+          {dashboard.status==='loading'&&<div className="ao-note">Consultando estadísticas de D1…</div>}
+          {dashboard.status==='error'&&<div className="ao-note" role="alert">Error de consulta: {dashboard.error}</div>}
+          {dashboard.status==='ready'&&dashboard.data&&<>
+            <p style={{fontSize:12,color:'#98c8e1'}}>Período: {dashboard.data.from} a {dashboard.data.to} · Zona horaria Colombia</p>
+            <div className="ao-grid" style={{margin:'15px 0'}}>{[
+              ['Pedidos recibidos',dashboard.data.totals.received,'cyan'],
+              ['Confirmados',dashboard.data.totals.confirmed,'green'],
+              ['Cancelados',dashboard.data.totals.cancelled,'amber'],
+              ['Sin respuesta',dashboard.data.totals.no_answer,'violet'],
+              ['Sin asignar',dashboard.data.totals.unassigned,'cyan'],
+              ['Tasa de confirmación',`${dashboard.data.totals.confirmationRate}%`,'green'],
+              ['Tiempo medio hasta confirmar',dashboard.data.totals.averageConfirmationHours===null?'Sin datos':`${dashboard.data.totals.averageConfirmationHours} h`,'violet'],
+            ].map(([label,val,tone])=><div key={label} className={`ao-card ${tone}`}><h4 style={{fontSize:12,color:'#b2daea'}}>{label}</h4><div className="ao-value" style={{fontSize:25}}>{val}</div></div>)}</div>
+            <div style={{overflowX:'auto',marginTop:20}}><h4 style={{fontSize:17,color:'#7ce7fa',marginBottom:10}}>Rendimiento por asesora</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}><thead><tr>{['Asesora','Recibidos','Confirmados','Cancelados','Sin respuesta','Contactados'].map(h=><th key={h} style={{padding:10,borderBottom:'1px solid #41657a',textAlign:'left',color:'#93dbe9'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.advisors.map(a=><tr key={a.advisorId}>{[a.name,a.received,a.confirmed,a.cancelled,a.no_answer,a.contacted].map((v,i)=><td key={i} style={{padding:10,borderBottom:'1px solid #25445b',color:'#f1faff'}}>{v}</td>)}</tr>)}</tbody></table>{!dashboard.data.advisors.length&&<p style={{color:'#b4cbe0'}}>No hay asignaciones en este período.</p>}</div>
+            <div style={{overflowX:'auto',marginTop:24}}><h4 style={{fontSize:17,color:'#cba9ff',marginBottom:10}}>Evolución diaria por fecha original</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:500}}><thead><tr>{['Fecha','Recibidos','Confirmados','Cancelados','Sin respuesta','Sin asignar'].map(h=><th key={h} style={{padding:10,textAlign:'left',borderBottom:'1px solid #41657a',color:'#cba9ff'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.daily.map(d=><tr key={d.date}>{[d.date,d.received,d.confirmed,d.cancelled,d.no_answer,d.unassigned].map((v,i)=><td key={i} style={{padding:9,color:'#f0faff',borderBottom:'1px solid #25445b'}}>{v}</td>)}</tr>)}</tbody></table></div>
+            <p style={{fontSize:12,color:'#a7c4d6',marginTop:15}}>Excluidos por pruebas o descartes: {dashboard.data.totals.excluded}. Las cohortes pendientes pueden cambiar al confirmar pedidos posteriormente.</p>
+          </>}
         </section>}
         {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div>{inbox.status==='ready'&&<div style={{display:'grid',gap:8,margin:'12px 0'}}>{inbox.orders.filter(o=>o.recentOrders?.length>0).length===0?<div className="ao-note">No se detectaron coincidencias telefónicas recientes entre los pedidos de esta bandeja.</div>:inbox.orders.filter(o=>o.recentOrders?.length>0).map(o=><div className="ao-note" key={o.id}>⚠️ <strong>{o.number}</strong> · {o.recentOrders.length} pedido(s) coincidentes: {o.recentOrders.map(r=>r.number).join(', ')}. Revisar con el cliente.</div>)}</div>}<p>Señales que WINNER OS revisará con los pedidos recibidos. Las coincidencias telefónicas de los últimos siete días se muestran arriba cuando existen; requieren revisión humana.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. No hay conexión de lectura de pedidos de asesoras en esta versión.</div></section>}
