@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Activity, AlertTriangle, Bell, CheckCircle2, Clock3, LayoutDashboard, LockKeyhole, LogOut, Package, Radio, ShieldCheck, Sparkles, Users, Wifi, Zap } from 'lucide-react';
 
 const TABS = [
@@ -25,6 +25,21 @@ function Atom() {
 
 export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'confirmaciones' }) {
   const [tab, setTab] = useState('resumen');
+  const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
+  const fetchInbox = async () => {
+    if (!user?.getIdToken) {setInbox({status:'error',orders:[],error:'Sesión Firebase no disponible'});return;}
+    setInbox(prev=>({...prev,status:'loading',error:''}));
+    try {
+      const token=await user.getIdToken();
+      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/inbox',{
+        method:'GET', headers:{Authorization:`Bearer ${token}`}, cache:'no-store'
+      });
+      const data=await res.json();
+      if(!res.ok || !data.ok)throw new Error(data.code||'ERROR_DE_CONEXION');
+      setInbox({status:'ready',orders:Array.isArray(data.orders)?data.orders:[],error:''});
+    }catch(e){setInbox({status:'error',orders:[],error:String(e.message||'ERROR')});}
+  };
+  useEffect(()=>{if(tab==='pedidos')fetchInbox();},[tab,user?.uid]);
   const admin = role === 'admin';
   const current = TABS.find(t => t.id === tab);
   return <div className="ao-root">
@@ -71,7 +86,13 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
         {tab==='resumen'&&<><div className="ao-section-head"><h3>Estado operativo</h3><span className="ao-tag cyan"><Zap size={12}/> Información de configuración</span></div><section className="ao-stats">{STATUSES.map(s=>{const Icon=s.icon;return <article className={`ao-card ${s.color}`} key={s.name}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={23}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</section><div className="ao-grid"><section className="ao-panel"><div className="ao-section-head"><h3>Mi operación</h3><span className="ao-tag amber">Sin acceso a datos todavía</span></div><p>El área quedará preparada para pedidos asignados, confirmaciones y cancelaciones, sin inventar indicadores de ventas.</p><div className="ao-minis"><div className="ao-mini"><h4>Pendientes</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Confirmados</h4><strong>—</strong><p>Sin lectura autorizada</p></div><div className="ao-mini"><h4>Cancelados</h4><strong>—</strong><p>Sin lectura autorizada</p></div></div><div className="ao-note">Distribución automática desactivada. Ninguna asesora recibirá pedidos hasta validar su cuenta y su autorización en Cloudflare.</div></section><section className="ao-panel"><div className="ao-section-head"><h3>Inteligencia para atender mejor</h3><span className="ao-tag violet"><Sparkles size={12}/> Alertas preventivas</span></div>{ALERTS.slice(0,2).map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon className="ao-ai" size={19}/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</section></div></>}
-        {tab==='pedidos'&&<section className="ao-panel"><div className="ao-section-head"><h3>{admin?'Bandeja general de confirmaciones':'Mis pedidos asignados'}</h3><span className="ao-tag amber">Conexión pendiente</span></div><div className="ao-empty"><LockKeyhole size={30}/><h3>Pedidos protegidos</h3><p>El Worker todavía no dispone de un endpoint autenticado que entregue únicamente los pedidos autorizados. Aquí aparecerá la bandeja real cuando esa seguridad esté implementada. No se muestran datos ficticios de clientes.</p></div></section>}
+        {tab==='pedidos'&&<section className="ao-panel"><div className="ao-section-head"><h3>{admin?'Bandeja general de confirmaciones':'Mis pedidos asignados'}</h3><button type="button" className="ao-tag cyan" onClick={fetchInbox} disabled={inbox.status==='loading'}>{inbox.status==='loading'?'Consultando…':'Actualizar bandeja'}</button></div>
+          {inbox.status==='error'&&<div className="ao-note">Conexión pendiente o acceso no autorizado: {inbox.error}. No se muestran datos de clientes.</div>}
+          {inbox.status==='loading'&&<div className="ao-empty"><Clock3 size={28}/><h3>Consultando pedidos autorizados…</h3></div>}
+          {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><LockKeyhole size={30}/><h3>No tienes pedidos asignados por ahora</h3><p>La bandeja está conectada y autorizada. Los pedidos aparecerán aquí cuando el reparto seguro sea habilitado.</p></div>}
+          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:12}}>{inbox.orders.map(o=><article key={o.id} className="ao-mini" style={{padding:16}}><div style={{display:'flex',gap:12,justifyContent:'space-between',flexWrap:'wrap'}}><strong>Pedido {o.number}</strong><span className="ao-tag cyan">{o.status}</span></div><p style={{marginTop:9,color:'#e1f4ff'}}>Cliente: {o.customerName||'No registrado'} · {o.city||'Sin ciudad'}</p><p>Teléfono: {o.customerPhone||'No registrado'} · Total: {o.total||'—'}</p><p>Productos: {o.items.map(i=>`${i.quantity} × ${i.title}`).join(' · ')||'Sin detalle'}</p><p>Fecha de pedido: {o.createdAt}</p></article>)}</div>}
+          {inbox.status==='idle'&&<div className="ao-empty"><LockKeyhole size={30}/><h3>Consulta segura</h3><p>Los pedidos solo se obtienen usando tu sesión de Firebase, con verificación del servidor.</p></div>}
+        </section>}
         {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div><p>Señales que WINNER OS revisará con los pedidos recibidos. Las alertas reales por cliente se mostrarán aquí cuando el servidor autorice la consulta.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. No hay conexión de lectura de pedidos de asesoras en esta versión.</div></section>}
       </main>
