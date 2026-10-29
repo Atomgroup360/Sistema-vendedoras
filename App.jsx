@@ -23151,7 +23151,7 @@ function LegacyWinnerApp() {
           {activeTab === 'brief01' && <Brief01Module />}
           {activeTab === 'brief02' && <Brief02Module />}
           {activeTab === 'calculadora' && <CalculadoraIndependienteV532 />}
-          {activeTab === 'confirmaciones' && <ConfirmationAdvisorPortal user={user} onLogout={() => import('./src/firebase').then(({ logout }) => logout())} />}
+          {activeTab === 'confirmaciones' && <ConfirmationAdvisorPortal user={user} role="admin" onLogout={() => import('./src/firebase').then(({ logout }) => logout())} />}
         </main>
       </div>
 
