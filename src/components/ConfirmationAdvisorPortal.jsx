@@ -6,6 +6,7 @@ const TABS = [
   { id: 'pedidos', title: 'Mis pedidos', icon: Package },
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
   { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
+  { id: 'distribucion', title: 'Distribución', icon: Zap },
   { id: 'alertas', title: 'Alertas IA', icon: Bell },
   { id: 'sistema', title: 'Estado del sistema', icon: Activity },
 ];
@@ -34,6 +35,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [adminPage,setAdminPage]=useState(0);
   const [adminOrders,setAdminOrders]=useState({status:'idle',orders:[],hasMore:false,error:''});
   const [adminOpenedOrder,setAdminOpenedOrder]=useState(null);
+  const [distribution,setDistribution]=useState({status:'idle',data:null,error:'',notice:''});
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
   const [actionEnabled, setActionEnabled] = useState(false);
   const [actionState,setActionState]=useState({busy:0,message:''});
@@ -84,6 +86,28 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       setAdminOrders({status:'ready',orders:data.orders||[],hasMore:!!data.hasMore,error:''});
     }catch(e){setAdminOrders({status:'error',orders:[],hasMore:false,error:String(e.message||'Error')});}
   };
+  const fetchDistribution = async () => {
+    if(role!=='admin'||!user?.getIdToken)return;
+    setDistribution(s=>({...s,status:'loading',error:'',notice:''}));
+    try{
+      const token=await user.getIdToken();
+      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/distribution',{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
+      const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.code||'PREVIEW_FAILED');
+      setDistribution({status:'ready',data,error:'',notice:''});
+    }catch(e){setDistribution(s=>({...s,status:'error',error:String(e.message||'Error'),notice:''}));}
+  };
+  const runDistribution = async () => {
+    if(role!=='admin'||!distribution.data?.assignmentsEnabled)return;
+    if(!window.confirm('¿Asignar hasta 30 pedidos elegibles, respetando el límite de 30 nuevos por asesora y día? Los pedidos sospechosos se retendrán.'))return;
+    setDistribution(s=>({...s,status:'loading',error:'',notice:''}));
+    try{
+      const token=await user.getIdToken();
+      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/distribution',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({confirmation:'ASIGNAR_PEDIDOS'})});
+      const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.code||'ASSIGNMENT_FAILED');
+      await fetchDistribution();
+      setDistribution(s=>({...s,notice:`Se asignaron ${data.assigned||0} pedidos; ${data.held||0} retenidos para revisión; ${data.capacityBlocked||0} sin cupo.`}));
+    }catch(e){setDistribution(s=>({...s,status:'error',error:String(e.message||'Error')}));}
+  };
   const updateOrder = async (o, action) => {
     if (!actionEnabled) return;
     const note=notes[o.id]||'';
@@ -127,9 +151,10 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='distribucion'&&role==='admin')fetchDistribution();},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
   const current = visibleTabs.find(t => t.id === tab) || visibleTabs[0];
   return <div className="ao-root">
     <style>{`
@@ -267,6 +292,20 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           </>}
         </section>}
         {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div>{inbox.status==='ready'&&<div style={{display:'grid',gap:8,margin:'12px 0'}}>{inbox.orders.filter(o=>o.recentOrders?.length>0).length===0?<div className="ao-note">No se detectaron coincidencias telefónicas recientes entre los pedidos de esta bandeja.</div>:inbox.orders.filter(o=>o.recentOrders?.length>0).map(o=><div className="ao-note" key={o.id}>⚠️ <strong>{o.number}</strong> · {o.recentOrders.length} pedido(s) coincidentes: {o.recentOrders.map(r=>r.number).join(', ')}. Revisar con el cliente.</div>)}</div>}<p>Señales que WINNER OS revisará con los pedidos recibidos. Las coincidencias telefónicas de los últimos siete días se muestran arriba cuando existen; requieren revisión humana.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
+        {tab==='distribucion'&&admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>Distribución de pedidos · Control administrativo</h3><button type="button" className="ao-tag cyan" onClick={fetchDistribution}>Actualizar vista previa</button></div>
+          <p>Orden de prioridad de las asesoras, máximo 30 pedidos NUEVOS por asesora cada día de Colombia. No reasigna pedidos confirmados o ya asignados. WhatsApp permanece manual.</p>
+          {distribution.status==='loading'&&<div className="ao-note">Consultando datos en D1…</div>}
+          {distribution.error&&<div className="ao-note" role="alert">{distribution.error}</div>}
+          {distribution.notice&&<div className="ao-note" role="status">{distribution.notice}</div>}
+          {distribution.data&&<>
+            <div className="ao-minis"><div className="ao-mini"><h4>Pendientes analizados</h4><strong>{distribution.data.preview.pendingCount}</strong></div><div className="ao-mini"><h4>Elegibles</h4><strong>{distribution.data.preview.eligible}</strong></div><div className="ao-mini"><h4>En revisión</h4><strong>{distribution.data.preview.held}</strong></div></div>
+            <p style={{marginTop:12,color:'#ffda98'}}>Análisis de hasta 100 pendientes. Los pedidos sospechosos NO se asignan automáticamente. El reparto continúa bloqueado si existen más de 1.000 pedidos históricos hasta implementar un índice persistente de duplicados.</p>
+            <div style={{overflowX:'auto',marginTop:15}}><table style={{width:'100%',minWidth:440,fontSize:13,borderCollapse:'collapse'}}><thead><tr><th style={{textAlign:'left'}}>Asesora</th><th>Prioridad</th><th>Asignaciones de hoy</th><th>Cupo disponible</th></tr></thead><tbody>{(distribution.data.capacity.advisors||[]).map(a=><tr key={a.advisor_id}><td style={{padding:10}}>{a.display_name}</td><td style={{textAlign:'center'}}>{a.priority}</td><td style={{textAlign:'center'}}>{a.used_today}</td><td style={{textAlign:'center'}}>{Math.max(0,30-Number(a.used_today||0))}</td></tr>)}</tbody></table></div>
+            <div style={{display:'flex',gap:12,alignItems:'center',marginTop:18,flexWrap:'wrap'}}><span className={`ao-tag ${distribution.data.assignmentsEnabled?'green':'amber'}`}>{distribution.data.assignmentsEnabled?'Reparto habilitado':'Reparto desactivado en Cloudflare'}</span><button type="button" className="ao-tag violet" style={{padding:12,opacity:distribution.data.assignmentsEnabled&&distribution.status!=='loading'?1:.5}} disabled={!distribution.data.assignmentsEnabled||distribution.status==='loading'} onClick={runDistribution}>Asignar ahora · máximo 30</button></div>
+            <p>Para habilitar asignación controlada: ASSIGNMENTS_ENABLED=true. Esta versión no configura un disparador programado: cada ejecución se inicia explícitamente aquí.</p>
+          </>}
+        </section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
       </main>
     </div>
