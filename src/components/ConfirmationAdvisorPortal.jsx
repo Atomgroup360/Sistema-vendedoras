@@ -5,6 +5,7 @@ const TABS = [
   { id: 'resumen', title: 'Resumen', icon: LayoutDashboard },
   { id: 'pedidos', title: 'Mis pedidos', icon: Package },
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
+  { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
   { id: 'alertas', title: 'Alertas IA', icon: Bell },
   { id: 'sistema', title: 'Estado del sistema', icon: Activity },
 ];
@@ -29,6 +30,10 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [tab, setTab] = useState(() => role === 'admin' ? 'estadisticas' : 'resumen');
   const [dashboard, setDashboard] = useState({status:'idle',data:null,error:''});
   const [dateRange,setDateRange]=useState({from:'',to:''});
+  const [adminAdvisor,setAdminAdvisor]=useState('');
+  const [adminPage,setAdminPage]=useState(0);
+  const [adminOrders,setAdminOrders]=useState({status:'idle',orders:[],hasMore:false,error:''});
+  const [adminOpenedOrder,setAdminOpenedOrder]=useState(null);
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
   const [actionEnabled, setActionEnabled] = useState(false);
   const [actionState,setActionState]=useState({busy:0,message:''});
@@ -63,6 +68,21 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.code||'ERROR_DASHBOARD');
       setDashboard({status:'ready',data,error:''});
     }catch(e){setDashboard({status:'error',data:null,error:String(e.message||'ERROR')});}
+  };
+  const fetchAdminOrders = async (advisorId=adminAdvisor,page=adminPage) => {
+    if(role!=='admin'||!user?.getIdToken)return;
+    setAdminOrders(s=>({...s,status:'loading',error:''}));
+    try{
+      const token=await user.getIdToken();
+      const params=new URLSearchParams({page:String(page)});
+      if(advisorId)params.set('advisorId',advisorId);
+      const res=await fetch(`https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/inbox?${params}`,{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store'
+      });
+      const data=await res.json();
+      if(!res.ok||!data.ok||data.role!=='admin')throw new Error(data.code||'ADMIN_READ_FAILED');
+      setAdminOrders({status:'ready',orders:data.orders||[],hasMore:!!data.hasMore,error:''});
+    }catch(e){setAdminOrders({status:'error',orders:[],hasMore:false,error:String(e.message||'Error')});}
   };
   const updateOrder = async (o, action) => {
     if (!actionEnabled) return;
@@ -105,9 +125,11 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   };
   useEffect(()=>{if(['pedidos','resumen','alertas'].includes(tab))fetchInbox();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
+  useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
   const current = visibleTabs.find(t => t.id === tab) || visibleTabs[0];
   return <div className="ao-root">
     <style>{`
@@ -207,13 +229,45 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
               ['Tasa de confirmación',`${dashboard.data.totals.confirmationRate}%`,'green'],
               ['Tiempo medio hasta confirmar',dashboard.data.totals.averageConfirmationHours===null?'Sin datos':`${dashboard.data.totals.averageConfirmationHours} h`,'violet'],
             ].map(([label,val,tone])=><div key={label} className={`ao-card ${tone}`}><h4 style={{fontSize:12,color:'#b2daea'}}>{label}</h4><div className="ao-value" style={{fontSize:25}}>{val}</div></div>)}</div>
-            <div style={{overflowX:'auto',marginTop:20}}><h4 style={{fontSize:17,color:'#7ce7fa',marginBottom:10}}>Rendimiento por asesora</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}><thead><tr>{['Asesora','Recibidos','Confirmados','Cancelados','Sin respuesta','Contactados'].map(h=><th key={h} style={{padding:10,borderBottom:'1px solid #41657a',textAlign:'left',color:'#93dbe9'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.advisors.map(a=><tr key={a.advisorId}>{[a.name,a.received,a.confirmed,a.cancelled,a.no_answer,a.contacted].map((v,i)=><td key={i} style={{padding:10,borderBottom:'1px solid #25445b',color:'#f1faff'}}>{v}</td>)}</tr>)}</tbody></table>{!dashboard.data.advisors.length&&<p style={{color:'#b4cbe0'}}>No hay asignaciones en este período.</p>}</div>
+            <div style={{overflowX:'auto',marginTop:20}}><h4 style={{fontSize:17,color:'#7ce7fa',marginBottom:10}}>Rendimiento por asesora</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}><thead><tr>{['Asesora','Recibidos','Confirmados','Cancelados','Sin respuesta','Contactados'].map(h=><th key={h} style={{padding:10,borderBottom:'1px solid #41657a',textAlign:'left',color:'#93dbe9'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.advisors.map(a=><tr key={a.advisorId}><td style={{padding:10,borderBottom:'1px solid #25445b'}}><button type="button" className="ao-tag cyan" style={{padding:'7px 10px'}} onClick={()=>{setAdminAdvisor(a.advisorId);setAdminPage(0);setAdminOpenedOrder(null);setTab('asesoras')}}>Ver asesora · {a.name}</button></td>{[a.received,a.confirmed,a.cancelled,a.no_answer,a.contacted].map((v,i)=><td key={i} style={{padding:10,borderBottom:'1px solid #25445b',color:'#f1faff'}}>{v}</td>)}</tr>)}</tbody></table>{!dashboard.data.advisors.length&&<p style={{color:'#b4cbe0'}}>No hay asignaciones en este período.</p>}</div>
             <div style={{overflowX:'auto',marginTop:24}}><h4 style={{fontSize:17,color:'#cba9ff',marginBottom:10}}>Evolución diaria por fecha original</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:500}}><thead><tr>{['Fecha','Recibidos','Confirmados','Cancelados','Sin respuesta','Sin asignar'].map(h=><th key={h} style={{padding:10,textAlign:'left',borderBottom:'1px solid #41657a',color:'#cba9ff'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.daily.map(d=><tr key={d.date}>{[d.date,d.received,d.confirmed,d.cancelled,d.no_answer,d.unassigned].map((v,i)=><td key={i} style={{padding:9,color:'#f0faff',borderBottom:'1px solid #25445b'}}>{v}</td>)}</tr>)}</tbody></table></div>
             <p style={{fontSize:12,color:'#a7c4d6',marginTop:15}}>Excluidos por pruebas o descartes: {dashboard.data.totals.excluded}. Las cohortes pendientes pueden cambiar al confirmar pedidos posteriormente.</p>
           </>}
         </section>}
+        {tab==='asesoras'&&admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>Pedidos y gestiones por asesora</h3><span className="ao-tag cyan">Administrador · Solo lectura</span></div>
+          <p style={{fontSize:13,color:'#b4cbe0'}}>Consulta las órdenes asignadas, su resultado y el historial de acciones. No modifica estados, no abre WhatsApp ni envía mensajes.</p>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',margin:'16px 0'}}>
+            <label style={{fontSize:12,color:'#95e3f2'}}>Asesora <select value={adminAdvisor} onChange={e=>{setAdminAdvisor(e.target.value);setAdminPage(0);setAdminOpenedOrder(null)}} style={{display:'block',padding:10,background:'#09243a',color:'#fff',border:'1px solid #47748f',borderRadius:9,minWidth:220}}>
+              <option value="">Todas las asesoras</option>
+              {(dashboard.data?.advisors||[]).map(a=><option key={a.advisorId} value={a.advisorId}>{a.name}</option>)}
+            </select></label>
+            <button type="button" className="ao-tag cyan" style={{padding:11}} onClick={()=>fetchAdminOrders(adminAdvisor,adminPage)}>Actualizar pedidos</button>
+            <span style={{color:'#a9d3e9',fontSize:12}}>Página {adminPage+1} · hasta 50 pedidos por página</span>
+          </div>
+          {adminOrders.status==='loading'&&<div className="ao-note">Consultando pedidos de D1…</div>}
+          {adminOrders.status==='error'&&<div className="ao-note" role="alert">Error: {adminOrders.error}</div>}
+          {adminOrders.status==='ready'&&<>
+            {!adminOrders.orders.length&&<div className="ao-note">No hay pedidos asignados a esta asesora en esta página.</div>}
+            <div style={{display:'grid',gap:9}}>{adminOrders.orders.map(o=><article key={o.id} style={{padding:14,background:'#09243a',border:'1px solid #31536a',borderRadius:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+                <div><strong style={{color:'#f0fbff'}}>Pedido {o.number}</strong> <span className="ao-tag cyan" style={{marginLeft:8}}>{ORDER_STATUS_LABELS[o.status]||o.status}</span><div style={{fontSize:12,color:'#a4c9dc',marginTop:5}}>{o.advisorName||'Asesora'} · {o.createdAt?new Date(o.createdAt).toLocaleString('es-CO'): 'Sin fecha'} · {money(o.total)}</div></div>
+                <button type="button" className="ao-tag violet" style={{padding:'10px 12px'}} onClick={()=>setAdminOpenedOrder(adminOpenedOrder===o.id?null:o.id)}>{adminOpenedOrder===o.id?'Ocultar pedido':'Ver pedido y gestiones'}</button>
+              </div>
+              {adminOpenedOrder===o.id&&<div style={{marginTop:14,padding:12,background:'#061b2b',border:'1px solid #365c72',borderRadius:10}}>
+                <p><b>Cliente:</b> {o.customerName||'Sin dato'} · <b>Teléfono:</b> {o.customerPhone||'Sin dato'}</p>
+                <p><b>Dirección:</b> {[o.address?.address1,o.address?.address2,o.address?.city,o.address?.province].filter(Boolean).join(' / ')||'Sin dato'}</p>
+                <p><b>Productos:</b></p><ul style={{paddingLeft:20}}>{(o.items||[]).map((item,i)=><li key={i}>{item.quantity||1} × {item.title}{item.variant?' · '+item.variant:''}</li>)}</ul>
+                <h4 style={{marginTop:14,color:'#85e5f7'}}>Historial de gestiones</h4>
+                {!o.timeline?.length?<p style={{fontSize:12,color:'#b4cbe0'}}>Todavía no tiene acciones registradas.</p>:(o.timeline||[]).map((event,i)=><div key={i} style={{padding:'10px 0',borderTop:'1px solid #31536a',fontSize:12}}><strong>{ORDER_STATUS_LABELS[event.action]||event.action}</strong> · {event.at?new Date(event.at).toLocaleString('es-CO'):'Sin fecha'}<div style={{color:'#c8dfed',marginTop:3}}>Nota: {event.note||'Sin nota'}</div><div style={{color:'#8baebf'}}>Registró: {event.actorUid===o.advisorId?o.advisorName:(event.actorUid||'Usuario')}</div></div>)}
+                {o.timeline?.length>=10&&<p style={{color:'#ffd18a',fontSize:12}}>Se muestran las últimas 10 gestiones de este pedido.</p>}
+              </div>}
+            </article>)}</div>
+            <div style={{display:'flex',gap:10,marginTop:17}}><button type="button" disabled={adminPage===0||adminOrders.status==='loading'} className="ao-tag cyan" style={{padding:11,opacity:adminPage===0?.5:1}} onClick={()=>{setAdminPage(p=>Math.max(0,p-1));setAdminOpenedOrder(null)}}>Anterior</button><button type="button" disabled={!adminOrders.hasMore||adminOrders.status==='loading'} className="ao-tag cyan" style={{padding:11,opacity:adminOrders.hasMore?1:.5}} onClick={()=>{setAdminPage(p=>p+1);setAdminOpenedOrder(null)}}>Siguiente</button></div>
+          </>}
+        </section>}
         {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div>{inbox.status==='ready'&&<div style={{display:'grid',gap:8,margin:'12px 0'}}>{inbox.orders.filter(o=>o.recentOrders?.length>0).length===0?<div className="ao-note">No se detectaron coincidencias telefónicas recientes entre los pedidos de esta bandeja.</div>:inbox.orders.filter(o=>o.recentOrders?.length>0).map(o=><div className="ao-note" key={o.id}>⚠️ <strong>{o.number}</strong> · {o.recentOrders.length} pedido(s) coincidentes: {o.recentOrders.map(r=>r.number).join(', ')}. Revisar con el cliente.</div>)}</div>}<p>Señales que WINNER OS revisará con los pedidos recibidos. Las coincidencias telefónicas de los últimos siete días se muestran arriba cuando existen; requieren revisión humana.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
-        {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. No hay conexión de lectura de pedidos de asesoras en esta versión.</div></section>}
+        {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
       </main>
     </div>
   </div>;
