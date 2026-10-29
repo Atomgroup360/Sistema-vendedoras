@@ -18,6 +18,8 @@ import {
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
 import { db } from './src/firebase';
+import { getDoc, doc } from 'firebase/firestore';
+import ConfirmationAdvisorPortal from './src/components/ConfirmationAdvisorPortal';
 
 // Intelligence V40: SOLO campos textuales aprobados; sin imágenes, base64 ni medios.
 const brief01SafeAdRow = (raw) => ({
@@ -22913,7 +22915,7 @@ function CalculadoraIndependienteV532() {
   </div>;
 }
 
-export default function App() {
+function LegacyWinnerApp() {
   const { user, loading } = useAuth();
   const [configs, setConfigs] = useState([]);
   const [months, setMonths] = useState([]);
@@ -23168,6 +23170,64 @@ export default function App() {
           })}
         </div>
       </nav>
+    </div>
+  );
+}
+
+
+// CONFIRMACIONES V1.5 — Puerta por rol antes de montar cualquier módulo existente.
+// Firestore protege colecciones administrativas; esta puerta evita montar listeners de App del admin.
+const WINNER_ADMIN_UID_V15 = 'CnbjvJXpKrXxlhWbgDREWZf9TR73';
+
+export default function App() {
+  const { user, loading, logout } = useAuth();
+  const [roleState, setRoleState] = useState({ status: 'loading', role: null });
+
+  useEffect(() => {
+    let live = true;
+    if (!user?.uid) {
+      setRoleState({ status: 'anonymous', role: null });
+      return () => { live = false; };
+    }
+    setRoleState({ status: 'loading', role: null });
+    getDoc(doc(db, 'user_roles', user.uid)).then(snapshot => {
+      if (!live) return;
+      const data = snapshot.exists() ? snapshot.data() : null;
+      if (!data || data.enabled !== true) {
+        setRoleState({ status: 'denied', role: null });
+        return;
+      }
+      // Doble comprobación contra asignaciones de rol equivocadas.
+      if (user.uid === WINNER_ADMIN_UID_V15 && data.role === 'admin') {
+        setRoleState({ status: 'ready', role: 'admin' });
+      } else if (user.uid !== WINNER_ADMIN_UID_V15 && data.role === 'confirmaciones') {
+        setRoleState({ status: 'ready', role: 'confirmaciones' });
+      } else {
+        setRoleState({ status: 'denied', role: null });
+      }
+    }).catch(error => {
+      if (!live) return;
+      console.warn('Control de roles Winner OS: acceso denegado', error?.code || 'error');
+      setRoleState({ status: 'denied', role: null });
+    });
+    return () => { live = false; };
+  }, [user?.uid]);
+
+  if (loading || (user && roleState.status === 'loading')) {
+    return <TuPedidoLoadingOverlay active label="Validando permisos de acceso..." variant="initial" />;
+  }
+  if (!user) return <Login />;
+  if (roleState.status === 'ready' && roleState.role === 'admin') return <LegacyWinnerApp />;
+  if (roleState.status === 'ready' && roleState.role === 'confirmaciones') {
+    return <ConfirmationAdvisorPortal user={user} onLogout={logout} />;
+  }
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-100 p-5">
+      <div className="max-w-md w-full bg-white rounded-3xl p-7 shadow-lg text-center">
+        <h1 className="text-xl font-black text-slate-900 mb-3">Acceso pendiente de autorización</h1>
+        <p className="text-sm text-slate-600 mb-5">Esta cuenta no tiene un rol activo autorizado para WINNER OS. Solicita acceso al administrador.</p>
+        <button onClick={logout} className="px-5 py-3 rounded-xl bg-slate-900 text-white font-semibold">Cerrar sesión</button>
+      </div>
     </div>
   );
 }
