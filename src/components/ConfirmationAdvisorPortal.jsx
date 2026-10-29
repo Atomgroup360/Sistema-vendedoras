@@ -26,6 +26,9 @@ function Atom() {
 export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'confirmaciones' }) {
   const [tab, setTab] = useState('resumen');
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
+  const [actionEnabled, setActionEnabled] = useState(false);
+  const [actionState,setActionState]=useState({busy:0,message:''});
+  const [notes,setNotes]=useState({});
   const fetchInbox = async () => {
     if (!user?.getIdToken) {setInbox({status:'error',orders:[],error:'Sesión Firebase no disponible'});return;}
     setInbox(prev=>({...prev,status:'loading',error:''}));
@@ -36,8 +39,32 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       });
       const data=await res.json();
       if(!res.ok || !data.ok)throw new Error(data.code||'ERROR_DE_CONEXION');
+      setActionEnabled(data.orderActionsEnabled===true);
       setInbox({status:'ready',orders:Array.isArray(data.orders)?data.orders:[],error:''});
     }catch(e){setInbox({status:'error',orders:[],error:String(e.message||'ERROR')});}
+  };
+  const updateOrder = async (o, action) => {
+    if (!actionEnabled) return;
+    const note=notes[o.id]||'';
+    if (action==='no_answer' && !note.trim()) {setActionState({busy:0,message:'Escribe una nota para registrar el intento sin respuesta.'});return;}
+    if ((action==='cancelled'||action==='confirmed') && !window.confirm(`¿Registrar pedido ${o.number} como ${action==='confirmed'?'CONFIRMADO':'CANCELADO'}? Esta acción es definitiva.`)) return;
+    setActionState({busy:o.id,message:''});
+    try {
+      const token=await user.getIdToken();
+      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/order-action',{method:'POST',headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,action,note})});
+      const data=await res.json();
+      if (!res.ok||!data.ok) throw new Error(data.code||'No se pudo registrar');
+      setActionState({busy:0,message:'Gestión guardada con auditoría.'});
+      await fetchInbox();
+    }catch(e){setActionState({busy:0,message:String(e.message||'Error')});}
+  };
+  const whatsAppLink=o=>{
+    const digits=String(o.customerPhone||'').replace(/\D/g,'');
+    const valid=/^(57)?3\d{9}$/.test(digits);
+    if(!valid)return null;
+    const normalized=digits.startsWith('57')?digits:'57'+digits;
+    const message=`Hola, te escribimos de Tu Pedido Colombia para verificar los datos de tu pedido ${o.number}. ¿Nos confirmas si deseas continuar con la compra?`;
+    return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
   };
   useEffect(()=>{if(tab==='pedidos')fetchInbox();},[tab,user?.uid]);
   const admin = role === 'admin';
@@ -90,7 +117,25 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {inbox.status==='error'&&<div className="ao-note">Conexión pendiente o acceso no autorizado: {inbox.error}. No se muestran datos de clientes.</div>}
           {inbox.status==='loading'&&<div className="ao-empty"><Clock3 size={28}/><h3>Consultando pedidos autorizados…</h3></div>}
           {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><LockKeyhole size={30}/><h3>No tienes pedidos asignados por ahora</h3><p>La bandeja está conectada y autorizada. Los pedidos aparecerán aquí cuando el reparto seguro sea habilitado.</p></div>}
-          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:12}}>{inbox.orders.map(o=><article key={o.id} className="ao-mini" style={{padding:16}}><div style={{display:'flex',gap:12,justifyContent:'space-between',flexWrap:'wrap'}}><strong>Pedido {o.number}</strong><span className="ao-tag cyan">{o.status}</span></div><p style={{marginTop:9,color:'#e1f4ff'}}>Cliente: {o.customerName||'No registrado'} · {o.city||'Sin ciudad'}</p><p>Teléfono: {o.customerPhone||'No registrado'} · Total: {o.total||'—'}</p><p>Productos: {o.items.map(i=>`${i.quantity} × ${i.title}`).join(' · ')||'Sin detalle'}</p><p>Fecha de pedido: {o.createdAt}</p></article>)}</div>}
+          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:14}}>{inbox.orders.map(o=><article key={o.id} className="ao-mini" style={{padding:18,border:'1px solid #3f728c',borderRadius:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}><strong style={{fontSize:18,color:'#e9faff'}}>Pedido {o.number}</strong><span className="ao-tag cyan">{o.status==='assigned'?'Pendiente de contacto':o.status}</span></div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:13,marginTop:16}}>
+              <div><p><b style={{color:'#6de7ff'}}>CLIENTE</b></p><p style={{color:'#e6f4ff'}}>{o.customerName||'No registrado'}</p><p>Teléfono: {o.customerPhone||'No registrado'}</p><p>Ciudad: {o.city||'No registrada'}</p></div>
+              <div><p><b style={{color:'#f9c56b'}}>DIRECCIÓN DE ENTREGA</b></p><p>{[o.address?.address1,o.address?.address2].filter(Boolean).join(', ')||'No registrada'}</p><p>{[o.address?.city,o.address?.province,o.address?.zip].filter(Boolean).join(' · ')||'Ubicación incompleta'}</p><p style={{fontSize:11,color:'#a8becf'}}>Dirección original Shopify; verificar antes de confirmar.</p></div>
+              <div><p><b style={{color:'#c7a4ff'}}>PEDIDO</b></p><p>{(o.items||[]).map(i=>`${i.quantity} × ${i.title}${i.variant?' ('+i.variant+')':''}`).join(' · ')||'Sin detalle'}</p><p>Valor: {o.total||'—'}</p><p>Fecha: {o.createdAt}</p></div>
+            </div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:16,alignItems:'center'}}>
+              {whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
+              <span style={{color:'#b1cddd',fontSize:11}}>Abrir WhatsApp no registra contacto ni envía automáticamente.</span>
+            </div>
+            <div style={{marginTop:14,display:'grid',gap:9}}>
+              <label style={{fontSize:12,color:'#d0e7fa'}}>Nota de gestión (máximo 500 caracteres)</label>
+              <textarea value={notes[o.id]||''} maxLength={500} onChange={e=>setNotes(s=>({...s,[o.id]:e.target.value}))} rows={2} placeholder="Qué respondió el cliente o qué se debe corregir…" style={{width:'100%',background:'#06192c',border:'1px solid #41647b',borderRadius:9,padding:11,color:'#f0faff'}}/>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[['contacted','Contactado'],['no_answer','Sin respuesta'],['needs_correction','Corregir datos'],['confirmed','Confirmado'],['cancelled','Cancelado']].map(([action,label])=><button type="button" key={action} disabled={!actionEnabled||actionState.busy!==0||['confirmed','cancelled'].includes(o.status)} onClick={()=>updateOrder(o,action)} style={{padding:'9px 12px',border:'1px solid #40718e',borderRadius:9,background:'#123454',color:'#e7f9ff',opacity:!actionEnabled?.5:1,cursor:actionEnabled?'pointer':'not-allowed'}}>{label}</button>)}</div>
+              {!actionEnabled&&<p style={{fontSize:12,color:'#ffd58c'}}>Las acciones están en modo protegido hasta activar ORDER_ACTIONS_ENABLED y validar la migración de auditoría.</p>}
+            </div>
+          </article>)}</div>}
+          {actionState.message&&<div className="ao-note" role="status">{actionState.message}</div>}
           {inbox.status==='idle'&&<div className="ao-empty"><LockKeyhole size={30}/><h3>Consulta segura</h3><p>Los pedidos solo se obtienen usando tu sesión de Firebase, con verificación del servidor.</p></div>}
         </section>}
         {tab==='alertas'&&<section className="ao-panel"><div className="ao-section-head"><h3>Alertas inteligentes para trato especial</h3><span className="ao-tag cyan"><Bell size={12}/> Reglas de revisión</span></div><p>Señales que WINNER OS revisará con los pedidos recibidos. Las alertas reales por cliente se mostrarán aquí cuando el servidor autorice la consulta.</p><div className="ao-grid" style={{marginTop:16}}>{ALERTS.map(a=>{const Icon=a.icon;return <article key={a.title} className={`ao-alert ${a.tone}`}><Icon size={21} className="ao-ai"/><div><h4>{a.title}</h4><p>{a.detail}</p></div></article>})}</div></section>}
