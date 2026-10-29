@@ -7,6 +7,7 @@ const TABS = [
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
   { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
   { id: 'distribucion', title: 'Distribución', icon: Zap },
+  { id: 'administrar', title: 'Administrar asesoras', icon: Users },
   { id: 'alertas', title: 'Alertas IA', icon: Bell },
   { id: 'sistema', title: 'Estado del sistema', icon: Activity },
 ];
@@ -36,6 +37,9 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [adminOrders,setAdminOrders]=useState({status:'idle',orders:[],hasMore:false,error:''});
   const [adminOpenedOrder,setAdminOpenedOrder]=useState(null);
   const [distribution,setDistribution]=useState({status:'idle',data:null,error:'',notice:''});
+  const [advisorAdmin,setAdvisorAdmin]=useState({advisors:[],reviews:[],error:'',message:'',loading:false});
+  const [advisorDraft,setAdvisorDraft]=useState({advisorId:'',displayName:'',priority:2,enabled:false});
+
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:''});
   const [actionEnabled, setActionEnabled] = useState(false);
   const [actionState,setActionState]=useState({busy:0,message:''});
@@ -108,6 +112,40 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       setDistribution(s=>({...s,notice:`Se asignaron ${data.assigned||0} pedidos; ${data.held||0} retenidos para revisión; ${data.capacityBlocked||0} sin cupo.`}));
     }catch(e){setDistribution(s=>({...s,status:'error',error:String(e.message||'Error')}));}
   };
+  const adminV114 = async (path, body=null) => {
+    const token=await user.getIdToken();
+    const res=await fetch(`https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/${path}`,{
+      method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(body?{'Content-Type':'application/json'}:{})},
+      ...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'
+    });
+    const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.code||'OPERACION_RECHAZADA');return data;
+  };
+  const refreshAdvisorsV114=async()=>{
+    if(role!=='admin')return;
+    setAdvisorAdmin(s=>({...s,loading:true,error:''}));
+    try{const [a,r]=await Promise.all([adminV114('advisors'),adminV114('reviews')]);
+      setAdvisorAdmin(s=>({...s,loading:false,advisors:a.advisors||[],reviews:r.reviews||[]}));
+    }catch(e){setAdvisorAdmin(s=>({...s,loading:false,error:String(e.message)}));}
+  };
+  const saveAdvisorV114=async()=>{
+    try{await adminV114('advisors',advisorDraft);
+      setAdvisorAdmin(s=>({...s,message:'Asesora vinculada y configurada.'}));await refreshAdvisorsV114();
+    }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
+  };
+  const resolveReviewV114=async(incomingId,resolution)=>{
+    if(!window.confirm(`¿Marcar revisión ${incomingId} como ${resolution==='approved'?'aprobada':'descartada'}?`))return;
+    try{await adminV114('reviews',{incomingId,resolution});await refreshAdvisorsV114();}
+    catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
+  };
+  const backfillImmediateV114=async()=>{
+    try{const r=await adminV114('backfill',{});setAdvisorAdmin(s=>({...s,message:`Índice: ${r.processed} procesados; ${r.remaining} pendientes. Repite hasta que queden 0.`}));}
+    catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
+  };
+  const retryImmediateV114=async()=>{
+    try{const r=await adminV114('immediate-retry',{});await Promise.all([fetchDistribution(),refreshAdvisorsV114()]);
+      setAdvisorAdmin(s=>({...s,message:`Recuperación: ${r.assigned} asignados, ${r.review} en revisión, ${r.blocked} bloqueados.`}));
+    }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
+  };
   const updateOrder = async (o, action) => {
     if (!actionEnabled) return;
     const note=notes[o.id]||'';
@@ -152,6 +190,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='distribucion'&&role==='admin')fetchDistribution();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='administrar'&&role==='admin')refreshAdvisorsV114();},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
   const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
@@ -300,11 +339,31 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {distribution.notice&&<div className="ao-note" role="status">{distribution.notice}</div>}
           {distribution.data&&<>
             <div className="ao-minis"><div className="ao-mini"><h4>Pendientes analizados</h4><strong>{distribution.data.preview.pendingCount}</strong></div><div className="ao-mini"><h4>Elegibles</h4><strong>{distribution.data.preview.eligible}</strong></div><div className="ao-mini"><h4>En revisión</h4><strong>{distribution.data.preview.held}</strong></div></div>
-            <p style={{marginTop:12,color:'#ffda98'}}>Análisis de hasta 100 pendientes. Los pedidos sospechosos NO se asignan automáticamente. El reparto continúa bloqueado si existen más de 1.000 pedidos históricos hasta implementar un índice persistente de duplicados.</p>
+            <p style={{marginTop:12,color:'#ffda98'}}>Análisis de hasta 100 pendientes. El historial se compara mediante índice persistente de coincidencias. Los posibles duplicados se retienen para revisión.</p>
             <div style={{overflowX:'auto',marginTop:15}}><table style={{width:'100%',minWidth:440,fontSize:13,borderCollapse:'collapse'}}><thead><tr><th style={{textAlign:'left'}}>Asesora</th><th>Prioridad</th><th>Asignaciones de hoy</th><th>Cupo disponible</th></tr></thead><tbody>{(distribution.data.capacity.advisors||[]).map(a=><tr key={a.advisor_id}><td style={{padding:10}}>{a.display_name}</td><td style={{textAlign:'center'}}>{a.priority}</td><td style={{textAlign:'center'}}>{a.used_today}</td><td style={{textAlign:'center'}}>{Math.max(0,30-Number(a.used_today||0))}</td></tr>)}</tbody></table></div>
             <div style={{display:'flex',gap:12,alignItems:'center',marginTop:18,flexWrap:'wrap'}}><span className={`ao-tag ${distribution.data.assignmentsEnabled?'green':'amber'}`}>{distribution.data.assignmentsEnabled?'Reparto habilitado':'Reparto desactivado en Cloudflare'}</span><button type="button" className="ao-tag violet" style={{padding:12,opacity:distribution.data.assignmentsEnabled&&distribution.status!=='loading'?1:.5}} disabled={!distribution.data.assignmentsEnabled||distribution.status==='loading'} onClick={runDistribution}>Asignar ahora · máximo 30</button></div>
-            <p>Para habilitar asignación controlada: ASSIGNMENTS_ENABLED=true. Esta versión no configura un disparador programado: cada ejecución se inicia explícitamente aquí.</p>
+            <p>Para habilitar asignación controlada: ASSIGNMENTS_ENABLED=true. En V1.14 el reparto inmediato se produce al recibir cada pedido, siempre que IMMEDIATE_ASSIGNMENTS_ENABLED=true. El botón es una recuperación manual.</p>
           </>}
+        </section>}
+        {tab==='administrar'&&admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>Administrar asesoras · Operación inmediata</h3><button type="button" className="ao-tag cyan" onClick={refreshAdvisorsV114}>Actualizar</button></div>
+          <p>Vincula una cuenta que ya tenga rol <strong>confirmaciones</strong> y esté habilitada en Firebase. Máximo 30 pedidos nuevos por asesora y día. No modifica cuentas de Firebase.</p>
+          {advisorAdmin.error&&<div className="ao-note" role="alert">{advisorAdmin.error}</div>}
+          {advisorAdmin.message&&<div className="ao-note" role="status">{advisorAdmin.message}</div>}
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:15}}>
+            <input aria-label="UID Firebase asesora" placeholder="UID de Firebase" value={advisorDraft.advisorId} onChange={e=>setAdvisorDraft(s=>({...s,advisorId:e.target.value}))} style={{padding:10,borderRadius:8,color:'#fff',background:'#09243a'}}/>
+            <input aria-label="Nombre asesora" placeholder="Nombre de asesora" value={advisorDraft.displayName} onChange={e=>setAdvisorDraft(s=>({...s,displayName:e.target.value}))} style={{padding:10,borderRadius:8,color:'#fff',background:'#09243a'}}/>
+            <label>Prioridad <input type="number" min="1" max="100" value={advisorDraft.priority} onChange={e=>setAdvisorDraft(s=>({...s,priority:Number(e.target.value)}))} style={{width:70,padding:8,background:'#09243a',color:'#fff'}}/></label>
+            <label><input type="checkbox" checked={advisorDraft.enabled} onChange={e=>setAdvisorDraft(s=>({...s,enabled:e.target.checked}))}/> Habilitada</label>
+            <button type="button" className="ao-tag green" onClick={saveAdvisorV114}>Guardar asesora</button>
+          </div>
+          <div style={{marginTop:20}}><h4>Asesoras registradas</h4>
+          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div>{a.display_name} · Prioridad {a.priority} · {a.used_today}/30 hoy · {a.enabled?'Activa':'Pausada'}</div><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Editar</button></div>)}</div>
+          <div style={{marginTop:24}}><h4>Revisión de pedidos potencialmente repetidos</h4>
+           {(advisorAdmin.reviews||[]).filter(r=>r.resolution==='open').map(r=><div key={r.incoming_id} style={{padding:12,borderBottom:'1px solid #3b5d70'}}><strong>Pedido {r.order_number}</strong> · {r.reason}<p>Coincidencias: {(r.details?.similarOrderIds||[]).join(', ')||'Revisar historial'}</p><button type="button" className="ao-tag green" onClick={()=>resolveReviewV114(r.incoming_id,'approved')}>Aprobar pedido</button> <button type="button" className="ao-tag amber" onClick={()=>resolveReviewV114(r.incoming_id,'discarded')}>Descartar revisión</button></div>)}
+           <button type="button" className="ao-tag cyan" onClick={backfillImmediateV114} style={{marginTop:16}}>Preparar índice histórico · 250 por clic</button> <button type="button" className="ao-tag violet" onClick={retryImmediateV114} style={{marginTop:16}}>Recuperar pedidos pendientes</button>
+          </div>
+          <p>La asignación inmediata se activa en Cloudflare con ASSIGNMENTS_ENABLED=true e IMMEDIATE_ASSIGNMENTS_ENABLED=true. WhatsApp continúa manual.</p>
         </section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
       </main>
