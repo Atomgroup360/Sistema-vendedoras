@@ -193,7 +193,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='administrar'&&role==='admin')refreshAdvisorsV114();},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','alertas','sistema'].includes(item.id)) : TABS.filter(item => item.id !== 'estadisticas');
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos','alertas','sistema'].includes(item.id));
   const current = visibleTabs.find(t => t.id === tab) || visibleTabs[0];
   return <div className="ao-root">
     <style>{`
