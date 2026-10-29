@@ -23021,7 +23021,7 @@ export default function App() {
   };
 
   return (
-    <div className="tpc-app-shell tpc-atomic-premium min-h-screen bg-[#080e22] text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="tpc-app-shell tpc-atomic-premium min-h-screen bg-[#080e22] text-slate-100" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <Brief01ExtensionBridge />
       <TuPedidoLoadingOverlay active={navigationLoading} label="Cargando módulo..." />
       <style>{`
@@ -23079,6 +23079,59 @@ export default function App() {
         .tpc-atomic-premium .tpc-mobile-nav button .bg-\[\#12386B\] { background:#244e7b!important; }
         @media(max-width:1023px){ .tpc-atom-one{right:-180px;top:125px}.tpc-atom-two{left:-170px} }
         @media(prefers-reduced-motion:reduce){.tpc-atom-orbit,.tpc-atom-core,.tpc-premium-enter,.tpc-ai-dot{animation:none!important}.tpc-atomic-premium *{scroll-behavior:auto!important;}}
+        /* V5.34 - Atomic Premium COMPLETE: dark surfaces across all routed modules.
+           Scoped to main surface to preserve printable documents, external overlays and semantics. */
+        .tpc-atomic-premium { color:#e6efff; --tpc-card:#111d36; --tpc-card-2:#152643; --tpc-line:#314967; --tpc-ink:#eaf2ff; --tpc-sub:#a1b7d4; color-scheme:dark; }
+        .tpc-atomic-premium .tpc-main-surface { color:#e6efff; }
+        .tpc-atomic-premium .tpc-main-surface :is(.bg-white,.bg-slate-50,.bg-slate-100,.bg-slate-200,.bg-gray-50,.bg-gray-100,.bg-zinc-50,.bg-zinc-100,.bg-neutral-50,.bg-white\/90,.bg-white\/95,.bg-white\/80,.bg-slate-50\/70) { background-color:rgba(19,32,57,.94)!important; color:#eaf2ff; border-color:rgba(91,126,170,.35); }
+        .tpc-atomic-premium .tpc-main-surface :is(.bg-blue-50,.bg-indigo-50,.bg-violet-50,.bg-purple-50,.bg-sky-50,.bg-cyan-50,.bg-blue-100,.bg-indigo-100,.bg-violet-100,.bg-purple-100) { background-color:rgba(40,66,115,.46)!important; border-color:rgba(83,149,225,.38)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.bg-emerald-50,.bg-green-50,.bg-teal-50,.bg-emerald-100,.bg-green-100,.bg-teal-100) { background-color:rgba(19,87,81,.35)!important; border-color:rgba(74,200,161,.35)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.bg-amber-50,.bg-yellow-50,.bg-orange-50,.bg-amber-100,.bg-yellow-100,.bg-orange-100) { background-color:rgba(106,77,35,.32)!important; border-color:rgba(225,169,87,.34)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.bg-rose-50,.bg-red-50,.bg-pink-50,.bg-rose-100,.bg-red-100,.bg-pink-100) { background-color:rgba(110,49,75,.31)!important; border-color:rgba(225,119,151,.35)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.text-slate-900,.text-slate-800,.text-slate-700,.text-zinc-900,.text-zinc-800,.text-gray-900,.text-black,.text-\[\#12386B\],.text-\[\#032A78\]) { color:#eaf2ff!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.text-slate-600,.text-slate-500,.text-slate-400,.text-zinc-600,.text-zinc-500,.text-gray-600,.text-gray-500) { color:#a6b8d5!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.text-blue-700,.text-blue-800,.text-indigo-700,.text-indigo-800,.text-purple-700,.text-violet-700) { color:#aebdff!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.text-emerald-700,.text-emerald-800,.text-emerald-600,.text-green-700,.text-teal-700) { color:#68e4c4!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.text-rose-700,.text-rose-800,.text-rose-600,.text-red-700,.text-red-800) { color:#ffa5b7!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.text-amber-700,.text-amber-800,.text-yellow-800,.text-orange-700) { color:#f6d192!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.border-slate-100,.border-slate-200,.border-slate-300,.border-gray-200,.border-zinc-200,.border-white\/80,.border-white\/70) { border-color:rgba(105,143,188,.31)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.border-blue-100,.border-blue-200,.border-indigo-100,.border-indigo-200) { border-color:rgba(93,148,248,.44)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.border-emerald-100,.border-emerald-200,.border-green-200) { border-color:rgba(60,196,152,.4)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.border-rose-200,.border-red-200) { border-color:rgba(232,116,156,.38)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(.border-amber-200,.border-amber-300,.border-yellow-200) { border-color:rgba(233,190,105,.41)!important; }
+        /* Inputs, selectors, tables, cards and expandable audits belong to the same design system. */
+        .tpc-atomic-premium .tpc-main-surface :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea) { background-color:#0a1830!important; color:#edf6ff!important; border:1px solid #3c577c!important; border-radius:10px; caret-color:#57dbff; }
+        .tpc-atomic-premium .tpc-main-surface :is(input,textarea)::placeholder { color:#8299bc!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(input,select,textarea):focus-visible { outline:2px solid #58dafa!important;outline-offset:1px;box-shadow:0 0 0 4px rgba(57,184,251,.14)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(input[type=checkbox],input[type=radio],input[type=range]) { accent-color:#53d5f8; }
+        .tpc-atomic-premium .tpc-main-surface :is(table) { color:#dceaff; }
+        .tpc-atomic-premium .tpc-main-surface :is(thead,th) { background-color:#192f50!important;color:#d5eaff!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(td,tr) { border-color:#345070!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(tr:hover) { background-color:rgba(46,77,123,.19); }
+        .tpc-atomic-premium .tpc-main-surface :is(hr) { border-color:#354a6b; }
+        .tpc-atomic-premium .tpc-main-surface :is(details) { border-color:#3b577b; }
+        .tpc-atomic-premium .tpc-main-surface :is(summary) { cursor:pointer; }
+        .tpc-atomic-premium .tpc-main-surface :is(.shadow,.shadow-sm,.shadow-md,.shadow-lg,.shadow-xl) { box-shadow:0 12px 30px rgba(0,5,24,.28),inset 0 1px rgba(160,199,255,.04)!important; }
+        .tpc-atomic-premium .tpc-main-surface :is(button):not(:disabled):active { transform:scale(.985); }
+        @media(hover:hover){.tpc-atomic-premium .tpc-main-surface :is(.bg-white,.bg-slate-50,.bg-slate-100):hover{border-color:rgba(92,181,248,.52)!important;transition:border-color .24s, box-shadow .24s;}}
+        /* Preserve accents on semantic status buttons: gradients and solid actions remain colorful. */
+        .tpc-atomic-premium .tpc-main-surface :is(button.bg-white,button.bg-slate-50,button.bg-slate-100){color:#cdeeff!important;border:1px solid rgba(95,149,215,.47)!important;background:linear-gradient(120deg,#1a395b,#1d2854)!important;}
+        .tpc-atomic-premium .tpc-main-surface :is(button.bg-white,button.bg-slate-50,button.bg-slate-100):hover{box-shadow:0 0 22px rgba(68,182,248,.2)!important;transform:translateY(-1px);}
+        /* Visible orbits. Do not allow translucent content to hide them. */
+        .tpc-atomic-field{opacity:.56!important;}
+        .tpc-atom-one{width:410px;height:410px;right:-70px;top:110px;}
+        .tpc-atom-two{left:-110px;top:56%;width:310px;height:310px;}
+        .tpc-atom-orbit{border-color:rgba(125,208,255,.66)}
+        .tpc-atom-orbit i{box-shadow:0 0 12px 4px rgba(94,222,255,.8),0 0 25px 9px rgba(99,106,255,.25)}
+        .tpc-premium-workspace:before{opacity:.34;}
+        .tpc-atomic-premium .tpc-main-surface{position:relative;z-index:1}
+        /* Enhanced entrance and interactive cards; no heavy animation on tables/inputs. */
+        .tpc-premium-enter{animation:tpcPremiumAppear .48s cubic-bezier(.2,.65,.26,1) both!important}
+        @keyframes tpcPremiumAppear{from{opacity:0;transform:translateY(13px)}to{opacity:1;transform:translateY(0)}}
+        .tpc-atomic-premium .tpc-main-surface :is(.rounded-2xl,.rounded-3xl){transition:border-color .23s ease,box-shadow .23s ease,background-color .23s ease;}
+        .tpc-atomic-premium .tpc-ai-indicator.is-online{box-shadow:0 0 16px rgba(42,221,182,.14);}
+        @media(prefers-reduced-motion:reduce){.tpc-atomic-premium .tpc-premium-enter{animation:none!important}.tpc-atomic-premium .tpc-main-surface *{transition:none!important}}
+        /* End V5.34 */
         .tpc-app-shell {
           --tpc-blue: #12386B;
           --tpc-blue-deep: #0B2347;
