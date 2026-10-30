@@ -5,6 +5,7 @@ const TABS = [
   { id: 'resumen', title: 'Resumen', icon: LayoutDashboard },
   { id: 'pedidos', title: 'Por gestionar', icon: Package },
   { id: 'historial', title: 'Historial', icon: CheckCircle2 },
+  { id: 'novedades', title: '🔔 Novedades', icon: Bell },
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
   { id: 'eliminar', title: 'Eliminar pruebas', icon: LockKeyhole },
   { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
@@ -47,6 +48,11 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [deleteList,setDeleteList]=useState({loading:false,items:[],error:''});
   const [deleteBusy,setDeleteBusy]=useState(false);
   const [atomBusy,setAtomBusy]=useState(0);
+  const [atomFilter,setAtomFilter]=useState('all');
+  const [noveltyHours,setNoveltyHours]=useState(48);
+  const [noveltyDraft,setNoveltyDraft]=useState(48);
+  const [noveltyMessage,setNoveltyMessage]=useState('');
+  const [cancelReason,setCancelReason]=useState({});
   const [atomMessage,setAtomMessage]=useState('');
   const [renameDraft,setRenameDraft]=useState({advisorId:'',displayName:''});
   const [advisorDraft,setAdvisorDraft]=useState({advisorId:'',displayName:'',priority:2,enabled:false});
@@ -65,7 +71,6 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [showAdvancedFilters,setShowAdvancedFilters]=useState(false);
   const [showAdvisorOptions,setShowAdvisorOptions]=useState(false);
   const [shopifyHealth,setShopifyHealth]=useState('checking');
-  const inboxBusyRef = useRef(false);
   const knownOrderIdsRef = useRef(null);
   const [newOrderCount,setNewOrderCount] = useState(0);
   const [lastSync,setLastSync] = useState(null);
@@ -107,25 +112,24 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [directory,setDirectory]=useState([]);
   const [transferHistory,setTransferHistory]=useState({items:[],hasMore:false,page:0,error:''});
   const fetchInbox = async (silent = false) => {
-    if (inboxBusyRef.current) return;
     if (!user?.getIdToken) {
       if (!silent) setInbox({status:'error',orders:[],error:'Sesión Firebase no disponible'});
       return;
     }
-    inboxBusyRef.current = true;
     if (!silent) setInbox(prev=>({...prev,status:'loading',error:''}));
     const requestSequence=++inboxRequestSequence.current;
     try {
       const token=await user.getIdToken();
       const params=new URLSearchParams();
-      if(role!=='admin'){params.set('from',advisorDates.from);params.set('to',advisorDates.to);params.set('status',advisorStatus);params.set('view',tab==='pedidos'?'active':tab==='historial'?'history':'all');params.set('page',String(advisorPage));if(advisorSearch)params.set('search',advisorSearch);}
+      if(role!=='admin'){params.set('from',advisorDates.from);params.set('to',advisorDates.to);params.set('status',advisorStatus);params.set('view',tab==='pedidos'?'active':tab==='historial'?'history':tab==='novedades'?'novelties':'all');params.set('page',String(advisorPage));if(advisorSearch)params.set('search',advisorSearch);}
       const res=await fetch(`https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/inbox?${params}`,{
         method:'GET',headers:{Authorization:`Bearer ${token}`},cache:'no-store'
       });
       const data=await res.json();
       if (!res.ok || !data.ok) throw new Error(data.code||'ERROR_DE_CONEXION');
       if(requestSequence!==inboxRequestSequence.current)return;
-      const orders=(Array.isArray(data.orders)?data.orders:[]).filter(o=>role==='admin'||(tab==='historial'?(['cancelled','duplicate'].includes(o.status)||(o.status==='confirmed'&&o.atomProcessingStatus==='processed')):tab==='pedidos'?(['pending','sent'].includes(o.status)||(o.status==='confirmed'&&o.atomProcessingStatus!=='processed')):true));
+      const orders=(Array.isArray(data.orders)?data.orders:[]);
+      if(Number.isFinite(data.noveltyHours))setNoveltyHours(data.noveltyHours);
       const nextIds=new Set(orders.map(o=>o.id));
       if (knownOrderIdsRef.current !== null) {
         const added=orders.filter(o=>!knownOrderIdsRef.current.has(o.id)).length;
@@ -140,7 +144,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       const message=String(e.message||'ERROR');
       if (silent) setPollError(message);
       else setInbox(prev=>({...prev,status:'error',error:message}));
-    }finally{inboxBusyRef.current=false;}
+    }finally{}
   };
   const loadDirectory=async()=>{try{const token=await user.getIdToken();const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/directory',{headers:{Authorization:`Bearer ${token}`}});const d=await res.json();if(d.ok)setDirectory(d.advisors||[]);}catch{}};
   const executeTransfer=async()=>{if(!transferModal?.target)return;setActionState(s=>({...s,busy:transferModal.id}));try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/transfer',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:transferModal.id,toAdvisorId:transferModal.target,note:transferNote})});const d=await r.json();if(!d.ok)throw Error(d.code||'TRANSFER_FAILED');setTransferModal(null);setTransferNote('');await fetchInbox(true);if(role==='admin')await fetchAdminOrders();}catch(e){setActionState(s=>({...s,message:String(e.message||e)}));}finally{setActionState(s=>({...s,busy:0}));}};
@@ -282,6 +286,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       if(!res.ok||!data.ok)throw new Error(data.code||'No se pudo registrar');
       setActionState({busy:0,message:'Estado guardado y auditado.'});
       setConfirmAction(null);
+      setInbox(s=>({...s,orders:s.orders.map(x=>x.id===o.id?{...x,status:action==='duplicate'?'duplicate':action,atomProcessingStatus:action==='confirmed'?'pending':x.atomProcessingStatus}:x).filter(x=>tab==='pedidos'?(!['cancelled','duplicate'].includes(x.status)&&!(x.status==='confirmed'&&x.atomProcessingStatus==='processed')):tab==='historial'?(['cancelled','duplicate'].includes(x.status)||(x.status==='confirmed'&&x.atomProcessingStatus==='processed')):true)}));
       await fetchInbox();
       if(role==='admin')fetchDashboard();
     }catch(e){setActionState({busy:0,message:String(e.message||'Error')});}
@@ -289,9 +294,22 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const changeAtomStatus=async(o,status)=>{
     if(!window.confirm(status==='processed'?`¿Confirmas que el pedido ${o.number} YA fue registrado en ATOM?`:`¿Marcar ${o.number} como pendiente de registrar en ATOM?`))return;
     setAtomBusy(o.id);setAtomMessage('');
-    try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/atom-processing',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,status})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_GUARDADO');setAtomMessage('Gestión ATOM guardada.');await fetchInbox(true);if(role==='admin')await fetchDashboard();}
+    try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/atom-processing',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,status})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_GUARDADO');setAtomMessage('Gestión ATOM guardada.');setInbox(s=>({...s,orders:s.orders.map(x=>x.id===o.id?{...x,atomProcessingStatus:status}:x).filter(x=>!(tab==='pedidos'&&x.status==='confirmed'&&x.atomProcessingStatus==='processed')&&!(tab==='historial'&&x.status==='confirmed'&&x.atomProcessingStatus!=='processed'))}));await fetchInbox(false);if(role==='admin')await fetchDashboard();}
     catch(e){setAtomMessage(String(e.message||e));}finally{setAtomBusy(0);}
   };
+  const cancelAfterAtom=async(o)=>{
+    const reason=(cancelReason[o.id]||'').trim();
+    if(reason.length<10){setAtomMessage('Explica el motivo de cancelación (mínimo 10 caracteres).');return;}
+    if(!window.confirm(`¿Registrar cancelación posterior del cliente para ${o.number}? Este cambio quedará en auditoría.`))return;
+    setActionState({busy:o.id,message:''});
+    try{
+      const token=await user.getIdToken();const response=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/order-action',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,action:'customer_cancelled',note:reason})});
+      const data=await response.json();if(!response.ok||!data.ok)throw Error(data.code||'NO_GUARDADO');
+      setInbox(s=>({...s,orders:s.orders.map(x=>x.id===o.id?{...x,status:'cancelled'}:x)}));setAtomMessage('Cancelación del cliente guardada con motivo.');await fetchInbox(false);
+    }catch(e){setAtomMessage(String(e.message||e));}finally{setActionState(s=>({...s,busy:0}));}
+  };
+  const loadNoveltySettings=async()=>{if(role!=='admin')return;try{const token=await user.getIdToken();const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/novelty-settings',{headers:{Authorization:`Bearer ${token}`}});const d=await res.json();if(!d.ok)throw Error(d.code);setNoveltyHours(d.noveltyHours);setNoveltyDraft(d.noveltyHours);}catch(e){setNoveltyMessage(String(e.message||e));}};
+  const saveNoveltySettings=async()=>{try{const token=await user.getIdToken();const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/novelty-settings',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({noveltyHours:Number(noveltyDraft)})});const d=await res.json();if(!d.ok)throw Error(d.code);setNoveltyHours(d.noveltyHours);setNoveltyMessage('Plazo guardado correctamente.');}catch(e){setNoveltyMessage(String(e.message||e));}};
   const searchDeletableOrders=async(query=deleteSearch)=>{
     if(role!=='admin')return;
     setDeleteList(s=>({...s,loading:true,error:''}));
@@ -340,7 +358,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     try{await navigator.clipboard.writeText(formatConfirmMessage(o));setActionState({busy:0,message:'Mensaje copiado. Revísalo antes de enviarlo.'});}
     catch{setMessagePreview(o.id);setActionState({busy:0,message:'Selecciona el mensaje de vista previa para copiarlo.'});}
   };
-  useEffect(()=>{if(['pedidos','resumen','historial'].includes(tab))fetchInbox();},[tab,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
+  useEffect(()=>{if(['pedidos','resumen','historial','novedades'].includes(tab))fetchInbox();},[tab,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
   useEffect(()=>{if(role==='admin')return; const check=async()=>{try{const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/health',{cache:'no-store'});const d=await r.json();setShopifyHealth(r.ok&&d.ingestEnabled&&d.dbBound?'active':'inactive');}catch{setShopifyHealth('inactive');}};check();const t=setInterval(check,60000);return()=>clearInterval(t);},[role]);
   // Asesora: actualiza sin recargar la página ni cerrar sesión. No interrumpe notas o mensajes.
   useEffect(()=>{
@@ -358,11 +376,11 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='distribucion'&&role==='admin')fetchDistribution();},[tab,user?.uid]);
-  useEffect(()=>{if(tab==='administrar'&&role==='admin'){refreshAdvisorsV114();fetchDistributionMode();}},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='administrar'&&role==='admin'){refreshAdvisorsV114();fetchDistributionMode();loadNoveltySettings();}},[tab,user?.uid]);
   useEffect(()=>{if(tab==='eliminar'&&role==='admin')searchDeletableOrders('');},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','eliminar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos','historial'].includes(item.id));
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','eliminar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos','historial','novedades'].includes(item.id));
   const counts=inbox.totals||{pending:0,sent:0,confirmed:0,cancelled:0,total:0};
   const chooseDates=(preset)=>{setAdvisorPreset(preset);setAdvisorPage(0);setExpandedOrder(null);const today=colombiaToday();if(preset==='today')setAdvisorDates({from:today,to:today});if(preset==='yesterday'){const y=colombiaYesterday();setAdvisorDates({from:y,to:y});}if(preset==='week'){const d=new Date(Date.now()-6*86400000);setAdvisorDates({from:new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(d),to:today});}};
   const filterControls=()=> <div className="ao-filter-bar"><div className="ao-presets">{[['today','Hoy'],['yesterday','Ayer'],['week','7 días'],['custom','Personalizado']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorPreset===v} onClick={()=>chooseDates(v)}>{label}</button>)}</div><div className="ao-dates"><label>Desde<input type="date" value={advisorDates.from} onChange={e=>{setAdvisorDates(s=>({...s,from:e.target.value}));setAdvisorPreset('custom');setAdvisorPage(0);setExpandedOrder(null);}}/></label><label>Hasta<input type="date" value={advisorDates.to} onChange={e=>{setAdvisorDates(s=>({...s,to:e.target.value}));setAdvisorPreset('custom');setAdvisorPage(0);setExpandedOrder(null);}}/></label></div></div>;
@@ -490,35 +508,36 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         {newOrderCount>0&&<button type="button" className="ao-tag amber" onClick={()=>{setTab('pedidos');setNewOrderCount(0);}} style={{cursor:'pointer',padding:'9px 13px'}}>🔔 {newOrderCount} pedido(s) nuevo(s) · Ver ahora</button>}
       </div>}
       <nav className="ao-nav" aria-label="Secciones del módulo de confirmaciones" role="tablist">
-        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>{if((item.id==='historial'||item.id==='pedidos')&&tab!==item.id){setAdvisorPage(0);setAdvisorStatus('all');setExpandedOrder(null);}setTab(item.id);}}><Icon size={15}/>{item.title}</button>})}
+        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>{if((['historial','pedidos','novedades'].includes(item.id))&&tab!==item.id){setAdvisorPage(0);setAdvisorStatus('all');setAtomFilter('all');setExpandedOrder(null);}setTab(item.id);}}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
         {tab==='resumen'&&!admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Mi operación</h3><span className={`ao-shopify-dot ${shopifyHealth==='active'?'':'off'}`}>Recepción Shopify: {shopifyHealth==='checking'?'verificando':shopifyHealth==='active'?'activa':'sin conexión verificada'}</span></div>
           {filterControls()}
           {inbox.status==='error'&&<div className="ao-note">No se pudieron consultar los pedidos: {inbox.error}</div>}
-          <div className="ao-kpis">{[['Pendientes',counts.pending,'#ffd37a'],['Enviados',counts.sent,'#47b9ef'],['Confirmados',counts.confirmed,'#45cd96'],['Cancelados',counts.cancelled,'#f26b77'],['Duplicados',counts.duplicate||0,'#c17cf4']].map(([label,num,color])=><div className="ao-kpi" key={label}><span style={{color,fontSize:12,fontWeight:800}}>{label}</span><strong>{num}</strong></div>)}</div>
+          <div className="ao-kpis">{[['Pendientes',counts.pending,'#ffd37a'],['Enviados',counts.sent,'#47b9ef'],['Confirmados',counts.confirmed,'#45cd96'],['Cancelados',counts.cancelled,'#f26b77'],['Duplicados',counts.duplicate||0,'#c17cf4']].map(([label,num,color])=><button type="button" className="ao-kpi" key={label} style={{cursor:'pointer',textAlign:'left',border:'1px solid #315b72'}} onClick={()=>{setAdvisorStatus(({Pendientes:'pending',Enviados:'sent',Confirmados:'confirmed',Cancelados:'cancelled',Duplicados:'duplicate'})[label]||'all');setAtomFilter('all');setAdvisorPage(0);setTab(['Cancelados','Duplicados'].includes(label)?'historial':'pedidos');}}><span style={{color,fontSize:12,fontWeight:800}}>{label}</span><strong>{num}</strong></button>)}</div>
           <p style={{fontSize:11,color:'#93b8ca',margin:'12px 0 0'}}>Resultados de tus pedidos por fecha de asignación · {advisorDates.from} a {advisorDates.to}.</p>
         </section>}
-        {['pedidos','historial'].includes(tab)&&!admin&&<section className="ao-panel">
-          <div className="ao-section-head"><h3>{tab==='pedidos'?'Pedidos por gestionar':'Historial de pedidos'}</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
-          <p style={{fontSize:12,color:'#aacfe0',margin:'8px 0 11px'}}>{tab==='pedidos'?'Aquí permanecen los pendientes, enviados y confirmados que falta subir a ATOM.':'Aquí están los cancelados, duplicados cerrados y confirmados ya procesados en ATOM. Puedes consultar sus gestiones.'}</p>
+        {['pedidos','historial','novedades'].includes(tab)&&!admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>{tab==='pedidos'?'Pedidos por gestionar':tab==='novedades'?'🔔 Pedidos en novedad':'Historial de pedidos'}</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
+          <p style={{fontSize:12,color:'#aacfe0',margin:'8px 0 11px'}}>{tab==='pedidos'?'Los pendientes y confirmados sin ATOM quedan aquí sin límite de fecha. Los enviados antiguos pasan a Novedades.':tab==='novedades'?`Enviados sin cerrar con ${noveltyHours} horas o más: gestiona aquí como un pedido normal.`:'Aquí están los cancelados, duplicados cerrados y confirmados ya procesados en ATOM.'}</p>
           <form onSubmit={e=>{e.preventDefault();const q=advisorSearchInput.trim();if(q.length===1)return;setAdvisorSearch(q);setAdvisorPage(0);setExpandedOrder(null);}} style={{display:'flex',gap:9,flexWrap:'wrap',alignItems:'center',margin:'12px 0 14px'}}>
             <input type="search" aria-label="Buscar por pedido, cliente o teléfono" placeholder="Buscar pedido, nombre o teléfono…" value={advisorSearchInput} maxLength={80} onChange={e=>setAdvisorSearchInput(e.target.value)} style={{flex:'1 1 230px',minWidth:0,border:'1px solid #3b7291',background:'#09263b',borderRadius:10,color:'#fff',padding:'12px 13px',fontSize:14}}/>
             <button type="submit" className="ao-tag cyan" style={{padding:'12px 16px',cursor:'pointer'}}>Buscar</button>
             {advisorSearch&&<button type="button" className="ao-tag amber" style={{padding:'12px 14px',cursor:'pointer'}} onClick={()=>{setAdvisorSearch('');setAdvisorSearchInput('');setAdvisorPage(0);setExpandedOrder(null);}}>Limpiar</button>}
           </form>
+          {!advisorSearch&&<p style={{fontSize:11,color:'#83b9d3'}}>La bandeja de gestión y Novedades incluyen pedidos abiertos de cualquier fecha; el rango de fechas se utiliza en Resumen e Historial.</p>}
           {advisorSearch?<div className="ao-note" style={{marginBottom:12}}>Búsqueda histórica: <strong>{advisorSearch}</strong>. Busca en todos los días y estados, incluso pedidos transferidos que hayas atendido. <strong>Limpiar</strong> para volver a los filtros por fecha.</div>:<details className="ao-more-settings" open={showAdvancedFilters} onToggle={e=>setShowAdvancedFilters(e.currentTarget.open)}><summary>Fechas y filtros avanzados · {advisorPreset==='today'?'Hoy':advisorPreset==='yesterday'?'Ayer':advisorPreset==='week'?'Últimos 7 días':'Personalizado'}</summary><div style={{marginTop:10}}>{filterControls()}</div></details>}
-          <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'10px 0',fontSize:12}}><span className="ao-tag amber">ATOM pendientes: {inbox.totals?.atomPending||0}</span><span className="ao-tag green">ATOM procesadas: {inbox.totals?.atomProcessed||0}</span></div>
-          {!advisorSearch&&<div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{(tab==='pedidos'?[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados sin ATOM']]:[['all','Todos'],['confirmed','Confirmados + ATOM'],['cancelled','Cancelados'],['duplicate','Duplicados']]).map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?'':counts[v]}</button>)}</div>}
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'10px 0',fontSize:12}}><button type="button" className="ao-tag amber" aria-pressed={atomFilter==='pending'} onClick={()=>{setTab('pedidos');setAdvisorStatus('confirmed');setAtomFilter('pending');setAdvisorPage(0);}}>ATOM pendientes: {inbox.totals?.atomPending||0}</button><button type="button" className="ao-tag green" aria-pressed={atomFilter==='processed'} onClick={()=>{setTab('historial');setAdvisorStatus('confirmed');setAtomFilter('processed');setAdvisorPage(0);}}>ATOM procesadas: {inbox.totals?.atomProcessed||0}</button></div>
+          {!advisorSearch&&<div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{(tab==='pedidos'?[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados sin ATOM']]:tab==='novedades'?[['all','Todos'],['sent','Enviados en novedad']]:[['all','Todos'],['confirmed','Confirmados + ATOM'],['cancelled','Cancelados'],['duplicate','Duplicados']]).map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?'':counts[v]}</button>)}</div>}
           <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp {rememberAdvisorName?'🔒':''}</summary><div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:9}}><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} disabled={rememberAdvisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300,opacity:rememberAdvisorName?.73:1}}/><label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={rememberAdvisorName} onChange={e=>changeAdvisorNameLock(e.target.checked)} style={{accentColor:'#45cd96',width:17,height:17}}/>Mantener este nombre en futuras sesiones</label></div><p style={{fontSize:11,color:'#89afc6',marginTop:7}}>{rememberAdvisorName?'Nombre bloqueado. Desmarca la casilla para cambiarlo.':'Al marcar, queda guardado en este navegador y para esta cuenta. No afecta a otras asesoras.'}</p></details>
           {inbox.status==='error'&&<div className="ao-note" role="alert">Error al consultar: {inbox.error}</div>}
           {inbox.status==='loading'&&<div className="ao-empty">Consultando pedidos…</div>}
           {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><Package size={25}/><h3>Sin resultados</h3><p>{advisorSearch?'No hay coincidencias entre tus pedidos actuales o gestionados anteriormente.':tab==='pedidos'?'No tienes pedidos pendientes en este rango. Consulta Historial para ver los cerrados.':'No hay pedidos cerrados en este rango.'}</p></div>}
-          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:9}}>{inbox.orders.map(o=><article key={o.id} style={{minWidth:0}}>
+          {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:9}}>{inbox.orders.filter(o=>atomFilter==='all'||(o.status==='confirmed'&&(atomFilter==='processed'?o.atomProcessingStatus==='processed':o.atomProcessingStatus!=='processed'))).map(o=><article key={o.id} style={{minWidth:0}}>
             <button type="button" className="ao-order-row" aria-expanded={expandedOrder===o.id} aria-controls={`ao-order-detail-${o.id}`} onClick={()=>{setExpandedOrder(v=>v===o.id?null:o.id);setMessagePreview(null);}} style={{borderLeft:`4px solid ${STATUS_STYLES[o.status]?.border||'#4b7188'}`,borderRadius:expandedOrder===o.id?'11px 11px 0 0':11}}>
               <strong>Pedido {o.number}</strong><span className="ao-order-client">{o.customerName||'Cliente sin nombre'}</span>
-              <span className="ao-order-status" style={{color:STATUS_STYLES[o.status]?.tag||'#fff',background:STATUS_STYLES[o.status]?.background,borderColor:STATUS_STYLES[o.status]?.border}}>{(isOverdueOrder(o)||o.recentOrders?.length>0)&&<AlertTriangle size={13}/>} {ORDER_STATUS_LABELS[o.status]||o.status}</span>{o.risk&&<span className="ao-order-status" style={{color:'#edb0ff',borderColor:'#b94ce5'}}><AlertTriangle size={13}/> Riesgo duplicado</span>}{o.wasTransferred&&<span className="ao-order-status" style={{color:'#e9adff'}}>{['confirmed','cancelled','duplicate'].includes(o.status)?'Transferencia resuelta':'Transferido'}</span>}
+              <span className="ao-order-status" style={{color:STATUS_STYLES[o.status]?.tag||'#fff',background:STATUS_STYLES[o.status]?.background,borderColor:STATUS_STYLES[o.status]?.border}}>{(isOverdueOrder(o)||o.recentOrders?.length>0)&&<AlertTriangle size={13}/>} {ORDER_STATUS_LABELS[o.status]||o.status}</span>{o.status==='confirmed'&&<span className="ao-order-status" style={{color:o.atomProcessingStatus==='processed'?'#8df2bd':'#ffcc67',borderColor:o.atomProcessingStatus==='processed'?'#329e74':'#f6a92c',background:o.atomProcessingStatus==='processed'?'#103d2e':'#4b3214'}}>ATOM {o.atomProcessingStatus==='processed'?'procesada':'pendiente'}</span>}{o.risk&&<span className="ao-order-status" style={{color:'#edb0ff',borderColor:'#b94ce5'}}><AlertTriangle size={13}/> Riesgo duplicado</span>}{o.wasTransferred&&<span className="ao-order-status" style={{color:'#e9adff'}}>{['confirmed','cancelled','duplicate'].includes(o.status)?'Transferencia resuelta':'Transferido'}</span>}
               <span style={{fontSize:15,color:'#9ac6dc'}}>{expandedOrder===o.id?'▴':'▾'}</span>
             </button>
             {expandedOrder===o.id&&<div id={`ao-order-detail-${o.id}`} className="ao-order-detail" style={{borderLeft:`4px solid ${STATUS_STYLES[o.status]?.border||'#4b7188'}`}}>
@@ -530,7 +549,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
               <div><p><b style={{color:'#c7a4ff'}}>PEDIDO</b></p><p>{(o.items||[]).map(i=>`${i.quantity} × ${i.title}${i.variant?' ('+i.variant+')':''}`).join(' · ')||'Sin detalle'}</p><p>Valor: {o.total||'—'}</p><p>Fecha: {o.createdAt}</p></div>
             </div>
 
-            {o.status==='confirmed'&&<div style={{marginTop:14,padding:13,border:'1px solid #438971',borderRadius:12,background:'#0a302c'}}><b style={{color:'#78edb8'}}>Control de carga a ATOM</b><div style={{marginTop:8,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><span style={{color:o.atomProcessingStatus==='processed'?'#6befb3':'#ffd78c',fontWeight:800}}>{o.atomProcessingStatus==='processed'?'✓ Procesada en ATOM':'● Pendiente por procesar'}</span><button type="button" disabled={atomBusy!==0} onClick={()=>changeAtomStatus(o,o.atomProcessingStatus==='processed'?'pending':'processed')} className="ao-tag green" style={{padding:'9px 13px'}}>{o.atomProcessingStatus==='processed'?'Volver a pendiente':'Marcar procesada'}</button></div></div>}
+            {o.status==='confirmed'&&<div style={{marginTop:14,padding:13,border:'1px solid #438971',borderRadius:12,background:'#0a302c'}}><b style={{color:'#78edb8'}}>Control de carga a ATOM</b><div style={{marginTop:8,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><span style={{color:o.atomProcessingStatus==='processed'?'#6befb3':'#ffd78c',fontWeight:800}}>{o.atomProcessingStatus==='processed'?'✓ Procesada en ATOM':'● Pendiente por procesar'}</span><button type="button" disabled={atomBusy!==0} onClick={()=>changeAtomStatus(o,o.atomProcessingStatus==='processed'?'pending':'processed')} className={o.atomProcessingStatus==='processed'?'ao-tag amber':'ao-tag green'} style={{padding:'12px 18px',background:o.atomProcessingStatus==='processed'?'#624013':'#086e42',border:'2px solid #55e3a0',fontWeight:900}}>{o.atomProcessingStatus==='processed'?'↩ Volver a ATOM pendiente':'✓ YA SUBÍ A ATOM · Marcar procesada'}</button></div></div>}
+            {tab==='historial'&&o.status==='confirmed'&&o.atomProcessingStatus==='processed'&&<div style={{marginTop:12,padding:13,border:'1px solid #cf7d79',borderRadius:11}}><strong style={{color:'#ffaaa8'}}>¿El cliente canceló después de confirmar?</strong><textarea rows={2} maxLength={500} placeholder="Motivo obligatorio de cancelación (mínimo 10 caracteres)" value={cancelReason[o.id]||''} onChange={e=>setCancelReason(s=>({...s,[o.id]:e.target.value}))} style={{display:'block',width:'100%',margin:'10px 0',padding:10,background:'#091e30',color:'#fff',borderRadius:8}}/><button type="button" className="ao-tag amber" disabled={actionState.busy!==0||(cancelReason[o.id]||'').trim().length<10} onClick={()=>cancelAfterAtom(o)}>Cliente cancela · Registrar motivo</button></div>}
             {!['confirmed','cancelled','duplicate'].includes(o.status)&&<button type="button" className="ao-tag cyan" style={{padding:11,marginTop:10}} onClick={()=>{setTransferModal({id:o.id,target:''});setTransferNote('');}}>Transferir a otra asesora</button>}{o.timeline?.length>0&&<details style={{marginTop:14,border:'1px solid #34576d',padding:12,borderRadius:10}}><summary style={{cursor:'pointer',fontWeight:750,color:'#8fe5f7'}}>Historial de gestiones ({o.timeline.length})</summary>{o.timeline.map((event,i)=><div key={i} style={{borderTop:'1px solid #25445b',padding:'9px 0',fontSize:12}}><b>{ORDER_STATUS_LABELS[event.action]||event.action}</b> · {new Date(event.at).toLocaleString('es-CO')} · {event.note||'Sin nota'}</div>)}</details>}
             <div className="ao-action-row">
               <button type="button" onClick={()=>setMessagePreview(messagePreview===o.id?null:o.id)} className="ao-tag cyan" style={{padding:'10px 14px'}}>Vista previa del mensaje</button><button type="button" onClick={()=>copyMessage(o)} className="ao-tag violet" style={{padding:'10px 14px'}}>Copiar mensaje</button>{whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
@@ -657,6 +677,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             <p>Los pedidos elegibles se asignan automáticamente al llegar desde Shopify. Cloudflare revisa y recupera asignaciones pendientes cada minuto. Las asesoras resuelven los riesgos de duplicado.</p>
           </>}
         </section>}
+        {tab==='administrar'&&admin&&<section className="ao-panel" style={{marginBottom:16}}><h3>🔔 Plazo de pedidos en novedad</h3><p style={{fontSize:12}}>Los pedidos Enviado sin cerrar pasan a Novedades después de este plazo. No afecta a Pendiente ni Confirmado con ATOM pendiente.</p><div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}><input aria-label="Horas para novedad" type="number" min="1" max="720" value={noveltyDraft} onChange={e=>setNoveltyDraft(e.target.value)} style={{width:100,padding:11,borderRadius:9}}/><span>horas</span><button type="button" className="ao-tag cyan" onClick={saveNoveltySettings}>Guardar plazo</button></div>{noveltyMessage&&<p role="status">{noveltyMessage}</p>}</section>}
         {tab==='administrar'&&admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Administrar asesoras · Operación inmediata</h3><button type="button" className="ao-tag cyan" onClick={refreshAdvisorsV114}>Actualizar</button></div>
           <p>Pausa o activa nuevas asignaciones con un toque. La prioridad más alta entre las asesoras activas será la primera en recibir pedidos. Las asesoras pausadas conservan sus pedidos anteriores, historial y acceso.</p>
