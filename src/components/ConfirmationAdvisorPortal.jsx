@@ -61,6 +61,32 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [notes,setNotes]=useState({});
   const [confirmAction,setConfirmAction]=useState(null);
   const [advisorName,setAdvisorName]=useState('');
+  const [rememberAdvisorName,setRememberAdvisorName]=useState(false);
+  const advisorNameStorageKey = `winner-confirmaciones-advisor-name-v1:${user?.uid||'unknown'}`;
+  useEffect(()=>{
+    if(role==='admin'||!user?.uid)return;
+    try{
+      const raw=localStorage.getItem(advisorNameStorageKey);
+      if(!raw)return;
+      const saved=JSON.parse(raw);
+      if(saved?.locked===true && typeof saved.name==='string' && saved.name.trim()){
+        setAdvisorName(saved.name.slice(0,80));
+        setRememberAdvisorName(true);
+      }
+    }catch(e){console.warn('Nombre local no disponible',e);}
+  },[role,user?.uid,advisorNameStorageKey]);
+  const changeAdvisorNameLock=(locked)=>{
+    if(locked&&!advisorName.trim()){
+      setActionState(s=>({...s,message:'Escribe el nombre de la asesora antes de activar la permanencia.'}));
+      return;
+    }
+    try{
+      if(locked)localStorage.setItem(advisorNameStorageKey,JSON.stringify({locked:true,name:advisorName.trim()}));
+      else localStorage.removeItem(advisorNameStorageKey);
+      setRememberAdvisorName(locked);
+      setActionState(s=>({...s,message:locked?'Nombre guardado en este navegador para futuras sesiones.':'Nombre desbloqueado. Puedes editarlo.'}));
+    }catch(e){setActionState(s=>({...s,message:'Este navegador no permite guardar el nombre. Revisa sus permisos de almacenamiento.'}));}
+  };
   const [messagePreview,setMessagePreview]=useState(null);
   const [transferModal,setTransferModal]=useState(null);
   const [transferNote,setTransferNote]=useState('');
@@ -192,7 +218,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
   };
   const updateOrder = async (o, action) => {
-    if(!actionEnabled)return;
+    if(!actionEnabled){setActionState({busy:0,message:'Las acciones están deshabilitadas en Cloudflare.'});return;}
     const note=notes[o.id]||'';
     setActionState({busy:o.id,message:''});
     try{
@@ -346,7 +372,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           <div className="ao-section-head"><h3>Mis pedidos</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
           {filterControls()}
           <div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados'],['cancelled','Cancelados'],['duplicate','Duplicados']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?counts.total:counts[v]}</button>)}</div>
-          <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp</summary><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{marginTop:9,padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300}}/></details>
+          <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp {rememberAdvisorName?'🔒':''}</summary><div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:9}}><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} disabled={rememberAdvisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300,opacity:rememberAdvisorName?.73:1}}/><label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={rememberAdvisorName} onChange={e=>changeAdvisorNameLock(e.target.checked)} style={{accentColor:'#45cd96',width:17,height:17}}/>Mantener este nombre en futuras sesiones</label></div><p style={{fontSize:11,color:'#89afc6',marginTop:7}}>{rememberAdvisorName?'Nombre bloqueado. Desmarca la casilla para cambiarlo.':'Al marcar, queda guardado en este navegador y para esta cuenta. No afecta a otras asesoras.'}</p></details>
           {inbox.status==='error'&&<div className="ao-note" role="alert">Error al consultar: {inbox.error}</div>}
           {inbox.status==='loading'&&<div className="ao-empty">Consultando pedidos…</div>}
           {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><Package size={25}/><h3>Sin pedidos en este filtro</h3><p>Prueba otra fecha o estado.</p></div>}
@@ -388,7 +414,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
               <p style={{color:'#a9cfe3'}}>Pedido {confirmAction.order.number} · {confirmAction.order.customerName||'Cliente'}</p>
               {confirmAction.action==='duplicate'&&<p style={{color:'#e5baff',fontWeight:700}}>Marca esta opción solo después de verificar con el cliente que el pedido repite otra solicitud. No se contabilizará como confirmación válida.</p>}<p>¿Deseas cambiar el estado a <strong style={{color:STATUS_STYLES[confirmAction.action]?.tag}}>{ORDER_STATUS_LABELS[confirmAction.action]}</strong>?</p>
               {['confirmed','cancelled','duplicate'].includes(confirmAction.action)&&<p style={{color:'#ffd28b',fontSize:13}}>Esta acción cierra la tarea y no podrá modificarse después.</p>}
-              <p style={{color:'#a4bfd2',fontSize:12}}>La nota es opcional. El cambio quedará registrado en la auditoría.</p>
+              <p style={{color:'#a4bfd2',fontSize:12}}>La nota es opcional. El cambio quedará registrado en la auditoría.</p>{actionState.message&&<div role="alert" style={{padding:12,marginTop:12,borderRadius:10,background:'#4b2429',border:'1px solid #f26b77',color:'#fff1f1',fontSize:13}}>No se pudo guardar: {actionState.message}</div>}
               <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:22}}><button type="button" disabled={actionState.busy!==0} onClick={()=>setConfirmAction(null)} style={{padding:'11px 17px',borderRadius:10,border:'1px solid #507189',color:'#ecf8ff',background:'#1a3548'}}>Volver</button><button type="button" disabled={actionState.busy!==0} onClick={()=>updateOrder(confirmAction.order,confirmAction.action)} style={{padding:'11px 17px',borderRadius:10,border:0,fontWeight:800,color:'#051724',background:STATUS_STYLES[confirmAction.action]?.tag||'#47b9ef'}}>Sí, guardar estado</button></div>
             </div>
           </div>}
