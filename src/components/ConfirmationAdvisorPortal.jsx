@@ -57,6 +57,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [advisorPreset,setAdvisorPreset]=useState('today');
   const [advisorStatus,setAdvisorStatus]=useState('all');
   const [advisorPage,setAdvisorPage]=useState(0);
+  const [advisorSearchInput,setAdvisorSearchInput]=useState('');
+  const [advisorSearch,setAdvisorSearch]=useState('');
   const [expandedOrder,setExpandedOrder]=useState(null);
   const [shopifyHealth,setShopifyHealth]=useState('checking');
   const inboxBusyRef = useRef(false);
@@ -111,7 +113,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     try {
       const token=await user.getIdToken();
       const params=new URLSearchParams();
-      if(role!=='admin'){params.set('from',advisorDates.from);params.set('to',advisorDates.to);params.set('status',advisorStatus);params.set('page',String(advisorPage));}
+      if(role!=='admin'){params.set('from',advisorDates.from);params.set('to',advisorDates.to);params.set('status',advisorStatus);params.set('page',String(advisorPage));if(advisorSearch)params.set('search',advisorSearch);}
       const res=await fetch(`https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/inbox?${params}`,{
         method:'GET',headers:{Authorization:`Bearer ${token}`},cache:'no-store'
       });
@@ -303,7 +305,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     try{await navigator.clipboard.writeText(formatConfirmMessage(o));setActionState({busy:0,message:'Mensaje copiado. Revísalo antes de enviarlo.'});}
     catch{setMessagePreview(o.id);setActionState({busy:0,message:'Selecciona el mensaje de vista previa para copiarlo.'});}
   };
-  useEffect(()=>{if(['pedidos','resumen'].includes(tab))fetchInbox();},[tab,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage]);
+  useEffect(()=>{if(['pedidos','resumen'].includes(tab))fetchInbox();},[tab,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
   useEffect(()=>{if(role==='admin')return; const check=async()=>{try{const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/health',{cache:'no-store'});const d=await r.json();setShopifyHealth(r.ok&&d.ingestEnabled&&d.dbBound?'active':'inactive');}catch{setShopifyHealth('inactive');}};check();const t=setInterval(check,60000);return()=>clearInterval(t);},[role]);
   // Asesora: actualiza sin recargar la página ni cerrar sesión. No interrumpe notas o mensajes.
   useEffect(()=>{
@@ -314,7 +316,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     window.addEventListener('focus',refresh);
     window.addEventListener('online',refresh);
     return ()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
-  },[role,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage]);
+  },[role,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
   useEffect(()=>{if(tab==='pedidos')setNewOrderCount(0);},[tab]);
   useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid,dateRange.from,dateRange.to]);
   useEffect(()=>{if(tab!=='estadisticas'||role!=='admin')return; const t=window.setInterval(()=>{if(document.visibilityState==='visible')void fetchDashboard();},30000);return()=>window.clearInterval(t);},[tab,role,user?.uid,dateRange.from,dateRange.to]);
@@ -416,13 +418,18 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         </section>}
         {tab==='pedidos'&&!admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Mis pedidos</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
-          {filterControls()}
+          <form onSubmit={e=>{e.preventDefault();const q=advisorSearchInput.trim();if(q.length===1)return;setAdvisorSearch(q);setAdvisorPage(0);setExpandedOrder(null);}} style={{display:'flex',gap:9,flexWrap:'wrap',alignItems:'center',margin:'12px 0 14px'}}>
+            <input type="search" aria-label="Buscar por pedido, cliente o teléfono" placeholder="Buscar pedido, nombre o teléfono…" value={advisorSearchInput} maxLength={80} onChange={e=>setAdvisorSearchInput(e.target.value)} style={{flex:'1 1 230px',minWidth:0,border:'1px solid #3b7291',background:'#09263b',borderRadius:10,color:'#fff',padding:'12px 13px',fontSize:14}}/>
+            <button type="submit" className="ao-tag cyan" style={{padding:'12px 16px',cursor:'pointer'}}>Buscar</button>
+            {advisorSearch&&<button type="button" className="ao-tag amber" style={{padding:'12px 14px',cursor:'pointer'}} onClick={()=>{setAdvisorSearch('');setAdvisorSearchInput('');setAdvisorPage(0);setExpandedOrder(null);}}>Limpiar</button>}
+          </form>
+          {advisorSearch?<div className="ao-note" style={{marginBottom:12}}>Búsqueda histórica: <strong>{advisorSearch}</strong>. Busca en todos los días y estados, incluso pedidos transferidos que hayas atendido. <strong>Limpiar</strong> para volver a los filtros por fecha.</div>:filterControls()}
           <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'10px 0',fontSize:12}}><span className="ao-tag amber">ATOM pendientes: {inbox.totals?.atomPending||0}</span><span className="ao-tag green">ATOM procesadas: {inbox.totals?.atomProcessed||0}</span></div>
-          <div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados'],['cancelled','Cancelados'],['duplicate','Duplicados']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?counts.total:counts[v]}</button>)}</div>
+          {!advisorSearch&&<div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados'],['cancelled','Cancelados'],['duplicate','Duplicados']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?counts.total:counts[v]}</button>)}</div>}
           <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp {rememberAdvisorName?'🔒':''}</summary><div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:9}}><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} disabled={rememberAdvisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300,opacity:rememberAdvisorName?.73:1}}/><label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={rememberAdvisorName} onChange={e=>changeAdvisorNameLock(e.target.checked)} style={{accentColor:'#45cd96',width:17,height:17}}/>Mantener este nombre en futuras sesiones</label></div><p style={{fontSize:11,color:'#89afc6',marginTop:7}}>{rememberAdvisorName?'Nombre bloqueado. Desmarca la casilla para cambiarlo.':'Al marcar, queda guardado en este navegador y para esta cuenta. No afecta a otras asesoras.'}</p></details>
           {inbox.status==='error'&&<div className="ao-note" role="alert">Error al consultar: {inbox.error}</div>}
           {inbox.status==='loading'&&<div className="ao-empty">Consultando pedidos…</div>}
-          {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><Package size={25}/><h3>Sin pedidos en este filtro</h3><p>Prueba otra fecha o estado.</p></div>}
+          {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><Package size={25}/><h3>Sin resultados</h3><p>{advisorSearch?'No hay coincidencias entre tus pedidos actuales o gestionados anteriormente.':'Prueba otra fecha o estado.'}</p></div>}
           {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:9}}>{inbox.orders.map(o=><article key={o.id} style={{minWidth:0}}>
             <button type="button" className="ao-order-row" aria-expanded={expandedOrder===o.id} aria-controls={`ao-order-detail-${o.id}`} onClick={()=>{setExpandedOrder(v=>v===o.id?null:o.id);setMessagePreview(null);}} style={{borderLeft:`4px solid ${STATUS_STYLES[o.status]?.border||'#4b7188'}`,borderRadius:expandedOrder===o.id?'11px 11px 0 0':11}}>
               <strong>Pedido {o.number}</strong><span className="ao-order-client">{o.customerName||'Cliente sin nombre'}</span>
