@@ -5,7 +5,7 @@ const TABS = [
   { id: 'resumen', title: 'Resumen', icon: LayoutDashboard },
   { id: 'pedidos', title: 'Por gestionar', icon: Package },
   { id: 'historial', title: 'Historial', icon: CheckCircle2 },
-  { id: 'novedades', title: '🔔 Novedades', icon: Bell },
+  { id: 'novedades', title: 'Novedades', icon: Bell },
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
   { id: 'eliminar', title: 'Eliminar pruebas', icon: LockKeyhole },
   { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
@@ -369,7 +369,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     window.addEventListener('focus',refresh);
     window.addEventListener('online',refresh);
     return ()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
-  },[role,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
+  },[role,user?.uid,tab,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
   useEffect(()=>{if(tab==='pedidos')setNewOrderCount(0);},[tab]);
   useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid,dateRange.from,dateRange.to]);
   useEffect(()=>{if(tab!=='estadisticas'||role!=='admin')return; const t=window.setInterval(()=>{if(document.visibilityState==='visible')void fetchDashboard();},30000);return()=>window.clearInterval(t);},[tab,role,user?.uid,dateRange.from,dateRange.to]);
@@ -443,6 +443,15 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       .ao-shopify-dot:before{content:'';display:block;height:8px;width:8px;background:#46e79d;border-radius:50%;box-shadow:0 0 8px #46e79d}
       .ao-shopify-dot.off:before{background:#f26b77;box-shadow:0 0 8px #f26b77}
       @media(max-width:650px){.ao-advisor .ao-head{padding:11px 12px;display:flex;align-items:flex-start;flex-direction:column;gap:6px}.ao-advisor .ao-user{width:100%;margin-top:0;justify-content:space-between}.ao-advisor .ao-desc{display:none}.ao-advisor .ao-nav button{flex:1;justify-content:center}.ao-advisor .ao-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.ao-filter-bar{display:grid;gap:10px}.ao-dates{display:grid;grid-template-columns:1fr 1fr}.ao-dates input{width:100%;max-width:none}.ao-order-row{gap:7px;padding:11px 9px}.ao-order-row strong{font-size:12px}.ao-order-client{font-size:12px}.ao-order-status{font-size:10px;padding:5px 7px}.ao-order-detail{padding:12px}.ao-advisor .ao-panel{padding:12px}}
+      /* V1.22.8: pestañas móviles, texto contenido sin desbordamientos. */
+      .ao-advisor .ao-nav{min-width:0;max-width:100%}
+      .ao-advisor .ao-nav button{box-sizing:border-box;min-width:0;max-width:100%;overflow:hidden;white-space:normal;overflow-wrap:normal;word-break:normal;line-height:1.15;text-align:center}
+      .ao-advisor .ao-nav button svg{flex:0 0 auto;max-width:14px;max-height:14px}
+      @media(max-width:650px){
+        .ao-advisor .ao-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;overflow:visible}
+        .ao-advisor .ao-nav button{width:100%;min-height:41px;padding:7px 5px;font-size:clamp(10px,2.8vw,12px);gap:4px;letter-spacing:-.2px}
+      }
+      @media(min-width:651px) and (max-width:850px){.ao-advisor .ao-nav{flex-wrap:wrap}.ao-advisor .ao-nav button{flex:1 1 145px}}
       @media(prefers-reduced-motion:reduce){.ao-root *{animation:none!important;transition:none!important}}
 
       /* V1.22.3: mobile-first visual cleanup; scoped to the advisor only. */
@@ -508,7 +517,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         {newOrderCount>0&&<button type="button" className="ao-tag amber" onClick={()=>{setTab('pedidos');setNewOrderCount(0);}} style={{cursor:'pointer',padding:'9px 13px'}}>🔔 {newOrderCount} pedido(s) nuevo(s) · Ver ahora</button>}
       </div>}
       <nav className="ao-nav" aria-label="Secciones del módulo de confirmaciones" role="tablist">
-        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>{if((['historial','pedidos','novedades'].includes(item.id))&&tab!==item.id){setAdvisorPage(0);setAdvisorStatus('all');setAtomFilter('all');setExpandedOrder(null);}setTab(item.id);}}><Icon size={15}/>{item.title}</button>})}
+        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>{if((['historial','pedidos','novedades'].includes(item.id))&&tab!==item.id){setAdvisorPage(0);setAdvisorStatus('all');setAtomFilter('all');setExpandedOrder(null);}inboxRequestSequence.current+=1;setTab(item.id);}}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
         {tab==='resumen'&&!admin&&<section className="ao-panel">
