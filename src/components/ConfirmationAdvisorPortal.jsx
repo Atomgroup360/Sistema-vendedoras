@@ -40,6 +40,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [adminOpenedOrder,setAdminOpenedOrder]=useState(null);
   const [distribution,setDistribution]=useState({status:'idle',data:null,error:'',notice:''});
   const [advisorAdmin,setAdvisorAdmin]=useState({advisors:[],reviews:[],error:'',message:'',loading:false});
+  const [renameDraft,setRenameDraft]=useState({advisorId:'',displayName:''});
   const [advisorDraft,setAdvisorDraft]=useState({advisorId:'',displayName:'',priority:2,enabled:false});
 
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:'',hasMore:false,totals:null});
@@ -191,6 +192,17 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     });
     const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.code||'OPERACION_RECHAZADA');return data;
   };
+  const saveVisibleAdvisorName=async()=>{
+    const name=renameDraft.displayName.trim();
+    if(!renameDraft.advisorId||name.length<2){setAdvisorAdmin(s=>({...s,error:'Escribe un nombre válido de al menos 2 caracteres.'}));return;}
+    try{
+      await adminV114('advisor-display-name',{advisorId:renameDraft.advisorId,displayName:name});
+      setRenameDraft({advisorId:'',displayName:''});
+      await refreshAdvisorsV114();
+      await fetchDashboard();
+      setAdvisorAdmin(s=>({...s,message:'Nombre visible actualizado para el sistema y los reportes.',error:''}));
+    }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message||e)}));}
+  };
   const refreshAdvisorsV114=async()=>{
     if(role!=='admin')return;
     setAdvisorAdmin(s=>({...s,loading:true,error:''}));
@@ -272,7 +284,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     return ()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
   },[role,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage]);
   useEffect(()=>{if(tab==='pedidos')setNewOrderCount(0);},[tab]);
-  useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='estadisticas'&&role==='admin')fetchDashboard();},[tab,user?.uid,dateRange.from,dateRange.to]);
+  useEffect(()=>{if(tab!=='estadisticas'||role!=='admin')return; const t=window.setInterval(()=>{if(document.visibilityState==='visible')void fetchDashboard();},30000);return()=>window.clearInterval(t);},[tab,role,user?.uid,dateRange.from,dateRange.to]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='distribucion'&&role==='admin')fetchDistribution();},[tab,user?.uid]);
@@ -432,7 +445,9 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {dashboard.status==='ready'&&dashboard.data&&<>
             <p style={{fontSize:12,color:'#98c8e1'}}>Período: {dashboard.data.from} a {dashboard.data.to} · Zona horaria Colombia</p>
             <div className="ao-grid" style={{margin:'15px 0'}}>{[
-              ['Pedidos recibidos',dashboard.data.totals.received,'cyan'],
+              ['Pedidos recibidos (período)',dashboard.data.totals.received,'cyan'],
+              ['Pedidos recibidos (histórico)',dashboard.data.totals.allTimeReceived??dashboard.data.totals.received,'cyan'],
+              ['Válidos para rendimiento',dashboard.data.totals.validForPerformance??dashboard.data.totals.eligible,'green'],
               ['Pendientes',dashboard.data.totals.pending||0,'amber'],
               ['Enviados',dashboard.data.totals.sent||0,'cyan'],
               ['Alertas +48 h',dashboard.data.totals.overdue||0,'amber'],
@@ -446,7 +461,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             ].map(([label,val,tone])=><div key={label} className={`ao-card ${tone}`}><h4 style={{fontSize:12,color:'#b2daea'}}>{label}</h4><div className="ao-value" style={{fontSize:25}}>{val}</div></div>)}</div>
             <div style={{overflowX:'auto',marginTop:20}}><h4 style={{fontSize:17,color:'#7ce7fa',marginBottom:10}}>Rendimiento por asesora</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}><thead><tr>{['Asesora','Recibidos','Confirmados','Cancelados','Duplicados','Pendientes','Enviados','+48 h'].map(h=><th key={h} style={{padding:10,borderBottom:'1px solid #41657a',textAlign:'left',color:'#93dbe9'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.advisors.map(a=><tr key={a.advisorId}><td style={{padding:10,borderBottom:'1px solid #25445b'}}><button type="button" className="ao-tag cyan" style={{padding:'7px 10px'}} onClick={()=>{setAdminAdvisor(a.advisorId);setAdminPage(0);setAdminOpenedOrder(null);setTab('asesoras')}}>Ver asesora · {a.name}</button></td>{[a.received,a.confirmed,a.cancelled,a.duplicate||0,a.pending,a.sent,a.overdue].map((v,i)=><td key={i} style={{padding:10,borderBottom:'1px solid #25445b',color:'#f1faff'}}>{v}</td>)}</tr>)}</tbody></table>{!dashboard.data.advisors.length&&<p style={{color:'#b4cbe0'}}>No hay asignaciones en este período.</p>}</div>
             <div style={{overflowX:'auto',marginTop:24}}><h4 style={{fontSize:17,color:'#cba9ff',marginBottom:10}}>Evolución diaria por fecha original</h4><table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:500}}><thead><tr>{['Fecha','Recibidos','Confirmados','Cancelados','Duplicados','Pendientes','Enviados','+48 h','Sin asignar'].map(h=><th key={h} style={{padding:10,textAlign:'left',borderBottom:'1px solid #41657a',color:'#cba9ff'}}>{h}</th>)}</tr></thead><tbody>{dashboard.data.daily.map(d=><tr key={d.date}>{[d.date,d.received,d.confirmed,d.cancelled,d.duplicate||0,d.pending,d.sent,d.overdue,d.unassigned].map((v,i)=><td key={i} style={{padding:9,color:'#f0faff',borderBottom:'1px solid #25445b'}}>{v}</td>)}</tr>)}</tbody></table></div>
-            <p style={{fontSize:12,color:'#a7c4d6',marginTop:15}}>Excluidos por pruebas o descartes: {dashboard.data.totals.excluded}. Las cohortes pendientes pueden cambiar al confirmar pedidos posteriormente.</p>
+            <p style={{fontSize:12,color:'#a7c4d6',marginTop:15}}>Pruebas o descartes dentro de recibidos (excluidos únicamente del rendimiento): {dashboard.data.totals.excluded}. Las cohortes pendientes pueden cambiar al confirmar pedidos posteriormente.</p>
           </>}
         </section>}
         {tab==='asesoras'&&admin&&<section className="ao-panel"><div style={{padding:14,marginBottom:12,border:'1px solid #a45bd4',borderRadius:12}}><h3>Historial de transferencias</h3><button className="ao-tag cyan" onClick={()=>loadTransferHistory(0)}>Actualizar historial</button>{transferHistory.error&&<p>{transferHistory.error}</p>}{(transferHistory.items||[]).map(t=><p key={t.id} style={{padding:'8px 0',borderBottom:'1px solid #364960'}}>Pedido {t.order_number}: {t.from_name} → {t.to_name} · {new Date(t.created_at).toLocaleString('es-CO')} · {t.current_status} · {t.note||'Sin nota'}</p>)}{transferHistory.hasMore&&<button className="ao-tag cyan" onClick={()=>loadTransferHistory(transferHistory.page+1)}>Siguientes transferencias</button>}</div>
@@ -509,7 +524,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             <button type="button" className="ao-tag green" onClick={saveAdvisorV114}>Guardar asesora</button>
           </div></details>
           <div style={{marginTop:20}}><h4>Asesoras registradas</h4>
-          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div>{a.display_name} · Prioridad {a.priority} · {a.used_today}/30 hoy · {a.enabled?'Activa':'Pausada'}</div><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Editar</button></div>)}</div>
+          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div><strong>{a.display_name}</strong> · Prioridad {a.priority} · {a.used_today}/30 hoy · {a.enabled?'Activa':'Pausada'}</div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:a.advisor_id,displayName:a.display_name})}>Cambiar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Configuración avanzada</button></div>{renameDraft.advisorId===a.advisor_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap',width:'100%'}}><input aria-label="Nuevo nombre visible" value={renameDraft.displayName} onChange={e=>setRenameDraft(s=>({...s,displayName:e.target.value.slice(0,80)}))} placeholder="Nombre real de la asesora" style={{minWidth:200,flex:1,padding:12,background:'#09243a',border:'1px solid #4a7795',borderRadius:8,color:'#fff'}}/><button type="button" className="ao-tag green" onClick={saveVisibleAdvisorName}>Guardar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:'',displayName:''})}>Cancelar</button></div>}</div>)}</div>
           <div style={{marginTop:24}}><h4>Revisión de pedidos potencialmente repetidos</h4>
            {(advisorAdmin.reviews||[]).filter(r=>r.resolution==='open').map(r=><div key={r.incoming_id} style={{padding:12,borderBottom:'1px solid #3b5d70'}}><strong>Pedido {r.order_number}</strong> · {r.reason}<p>Coincidencias: {(r.details?.similarOrderIds||[]).join(', ')||'Revisar historial'}</p><button type="button" className="ao-tag green" onClick={()=>resolveReviewV114(r.incoming_id,'approved')}>Aprobar pedido</button> <button type="button" className="ao-tag amber" onClick={()=>resolveReviewV114(r.incoming_id,'discarded')}>Descartar revisión</button></div>)}
            <p style={{color:'#8adfec',marginTop:15}}>Índice histórico y recuperación: automáticos mediante Cloudflare. No tienes que ejecutar tareas de mantenimiento.</p>
