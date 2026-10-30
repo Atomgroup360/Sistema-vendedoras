@@ -3,7 +3,8 @@ import { Activity, AlertTriangle, Bell, CheckCircle2, Clock3, LayoutDashboard, L
 
 const TABS = [
   { id: 'resumen', title: 'Resumen', icon: LayoutDashboard },
-  { id: 'pedidos', title: 'Mis pedidos', icon: Package },
+  { id: 'pedidos', title: 'Por gestionar', icon: Package },
+  { id: 'historial', title: 'Historial', icon: CheckCircle2 },
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
   { id: 'eliminar', title: 'Eliminar pruebas', icon: LockKeyhole },
   { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
@@ -115,7 +116,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     try {
       const token=await user.getIdToken();
       const params=new URLSearchParams();
-      if(role!=='admin'){params.set('from',advisorDates.from);params.set('to',advisorDates.to);params.set('status',advisorStatus);params.set('page',String(advisorPage));if(advisorSearch)params.set('search',advisorSearch);}
+      if(role!=='admin'){params.set('from',advisorDates.from);params.set('to',advisorDates.to);params.set('status',advisorStatus);params.set('view',tab==='pedidos'?'active':tab==='historial'?'history':'all');params.set('page',String(advisorPage));if(advisorSearch)params.set('search',advisorSearch);}
       const res=await fetch(`https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/inbox?${params}`,{
         method:'GET',headers:{Authorization:`Bearer ${token}`},cache:'no-store'
       });
@@ -320,7 +321,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     try{await navigator.clipboard.writeText(formatConfirmMessage(o));setActionState({busy:0,message:'Mensaje copiado. Revísalo antes de enviarlo.'});}
     catch{setMessagePreview(o.id);setActionState({busy:0,message:'Selecciona el mensaje de vista previa para copiarlo.'});}
   };
-  useEffect(()=>{if(['pedidos','resumen'].includes(tab))fetchInbox();},[tab,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
+  useEffect(()=>{if(['pedidos','resumen','historial'].includes(tab))fetchInbox();},[tab,user?.uid,advisorDates.from,advisorDates.to,advisorStatus,advisorPage,advisorSearch]);
   useEffect(()=>{if(role==='admin')return; const check=async()=>{try{const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/health',{cache:'no-store'});const d=await r.json();setShopifyHealth(r.ok&&d.ingestEnabled&&d.dbBound?'active':'inactive');}catch{setShopifyHealth('inactive');}};check();const t=setInterval(check,60000);return()=>clearInterval(t);},[role]);
   // Asesora: actualiza sin recargar la página ni cerrar sesión. No interrumpe notas o mensajes.
   useEffect(()=>{
@@ -342,7 +343,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='eliminar'&&role==='admin')searchDeletableOrders('');},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','eliminar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos'].includes(item.id));
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','eliminar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos','historial'].includes(item.id));
   const counts=inbox.totals||{pending:0,sent:0,confirmed:0,cancelled:0,total:0};
   const chooseDates=(preset)=>{setAdvisorPreset(preset);setAdvisorPage(0);setExpandedOrder(null);const today=colombiaToday();if(preset==='today')setAdvisorDates({from:today,to:today});if(preset==='yesterday'){const y=colombiaYesterday();setAdvisorDates({from:y,to:y});}if(preset==='week'){const d=new Date(Date.now()-6*86400000);setAdvisorDates({from:new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(d),to:today});}};
   const filterControls=()=> <div className="ao-filter-bar"><div className="ao-presets">{[['today','Hoy'],['yesterday','Ayer'],['week','7 días'],['custom','Personalizado']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorPreset===v} onClick={()=>chooseDates(v)}>{label}</button>)}</div><div className="ao-dates"><label>Desde<input type="date" value={advisorDates.from} onChange={e=>{setAdvisorDates(s=>({...s,from:e.target.value}));setAdvisorPreset('custom');setAdvisorPage(0);setExpandedOrder(null);}}/></label><label>Hasta<input type="date" value={advisorDates.to} onChange={e=>{setAdvisorDates(s=>({...s,to:e.target.value}));setAdvisorPreset('custom');setAdvisorPage(0);setExpandedOrder(null);}}/></label></div></div>;
@@ -470,7 +471,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         {newOrderCount>0&&<button type="button" className="ao-tag amber" onClick={()=>{setTab('pedidos');setNewOrderCount(0);}} style={{cursor:'pointer',padding:'9px 13px'}}>🔔 {newOrderCount} pedido(s) nuevo(s) · Ver ahora</button>}
       </div>}
       <nav className="ao-nav" aria-label="Secciones del módulo de confirmaciones" role="tablist">
-        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>setTab(item.id)}><Icon size={15}/>{item.title}</button>})}
+        {visibleTabs.map(item=>{const Icon=item.icon;return <button key={item.id} id={`ao-tab-${item.id}`} role="tab" type="button" aria-selected={tab===item.id} aria-controls="ao-tabpanel" onClick={()=>{if((item.id==='historial'||item.id==='pedidos')&&tab!==item.id){setAdvisorPage(0);setAdvisorStatus('all');setExpandedOrder(null);}setTab(item.id);}}><Icon size={15}/>{item.title}</button>})}
       </nav>
       <main role="tabpanel" id="ao-tabpanel" aria-labelledby={`ao-tab-${current.id}`}>
         {tab==='resumen'&&!admin&&<section className="ao-panel">
@@ -480,8 +481,9 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           <div className="ao-kpis">{[['Pendientes',counts.pending,'#ffd37a'],['Enviados',counts.sent,'#47b9ef'],['Confirmados',counts.confirmed,'#45cd96'],['Cancelados',counts.cancelled,'#f26b77'],['Duplicados',counts.duplicate||0,'#c17cf4']].map(([label,num,color])=><div className="ao-kpi" key={label}><span style={{color,fontSize:12,fontWeight:800}}>{label}</span><strong>{num}</strong></div>)}</div>
           <p style={{fontSize:11,color:'#93b8ca',margin:'12px 0 0'}}>Resultados de tus pedidos por fecha de asignación · {advisorDates.from} a {advisorDates.to}.</p>
         </section>}
-        {tab==='pedidos'&&!admin&&<section className="ao-panel">
-          <div className="ao-section-head"><h3>Mis pedidos</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
+        {['pedidos','historial'].includes(tab)&&!admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>{tab==='pedidos'?'Pedidos por gestionar':'Historial de pedidos'}</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
+          <p style={{fontSize:12,color:'#aacfe0',margin:'8px 0 11px'}}>{tab==='pedidos'?'Aquí permanecen los pendientes, enviados y confirmados que falta subir a ATOM.':'Aquí están los cancelados, duplicados cerrados y confirmados ya procesados en ATOM. Puedes consultar sus gestiones.'}</p>
           <form onSubmit={e=>{e.preventDefault();const q=advisorSearchInput.trim();if(q.length===1)return;setAdvisorSearch(q);setAdvisorPage(0);setExpandedOrder(null);}} style={{display:'flex',gap:9,flexWrap:'wrap',alignItems:'center',margin:'12px 0 14px'}}>
             <input type="search" aria-label="Buscar por pedido, cliente o teléfono" placeholder="Buscar pedido, nombre o teléfono…" value={advisorSearchInput} maxLength={80} onChange={e=>setAdvisorSearchInput(e.target.value)} style={{flex:'1 1 230px',minWidth:0,border:'1px solid #3b7291',background:'#09263b',borderRadius:10,color:'#fff',padding:'12px 13px',fontSize:14}}/>
             <button type="submit" className="ao-tag cyan" style={{padding:'12px 16px',cursor:'pointer'}}>Buscar</button>
@@ -489,11 +491,11 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           </form>
           {advisorSearch?<div className="ao-note" style={{marginBottom:12}}>Búsqueda histórica: <strong>{advisorSearch}</strong>. Busca en todos los días y estados, incluso pedidos transferidos que hayas atendido. <strong>Limpiar</strong> para volver a los filtros por fecha.</div>:<details className="ao-more-settings" open={showAdvancedFilters} onToggle={e=>setShowAdvancedFilters(e.currentTarget.open)}><summary>Fechas y filtros avanzados · {advisorPreset==='today'?'Hoy':advisorPreset==='yesterday'?'Ayer':advisorPreset==='week'?'Últimos 7 días':'Personalizado'}</summary><div style={{marginTop:10}}>{filterControls()}</div></details>}
           <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'10px 0',fontSize:12}}><span className="ao-tag amber">ATOM pendientes: {inbox.totals?.atomPending||0}</span><span className="ao-tag green">ATOM procesadas: {inbox.totals?.atomProcessed||0}</span></div>
-          {!advisorSearch&&<div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados'],['cancelled','Cancelados'],['duplicate','Duplicados']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?counts.total:counts[v]}</button>)}</div>}
+          {!advisorSearch&&<div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{(tab==='pedidos'?[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados sin ATOM']]:[['all','Todos'],['confirmed','Confirmados + ATOM'],['cancelled','Cancelados'],['duplicate','Duplicados']]).map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?'':counts[v]}</button>)}</div>}
           <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp {rememberAdvisorName?'🔒':''}</summary><div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:9}}><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} disabled={rememberAdvisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300,opacity:rememberAdvisorName?.73:1}}/><label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={rememberAdvisorName} onChange={e=>changeAdvisorNameLock(e.target.checked)} style={{accentColor:'#45cd96',width:17,height:17}}/>Mantener este nombre en futuras sesiones</label></div><p style={{fontSize:11,color:'#89afc6',marginTop:7}}>{rememberAdvisorName?'Nombre bloqueado. Desmarca la casilla para cambiarlo.':'Al marcar, queda guardado en este navegador y para esta cuenta. No afecta a otras asesoras.'}</p></details>
           {inbox.status==='error'&&<div className="ao-note" role="alert">Error al consultar: {inbox.error}</div>}
           {inbox.status==='loading'&&<div className="ao-empty">Consultando pedidos…</div>}
-          {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><Package size={25}/><h3>Sin resultados</h3><p>{advisorSearch?'No hay coincidencias entre tus pedidos actuales o gestionados anteriormente.':'Prueba otra fecha o estado.'}</p></div>}
+          {inbox.status==='ready'&&inbox.orders.length===0&&<div className="ao-empty"><Package size={25}/><h3>Sin resultados</h3><p>{advisorSearch?'No hay coincidencias entre tus pedidos actuales o gestionados anteriormente.':tab==='pedidos'?'No tienes pedidos pendientes en este rango. Consulta Historial para ver los cerrados.':'No hay pedidos cerrados en este rango.'}</p></div>}
           {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:9}}>{inbox.orders.map(o=><article key={o.id} style={{minWidth:0}}>
             <button type="button" className="ao-order-row" aria-expanded={expandedOrder===o.id} aria-controls={`ao-order-detail-${o.id}`} onClick={()=>{setExpandedOrder(v=>v===o.id?null:o.id);setMessagePreview(null);}} style={{borderLeft:`4px solid ${STATUS_STYLES[o.status]?.border||'#4b7188'}`,borderRadius:expandedOrder===o.id?'11px 11px 0 0':11}}>
               <strong>Pedido {o.number}</strong><span className="ao-order-client">{o.customerName||'Cliente sin nombre'}</span>
