@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import WinnerPushCenter from './WinnerPushCenter';
 import { Activity, AlertTriangle, Bell, CheckCircle2, Clock3, LayoutDashboard, LockKeyhole, LogOut, Package, Radio, ShieldCheck, Sparkles, Users, Wifi, Zap } from 'lucide-react';
 
 const TABS = [
@@ -67,6 +68,21 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [advisorPage,setAdvisorPage]=useState(0);
   const [advisorSearchInput,setAdvisorSearchInput]=useState('');
   const [advisorSearch,setAdvisorSearch]=useState('');
+
+  useEffect(()=>{
+    if(role==='admin'||!user?.uid)return;
+    try{
+      const url=new URL(window.location.href);
+      const number=url.searchParams.get('confirmacionesPedido');
+      if(!number)return;
+      setTab('pedidos');setAdvisorPage(0);setAdvisorStatus('all');setAtomFilter('all');
+      setAdvisorSearch(String(number).replace('#','').slice(0,70));
+      setAdvisorSearchInput(String(number).replace('#','').slice(0,70));
+      url.searchParams.delete('confirmacionesPedido');
+      window.history.replaceState(window.history.state,'',url.pathname+url.search+url.hash);
+    }catch{}
+  },[role,user?.uid]);
+
   const [expandedOrder,setExpandedOrder]=useState(null);
   const [showAdvancedFilters,setShowAdvancedFilters]=useState(false);
   const [showAdvisorOptions,setShowAdvisorOptions]=useState(false);
@@ -712,6 +728,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           <p>Las nuevas órdenes se distribuyen en el momento de llegar, cuando la automatización está habilitada. WhatsApp continúa manual.</p>
         </section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
+      {!admin&&<WinnerPushCenter user={user} onOpenOrder={number=>{setTab('pedidos');setAdvisorPage(0);setAdvisorStatus('all');setAtomFilter('all');setAdvisorSearch(String(number||'').replace('#',''));setAdvisorSearchInput(String(number||'').replace('#',''));}}/>}
       {transferModal&&<div role="dialog" aria-modal="true" aria-label="Transferir pedido" style={{position:'fixed',inset:0,zIndex:9999,background:'#020914df',display:'grid',placeItems:'center',padding:15}}><div style={{width:'min(100%,440px)',padding:22,background:'#102439',color:'#fff',border:'1px solid #ae7bdb',borderRadius:18}}><h3>Transferir pedido</h3><p>Pedido #{transferModal.id} · Se conservarán las notas, alertas y el historial.</p><label>Asesora de destino<select value={transferModal.target} onChange={e=>setTransferModal(s=>({...s,target:e.target.value}))} style={{width:'100%',padding:12,color:'#fff',background:'#19394e',borderRadius:8}}><option value="">Selecciona asesora</option>{directory.map(a=><option key={a.advisor_id} value={a.advisor_id}>{a.display_name}</option>)}</select></label><label>Comentario (opcional)<textarea value={transferNote} onChange={e=>setTransferNote(e.target.value.slice(0,500))} style={{width:'100%',padding:12,color:'#fff',background:'#19394e',borderRadius:8}}/></label><div style={{display:'flex',gap:12,marginTop:18}}><button type="button" className="ao-tag cyan" onClick={()=>setTransferModal(null)}>Cancelar</button><button type="button" className="ao-tag green" disabled={!transferModal.target||actionState.busy===transferModal.id} onClick={executeTransfer}>Confirmar transferencia</button></div></div></div>}
       </main>
     </div>
