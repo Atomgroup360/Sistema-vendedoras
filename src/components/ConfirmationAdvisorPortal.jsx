@@ -221,6 +221,19 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       setAdvisorAdmin(s=>({...s,loading:false,advisors:a.advisors||[],reviews:r.reviews||[]}));
     }catch(e){setAdvisorAdmin(s=>({...s,loading:false,error:String(e.message)}));}
   };
+  const [allocationBusy,setAllocationBusy]=useState('');
+  const toggleAdvisorAllocation=async(a)=>{
+    if(allocationBusy)return;
+    const next=!Boolean(a.enabled);
+    if(!window.confirm(`${next?'Reanudar':'Pausar'} nuevas asignaciones para ${a.display_name}?\nLos pedidos existentes conservarán su asesora.`))return;
+    setAllocationBusy(a.advisor_id);
+    try{
+      await adminV114('advisor-allocation',{advisorId:a.advisor_id,enabled:next});
+      await Promise.all([refreshAdvisorsV114(),fetchDistribution()]);
+      setAdvisorAdmin(s=>({...s,message:`${a.display_name}: ${next?'recibirá pedidos nuevos':'pausada para pedidos nuevos'}. Sus pedidos previos permanecen intactos.`,error:''}));
+    }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message||e),message:''}));}
+    finally{setAllocationBusy('');}
+  };
   const saveAdvisorV114=async()=>{
     try{await adminV114('advisors',advisorDraft);
       setAdvisorAdmin(s=>({...s,message:'Asesora vinculada y configurada.'}));await refreshAdvisorsV114();
@@ -625,7 +638,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         </section>}
         {tab==='administrar'&&admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Administrar asesoras · Operación inmediata</h3><button type="button" className="ao-tag cyan" onClick={refreshAdvisorsV114}>Actualizar</button></div>
-          <p>Supervisa las asesoras y sus cupos. La distribución y recuperación de pedidos funcionan automáticamente. Puedes pausar asesoras o cambiar prioridades cuando lo necesites.</p>
+          <p>Pausa o activa nuevas asignaciones con un toque. La prioridad más alta entre las asesoras activas será la primera en recibir pedidos. Las asesoras pausadas conservan sus pedidos anteriores, historial y acceso.</p>
           {advisorAdmin.error&&<div className="ao-note" role="alert">{advisorAdmin.error}</div>}
           {advisorAdmin.message&&<div className="ao-note" role="status">{advisorAdmin.message}</div>}
           <details style={{marginTop:15}}><summary style={{cursor:'pointer',color:'#8adfec'}}>Configuración avanzada · vincular cuenta existente</summary><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:15}}>
@@ -636,7 +649,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             <button type="button" className="ao-tag green" onClick={saveAdvisorV114}>Guardar asesora</button>
           </div></details>
           <div style={{marginTop:20}}><h4>Asesoras registradas</h4>
-          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div><strong>{a.display_name}</strong> · Prioridad {a.priority} · {a.used_today}/30 hoy · {a.enabled?'Activa':'Pausada'}</div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:a.advisor_id,displayName:a.display_name})}>Cambiar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Configuración avanzada</button></div>{renameDraft.advisorId===a.advisor_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap',width:'100%'}}><input aria-label="Nuevo nombre visible" value={renameDraft.displayName} onChange={e=>setRenameDraft(s=>({...s,displayName:e.target.value.slice(0,80)}))} placeholder="Nombre real de la asesora" style={{minWidth:200,flex:1,padding:12,background:'#09243a',border:'1px solid #4a7795',borderRadius:8,color:'#fff'}}/><button type="button" className="ao-tag green" onClick={saveVisibleAdvisorName}>Guardar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:'',displayName:''})}>Cancelar</button></div>}</div>)}</div>
+          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div><strong>{a.display_name}</strong> · {a.enabled?`Turno activo #${(advisorAdmin.advisors||[]).filter(x=>x.enabled&&(Number(x.priority)<Number(a.priority)||(Number(x.priority)===Number(a.priority)&&String(x.advisor_id)<String(a.advisor_id)))).length+1}`:'En descanso'} · {a.used_today}/30 hoy · {a.enabled?'Recibe pedidos':'No recibe pedidos nuevos'}</div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className={`ao-tag ${a.enabled?'amber':'green'}`} disabled={Boolean(allocationBusy)} aria-label={`${a.enabled?'Pausar':'Reanudar'} nuevas asignaciones para ${a.display_name}`} onClick={()=>toggleAdvisorAllocation(a)}>{allocationBusy===a.advisor_id?'Guardando…':(a.enabled?'⏸ Pausar reparto':'▶ Activar reparto')}</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:a.advisor_id,displayName:a.display_name})}>Cambiar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Configuración avanzada</button></div>{renameDraft.advisorId===a.advisor_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap',width:'100%'}}><input aria-label="Nuevo nombre visible" value={renameDraft.displayName} onChange={e=>setRenameDraft(s=>({...s,displayName:e.target.value.slice(0,80)}))} placeholder="Nombre real de la asesora" style={{minWidth:200,flex:1,padding:12,background:'#09243a',border:'1px solid #4a7795',borderRadius:8,color:'#fff'}}/><button type="button" className="ao-tag green" onClick={saveVisibleAdvisorName}>Guardar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:'',displayName:''})}>Cancelar</button></div>}</div>)}</div>
           <p>Las nuevas órdenes se distribuyen en el momento de llegar, cuando la automatización está habilitada. WhatsApp continúa manual.</p>
         </section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
