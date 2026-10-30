@@ -60,6 +60,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [advisorSearchInput,setAdvisorSearchInput]=useState('');
   const [advisorSearch,setAdvisorSearch]=useState('');
   const [expandedOrder,setExpandedOrder]=useState(null);
+  const [showAdvancedFilters,setShowAdvancedFilters]=useState(false);
+  const [showAdvisorOptions,setShowAdvisorOptions]=useState(false);
   const [shopifyHealth,setShopifyHealth]=useState('checking');
   const inboxBusyRef = useRef(false);
   const knownOrderIdsRef = useRef(null);
@@ -391,6 +393,55 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       .ao-shopify-dot.off:before{background:#f26b77;box-shadow:0 0 8px #f26b77}
       @media(max-width:650px){.ao-advisor .ao-head{padding:11px 12px;display:flex;align-items:flex-start;flex-direction:column;gap:6px}.ao-advisor .ao-user{width:100%;margin-top:0;justify-content:space-between}.ao-advisor .ao-desc{display:none}.ao-advisor .ao-nav button{flex:1;justify-content:center}.ao-advisor .ao-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.ao-filter-bar{display:grid;gap:10px}.ao-dates{display:grid;grid-template-columns:1fr 1fr}.ao-dates input{width:100%;max-width:none}.ao-order-row{gap:7px;padding:11px 9px}.ao-order-row strong{font-size:12px}.ao-order-client{font-size:12px}.ao-order-status{font-size:10px;padding:5px 7px}.ao-order-detail{padding:12px}.ao-advisor .ao-panel{padding:12px}}
       @media(prefers-reduced-motion:reduce){.ao-root *{animation:none!important;transition:none!important}}
+
+      /* V1.22.3: mobile-first visual cleanup; scoped to the advisor only. */
+      .ao-advisor .ao-content{max-width:1180px}
+      .ao-advisor .ao-head{padding:12px 16px;gap:12px;border-radius:13px}
+      .ao-advisor .ao-title{font-size:clamp(16px,2vw,21px);margin:4px 0;line-height:1.28;letter-spacing:-.3px}
+      .ao-advisor .ao-eyebrow{font-size:9px;letter-spacing:1px}
+      .ao-advisor .ao-user{font-size:11px}
+      .ao-advisor .ao-nav{margin:10px 0 12px;gap:7px;overflow:visible}
+      .ao-advisor .ao-nav button{flex:1;justify-content:center;padding:10px 12px;min-width:0}
+      .ao-advisor .ao-nav button[aria-selected=true]{border-color:#ffb43c;background:linear-gradient(125deg,#e99c22,#ffca62);color:#1b2532;box-shadow:0 0 0 1px #ffbb5299,0 3px 15px #ef9d352b}
+      .ao-advisor .ao-panel{overflow:hidden}
+      .ao-advisor .ao-tag{max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere;letter-spacing:0;font-size:11px;justify-content:center;text-align:center;line-height:1.35}
+      .ao-advisor button,.ao-advisor a{touch-action:manipulation}
+      .ao-advisor .ao-order-row{width:100%;min-width:0;overflow:hidden;flex-wrap:wrap;align-items:center}
+      .ao-advisor .ao-order-client{min-width:0;overflow-wrap:anywhere}
+      .ao-advisor .ao-order-status{max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere;font-size:10px;line-height:1.25}
+      .ao-advisor .ao-order-detail{max-width:100%;min-width:0;overflow-wrap:anywhere}
+      .ao-advisor .ao-order-detail > div{min-width:0}
+      .ao-advisor .ao-order-detail p{overflow-wrap:anywhere}
+      .ao-advisor .ao-action-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
+      .ao-advisor .ao-action-row > *{width:100%;min-width:0;margin:0!important;min-height:42px;display:flex;align-items:center;justify-content:center;padding:9px!important}
+      .ao-advisor .ao-state-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .ao-advisor .ao-state-action{width:100%;min-width:0;min-height:43px;border:1px solid var(--state-border)!important;border-radius:11px!important;background:var(--state-bg)!important;color:var(--state-text)!important;font-weight:800;line-height:1.3;text-align:center;padding:10px 7px!important;box-shadow:inset 0 0 0 1px #ffffff09}
+      .ao-advisor .ao-state-action:disabled{opacity:.35!important;cursor:not-allowed!important;filter:grayscale(.35)}
+      .ao-advisor .ao-more-settings{margin:6px 0 11px;border:1px solid #345573;border-radius:11px;padding:10px;background:#0a263b}
+      .ao-advisor .ao-more-settings summary{cursor:pointer;font-size:12px;font-weight:750;color:#b8d8ec;list-style:none;display:flex;justify-content:space-between;align-items:center}
+      .ao-advisor .ao-more-settings summary:after{content:'⌄';font-size:17px;color:#87cce8}
+      .ao-advisor .ao-more-settings[open] summary:after{content:'⌃'}
+      .ao-advisor .ao-action-explainer{grid-column:1/-1;color:#99b9cd;font-size:11px;line-height:1.4;margin:1px 0 0}
+      @media(max-width:700px){
+        .ao-advisor .ao-content{padding:8px}
+        .ao-advisor .ao-head{display:flex;flex-direction:row;align-items:center;padding:10px;gap:7px}
+        .ao-advisor .ao-head>div:first-child{min-width:0;flex:1}
+        .ao-advisor .ao-title{font-size:15px;line-height:1.22;margin:2px 0}
+        .ao-advisor .ao-eyebrow{font-size:8px;letter-spacing:.6px}
+        .ao-advisor .ao-user{flex:0 0 auto;width:auto;margin:0;gap:5px}
+        .ao-advisor .ao-user>div{display:none}
+        .ao-advisor .ao-user button{padding:8px 9px}
+        .ao-advisor .ao-panel{padding:10px}
+        .ao-advisor .ao-nav button{font-size:12px;padding:9px 6px}
+        .ao-advisor .ao-order-row{gap:6px;padding:9px}
+        .ao-advisor .ao-order-detail{padding:10px}
+        .ao-advisor .ao-action-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+        .ao-advisor .ao-action-row > :nth-child(3){grid-column:1/-1}
+        .ao-advisor .ao-presets{flex-wrap:wrap}
+        .ao-advisor .ao-dates{grid-template-columns:repeat(2,minmax(0,1fr))}
+        .ao-advisor input,.ao-advisor select,.ao-advisor textarea{max-width:100%;min-width:0}
+      }
+      @media(max-width:365px){.ao-advisor .ao-order-row{font-size:11px}.ao-advisor .ao-order-status{font-size:9px}.ao-advisor .ao-dates{grid-template-columns:1fr}}
     `}</style>
     {admin&&<div className="ao-back"/>}{admin&&<svg className="ao-path" viewBox="0 0 1200 720" preserveAspectRatio="none" aria-hidden="true"><path d="M0 160 H150 V100 H390 V270 H590 V80 H800 V170 H1200" stroke="#56e5ff" fill="none" strokeWidth="1.5"/><path d="M0 610 H180 V450 H460 V590 H800 V420 H1200" stroke="#a68cfa" fill="none" strokeWidth="1.3"/><path d="M1200 90 H1000 V320 H740 V240 H500 V420 H100 V680" stroke="#4ceac2" fill="none" strokeWidth="1.3"/></svg>}
     <div className="ao-content">
@@ -423,7 +474,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             <button type="submit" className="ao-tag cyan" style={{padding:'12px 16px',cursor:'pointer'}}>Buscar</button>
             {advisorSearch&&<button type="button" className="ao-tag amber" style={{padding:'12px 14px',cursor:'pointer'}} onClick={()=>{setAdvisorSearch('');setAdvisorSearchInput('');setAdvisorPage(0);setExpandedOrder(null);}}>Limpiar</button>}
           </form>
-          {advisorSearch?<div className="ao-note" style={{marginBottom:12}}>Búsqueda histórica: <strong>{advisorSearch}</strong>. Busca en todos los días y estados, incluso pedidos transferidos que hayas atendido. <strong>Limpiar</strong> para volver a los filtros por fecha.</div>:filterControls()}
+          {advisorSearch?<div className="ao-note" style={{marginBottom:12}}>Búsqueda histórica: <strong>{advisorSearch}</strong>. Busca en todos los días y estados, incluso pedidos transferidos que hayas atendido. <strong>Limpiar</strong> para volver a los filtros por fecha.</div>:<details className="ao-more-settings" open={showAdvancedFilters} onToggle={e=>setShowAdvancedFilters(e.currentTarget.open)}><summary>Fechas y filtros avanzados · {advisorPreset==='today'?'Hoy':advisorPreset==='yesterday'?'Ayer':advisorPreset==='week'?'Últimos 7 días':'Personalizado'}</summary><div style={{marginTop:10}}>{filterControls()}</div></details>}
           <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'10px 0',fontSize:12}}><span className="ao-tag amber">ATOM pendientes: {inbox.totals?.atomPending||0}</span><span className="ao-tag green">ATOM procesadas: {inbox.totals?.atomProcessed||0}</span></div>
           {!advisorSearch&&<div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados'],['cancelled','Cancelados'],['duplicate','Duplicados']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?counts.total:counts[v]}</button>)}</div>}
           <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp {rememberAdvisorName?'🔒':''}</summary><div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:9}}><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} disabled={rememberAdvisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300,opacity:rememberAdvisorName?.73:1}}/><label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={rememberAdvisorName} onChange={e=>changeAdvisorNameLock(e.target.checked)} style={{accentColor:'#45cd96',width:17,height:17}}/>Mantener este nombre en futuras sesiones</label></div><p style={{fontSize:11,color:'#89afc6',marginTop:7}}>{rememberAdvisorName?'Nombre bloqueado. Desmarca la casilla para cambiarlo.':'Al marcar, queda guardado en este navegador y para esta cuenta. No afecta a otras asesoras.'}</p></details>
@@ -433,7 +484,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {inbox.status==='ready'&&inbox.orders.length>0&&<div style={{display:'grid',gap:9}}>{inbox.orders.map(o=><article key={o.id} style={{minWidth:0}}>
             <button type="button" className="ao-order-row" aria-expanded={expandedOrder===o.id} aria-controls={`ao-order-detail-${o.id}`} onClick={()=>{setExpandedOrder(v=>v===o.id?null:o.id);setMessagePreview(null);}} style={{borderLeft:`4px solid ${STATUS_STYLES[o.status]?.border||'#4b7188'}`,borderRadius:expandedOrder===o.id?'11px 11px 0 0':11}}>
               <strong>Pedido {o.number}</strong><span className="ao-order-client">{o.customerName||'Cliente sin nombre'}</span>
-              <span className="ao-order-status" style={{color:STATUS_STYLES[o.status]?.tag||'#fff'}}>{(isOverdueOrder(o)||o.recentOrders?.length>0)&&<AlertTriangle size={13}/>} {ORDER_STATUS_LABELS[o.status]||o.status}</span>{o.risk&&<span className="ao-order-status" style={{color:'#edb0ff',borderColor:'#b94ce5'}}><AlertTriangle size={13}/> Riesgo duplicado</span>}{o.wasTransferred&&<span className="ao-order-status" style={{color:'#e9adff'}}>{['confirmed','cancelled','duplicate'].includes(o.status)?'Transferencia resuelta':'Transferido'}</span>}
+              <span className="ao-order-status" style={{color:STATUS_STYLES[o.status]?.tag||'#fff',background:STATUS_STYLES[o.status]?.background,borderColor:STATUS_STYLES[o.status]?.border}}>{(isOverdueOrder(o)||o.recentOrders?.length>0)&&<AlertTriangle size={13}/>} {ORDER_STATUS_LABELS[o.status]||o.status}</span>{o.risk&&<span className="ao-order-status" style={{color:'#edb0ff',borderColor:'#b94ce5'}}><AlertTriangle size={13}/> Riesgo duplicado</span>}{o.wasTransferred&&<span className="ao-order-status" style={{color:'#e9adff'}}>{['confirmed','cancelled','duplicate'].includes(o.status)?'Transferencia resuelta':'Transferido'}</span>}
               <span style={{fontSize:15,color:'#9ac6dc'}}>{expandedOrder===o.id?'▴':'▾'}</span>
             </button>
             {expandedOrder===o.id&&<div id={`ao-order-detail-${o.id}`} className="ao-order-detail" style={{borderLeft:`4px solid ${STATUS_STYLES[o.status]?.border||'#4b7188'}`}}>
@@ -447,15 +498,15 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
 
             {o.status==='confirmed'&&<div style={{marginTop:14,padding:13,border:'1px solid #438971',borderRadius:12,background:'#0a302c'}}><b style={{color:'#78edb8'}}>Control de carga a ATOM</b><div style={{marginTop:8,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><span style={{color:o.atomProcessingStatus==='processed'?'#6befb3':'#ffd78c',fontWeight:800}}>{o.atomProcessingStatus==='processed'?'✓ Procesada en ATOM':'● Pendiente por procesar'}</span><button type="button" disabled={atomBusy!==0} onClick={()=>changeAtomStatus(o,o.atomProcessingStatus==='processed'?'pending':'processed')} className="ao-tag green" style={{padding:'9px 13px'}}>{o.atomProcessingStatus==='processed'?'Volver a pendiente':'Marcar procesada'}</button></div></div>}
             {!['confirmed','cancelled','duplicate'].includes(o.status)&&<button type="button" className="ao-tag cyan" style={{padding:11,marginTop:10}} onClick={()=>{setTransferModal({id:o.id,target:''});setTransferNote('');}}>Transferir a otra asesora</button>}{o.timeline?.length>0&&<details style={{marginTop:14,border:'1px solid #34576d',padding:12,borderRadius:10}}><summary style={{cursor:'pointer',fontWeight:750,color:'#8fe5f7'}}>Historial de gestiones ({o.timeline.length})</summary>{o.timeline.map((event,i)=><div key={i} style={{borderTop:'1px solid #25445b',padding:'9px 0',fontSize:12}}><b>{ORDER_STATUS_LABELS[event.action]||event.action}</b> · {new Date(event.at).toLocaleString('es-CO')} · {event.note||'Sin nota'}</div>)}</details>}
-            <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:16,alignItems:'center'}}>
+            <div className="ao-action-row">
               <button type="button" onClick={()=>setMessagePreview(messagePreview===o.id?null:o.id)} className="ao-tag cyan" style={{padding:'10px 14px'}}>Vista previa del mensaje</button><button type="button" onClick={()=>copyMessage(o)} className="ao-tag violet" style={{padding:'10px 14px'}}>Copiar mensaje</button>{whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
-              <span style={{color:'#b1cddd',fontSize:11}}>La asesora envía por WhatsApp y después marca «Enviado». Abrir WhatsApp por sí solo no cambia el estado.</span>
+              <span className="ao-action-explainer">WhatsApp no modifica el estado: marca «Enviado» después de enviar el mensaje.</span>
             </div>
             {messagePreview===o.id&&<div style={{marginTop:10,padding:16,border:'1px solid #3886a7',background:'#09263d',borderRadius:12}}><div style={{fontWeight:800,color:'#74e8fa',marginBottom:10}}>Mensaje preparado para revisar y copiar</div><textarea readOnly value={formatConfirmMessage(o)} rows={15} style={{width:'100%',padding:12,whiteSpace:'pre-wrap',background:'#061b2b',color:'#f2fbff',border:'1px solid #3b7188',borderRadius:10}}/><p style={{fontSize:12,color:'#ffd483'}}>Comprueba nombre de asesora, dirección y valor. No promete una fecha de entrega ni descuentos no verificados.</p></div>}
             <div style={{marginTop:14,display:'grid',gap:9}}>
               <label style={{fontSize:12,color:'#d0e7fa'}}>Nota de gestión opcional (máximo 500 caracteres)</label>
               <textarea value={notes[o.id]||''} maxLength={500} onChange={e=>setNotes(s=>({...s,[o.id]:e.target.value}))} rows={2} placeholder="Qué respondió el cliente o qué se debe corregir…" style={{width:'100%',background:'#06192c',border:'1px solid #41647b',borderRadius:9,padding:11,color:'#f0faff'}}/>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[['sent','Enviado'],['confirmed','Confirmado'],['cancelled','Cancelado'],['duplicate','Pedido duplicado']].map(([action,label])=><button type="button" key={action} disabled={!actionEnabled||actionState.busy!==0||(['confirmed','cancelled','duplicate'].includes(o.status)||(action==='sent'&&o.status!=='pending'))} onClick={()=>setConfirmAction({order:o,action})} style={{padding:'9px 12px',border:'1px solid #40718e',borderRadius:9,background:'#123454',color:'#e7f9ff',opacity:!actionEnabled?.5:1,cursor:actionEnabled?'pointer':'not-allowed'}}>{label}</button>)}</div>
+              <div className="ao-state-actions">{[['sent','Enviado'],['confirmed','Confirmado'],['cancelled','Cancelado'],['duplicate','Pedido duplicado']].map(([action,label])=><button type="button" className="ao-state-action" key={action} disabled={!actionEnabled||actionState.busy!==0||(['confirmed','cancelled','duplicate'].includes(o.status)||(action==='sent'&&o.status!=='pending'))} onClick={()=>{setActionState(s=>({...s,message:''}));setConfirmAction({order:o,action});}} style={{'--state-border':STATUS_STYLES[action]?.border,'--state-bg':STATUS_STYLES[action]?.background,'--state-text':STATUS_STYLES[action]?.tag}}>{label}</button>)}</div>
               {!actionEnabled&&<p style={{fontSize:12,color:'#ffd58c'}}>Las acciones están en modo protegido hasta activar ORDER_ACTIONS_ENABLED y validar la migración de auditoría.</p>}
             </div>
             </div>}
