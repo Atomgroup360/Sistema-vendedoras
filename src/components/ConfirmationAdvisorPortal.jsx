@@ -5,6 +5,7 @@ const TABS = [
   { id: 'resumen', title: 'Resumen', icon: LayoutDashboard },
   { id: 'pedidos', title: 'Mis pedidos', icon: Package },
   { id: 'estadisticas', title: 'Estadísticas', icon: Activity },
+  { id: 'eliminar', title: 'Eliminar pruebas', icon: LockKeyhole },
   { id: 'asesoras', title: 'Ver asesoras y pedidos', icon: Users },
   { id: 'distribucion', title: 'Distribución', icon: Zap },
   { id: 'administrar', title: 'Administrar asesoras', icon: Users },
@@ -41,6 +42,9 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [distribution,setDistribution]=useState({status:'idle',data:null,error:'',notice:''});
   const [advisorAdmin,setAdvisorAdmin]=useState({advisors:[],reviews:[],error:'',message:'',loading:false});
   const [deleteDraft,setDeleteDraft]=useState(null);
+  const [deleteSearch,setDeleteSearch]=useState('');
+  const [deleteList,setDeleteList]=useState({loading:false,items:[],error:''});
+  const [deleteBusy,setDeleteBusy]=useState(false);
   const [atomBusy,setAtomBusy]=useState(0);
   const [atomMessage,setAtomMessage]=useState('');
   const [renameDraft,setRenameDraft]=useState({advisorId:'',displayName:''});
@@ -218,11 +222,6 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       setAdvisorAdmin(s=>({...s,message:'Asesora vinculada y configurada.'}));await refreshAdvisorsV114();
     }catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
   };
-  const resolveReviewV114=async(incomingId,resolution)=>{
-    if(!window.confirm(`¿Marcar revisión ${incomingId} como ${resolution==='approved'?'aprobada':'descartada'}?`))return;
-    try{await adminV114('reviews',{incomingId,resolution});await refreshAdvisorsV114();}
-    catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
-  };
   const backfillImmediateV114=async()=>{
     try{const r=await adminV114('backfill',{});setAdvisorAdmin(s=>({...s,message:`Índice: ${r.processed} procesados; ${r.remaining} pendientes. Repite hasta que queden 0.`}));}
     catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message)}));}
@@ -256,11 +255,29 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/atom-processing',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,status})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_GUARDADO');setAtomMessage('Gestión ATOM guardada.');await fetchInbox(true);if(role==='admin')await fetchDashboard();}
     catch(e){setAtomMessage(String(e.message||e));}finally{setAtomBusy(0);}
   };
+  const searchDeletableOrders=async(query=deleteSearch)=>{
+    if(role!=='admin')return;
+    setDeleteList(s=>({...s,loading:true,error:''}));
+    try{
+      const token=await user.getIdToken();
+      const res=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/search-orders?search='+encodeURIComponent(query.trim()),{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
+      const data=await res.json();if(!res.ok||!data.ok)throw Error(data.code||'CONSULTA_FALLIDA');
+      setDeleteList({loading:false,items:data.orders||[],error:''});
+    }catch(e){setDeleteList({loading:false,items:[],error:String(e.message||e)});}
+  };
   const deleteTestOrder=async()=>{
-    if(!deleteDraft)return;
-    setAtomMessage('');
-    try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/delete-test-order',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:deleteDraft.id,reason:'test',confirmText:deleteDraft.confirmText})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_ELIMINADO');setDeleteDraft(null);setAdminOpenedOrder(null);setAtomMessage(`Pedido ${d.deletedOrder} eliminado de Confirmaciones D1.`);await Promise.all([fetchDashboard(),fetchAdminOrders()]);}
-    catch(e){setAtomMessage(String(e.message||e));}
+    if(!deleteDraft||deleteBusy)return;
+    const orderNumber=deleteDraft.number;
+    if(!window.confirm(`Eliminación irreversible en Confirmaciones D1: pedido ${orderNumber}.\n\nNo se borrará de Shopify ni ATOM. ¿Confirmas que verificaste que es una prueba?`))return;
+    setDeleteBusy(true);setAtomMessage('');
+    try{
+      const token=await user.getIdToken();
+      const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/delete-test-order',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:deleteDraft.id,reason:'test',confirmText:`ELIMINAR ${orderNumber}`})});
+      const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_ELIMINADO');
+      setDeleteDraft(null);setAdminOpenedOrder(null);setAtomMessage(`Pedido ${d.deletedOrder} eliminado de Confirmaciones D1.`);
+      await Promise.all([fetchDashboard(),fetchAdminOrders(),searchDeletableOrders(deleteSearch)]);
+    }catch(e){setAtomMessage(`No se pudo eliminar: ${String(e.message||e)}`);}
+    finally{setDeleteBusy(false);}
   };
   const money = value => {
     const n=Number(String(value||'').replace(/[^0-9.]/g,''));
@@ -305,9 +322,10 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='distribucion'&&role==='admin')fetchDistribution();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='administrar'&&role==='admin')refreshAdvisorsV114();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='eliminar'&&role==='admin')searchDeletableOrders('');},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
-  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos'].includes(item.id));
+  const visibleTabs = admin ? TABS.filter(item => ['estadisticas','asesoras','distribucion','administrar','eliminar','alertas','sistema'].includes(item.id)) : TABS.filter(item => ['resumen','pedidos'].includes(item.id));
   const counts=inbox.totals||{pending:0,sent:0,confirmed:0,cancelled:0,total:0};
   const chooseDates=(preset)=>{setAdvisorPreset(preset);setAdvisorPage(0);setExpandedOrder(null);const today=colombiaToday();if(preset==='today')setAdvisorDates({from:today,to:today});if(preset==='yesterday'){const y=colombiaYesterday();setAdvisorDates({from:y,to:y});}if(preset==='week'){const d=new Date(Date.now()-6*86400000);setAdvisorDates({from:new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(d),to:today});}};
   const filterControls=()=> <div className="ao-filter-bar"><div className="ao-presets">{[['today','Hoy'],['yesterday','Ayer'],['week','7 días'],['custom','Personalizado']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorPreset===v} onClick={()=>chooseDates(v)}>{label}</button>)}</div><div className="ao-dates"><label>Desde<input type="date" value={advisorDates.from} onChange={e=>{setAdvisorDates(s=>({...s,from:e.target.value}));setAdvisorPreset('custom');setAdvisorPage(0);setExpandedOrder(null);}}/></label><label>Hasta<input type="date" value={advisorDates.to} onChange={e=>{setAdvisorDates(s=>({...s,to:e.target.value}));setAdvisorPreset('custom');setAdvisorPage(0);setExpandedOrder(null);}}/></label></div></div>;
@@ -450,10 +468,21 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             </div>
           </div>}
         </section>}
+        {tab==='eliminar'&&admin&&<section className="ao-panel">
+          <div className="ao-section-head"><h3>Eliminar pedidos de prueba</h3><span className="ao-tag amber">Solo administrador</span></div>
+          <p style={{color:'#b9d2e2',fontSize:13}}>Busca el número de pedido y selecciónalo. Se eliminará únicamente de Confirmaciones D1; no de Shopify ni de ATOM. Esta operación no se puede deshacer.</p>
+          <div style={{display:'flex',gap:9,flexWrap:'wrap',margin:'15px 0'}}>
+            <input aria-label="Buscar número de pedido" placeholder="Ej. #26618" value={deleteSearch} onChange={e=>setDeleteSearch(e.target.value.slice(0,70))} onKeyDown={e=>{if(e.key==='Enter')searchDeletableOrders();}} style={{flex:'1 1 190px',minWidth:0,padding:12,background:'#0a273e',color:'#fff',border:'1px solid #416983',borderRadius:9}} />
+            <button type="button" className="ao-tag cyan" onClick={()=>searchDeletableOrders()} disabled={deleteList.loading}>{deleteList.loading?'Buscando…':'Buscar pedidos'}</button>
+          </div>
+          {deleteList.error&&<div className="ao-note" role="alert">{deleteList.error}</div>}
+          <div style={{display:'grid',gap:8}}>{deleteList.items.map(o=><button type="button" key={o.id} onClick={()=>{setDeleteDraft({id:o.id,number:o.number});setAtomMessage('');}} style={{padding:12,textAlign:'left',cursor:'pointer',borderRadius:10,border:`1px solid ${deleteDraft?.id===o.id?'#ef9b83':'#33536e'}`,background:deleteDraft?.id===o.id?'#382326':'#0b263d',color:'#effaff',display:'flex',gap:12,alignItems:'center',justifyContent:'space-between'}}><span><strong>{o.number}</strong> <span style={{fontSize:11,color:'#b5cad9'}}>· {new Date(o.createdAt).toLocaleDateString('es-CO')}</span></span><span style={{fontSize:12,color:'#ffd6ae'}}>{deleteDraft?.id===o.id?'Seleccionado':'Seleccionar'}</span></button>)}</div>
+          {deleteList.items.length===0&&!deleteList.loading&&!deleteList.error&&<p style={{fontSize:12,color:'#a2bfce'}}>Escribe el número del pedido y pulsa Buscar.</p>}
+          {deleteDraft&&<div style={{border:'1px solid #c77d77',borderRadius:12,padding:15,marginTop:18,background:'#301d2b'}}><strong style={{color:'#ffd4c5'}}>Eliminar {deleteDraft.number}</strong><p style={{fontSize:12,color:'#f0c2b8'}}>Esta acción elimina definitivamente el pedido seleccionado y sus gestiones de Confirmaciones D1. Verifica que sea de prueba.</p><div style={{display:'flex',gap:10,flexWrap:'wrap'}}><button type="button" className="ao-tag amber" onClick={deleteTestOrder} disabled={deleteBusy}>{deleteBusy?'Eliminando…':'Eliminar pedido seleccionado'}</button><button type="button" className="ao-tag cyan" onClick={()=>setDeleteDraft(null)}>Cancelar</button></div></div>}
+          {atomMessage&&<div className="ao-note" role="status" style={{marginTop:12}}>{atomMessage}</div>}
+        </section>}
         {tab==='estadisticas'&&admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Confirmaciones · Dashboard administrativo</h3><span className="ao-tag violet">Cohortes por fecha de pedido</span></div>
-          <details style={{margin:'12px 0',padding:12,border:'1px solid #844d53',borderRadius:10}}><summary style={{color:'#f7a9ae',cursor:'pointer'}}>Eliminar pedido de prueba de Confirmaciones D1 (irreversible)</summary><p style={{fontSize:12,color:'#e1bac0'}}>Solo elimina registros de Confirmaciones D1; no elimina pedidos de Shopify ni de ATOM. Verifica el número y el ID interno del pedido antes de confirmar.</p><input type="number" placeholder="ID interno de D1" value={deleteDraft?.id||''} onChange={e=>setDeleteDraft(s=>({...s,id:Number(e.target.value)}))} style={{padding:10,margin:5,background:'#102c43',color:'white',borderRadius:8}}/><input placeholder="Escribe ELIMINAR #26618" value={deleteDraft?.confirmText||''} onChange={e=>setDeleteDraft(s=>({...s,confirmText:e.target.value}))} style={{padding:10,margin:5,background:'#102c43',color:'white',borderRadius:8}}/><button type="button" className="ao-tag amber" style={{padding:11}} onClick={deleteTestOrder}>Eliminar definitivamente pedido de prueba</button></details>
-          {atomMessage&&<div className="ao-note" role="status">{atomMessage}</div>}
           <p style={{fontSize:13,color:'#b4cbe0'}}>Datos reales de D1, separados del Dashboard comercial de WINNER OS. Los pedidos confirmados después siguen atribuidos a su fecha original.</p>
           <div style={{display:'flex',gap:12,alignItems:'end',flexWrap:'wrap',margin:'18px 0'}}>
             <label style={{fontSize:12,color:'#87e6fa'}}>Desde <input type="date" value={dateRange.from} onChange={e=>setDateRange(x=>({...x,from:e.target.value}))} style={{display:'block',color:'#fff',background:'#09243a',border:'1px solid #47748f',borderRadius:9,padding:9}}/></label>
@@ -530,10 +559,10 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {distribution.notice&&<div className="ao-note" role="status">{distribution.notice}</div>}
           {distribution.data&&<>
             <div className="ao-minis"><div className="ao-mini"><h4>Pendientes analizados</h4><strong>{distribution.data.preview.pendingCount}</strong></div><div className="ao-mini"><h4>Elegibles</h4><strong>{distribution.data.preview.eligible}</strong></div><div className="ao-mini"><h4>En revisión</h4><strong>{distribution.data.preview.held}</strong></div></div>
-            <p style={{marginTop:12,color:'#ffda98'}}>Análisis de hasta 100 pendientes. El historial se compara mediante índice persistente de coincidencias. Los posibles duplicados se retienen para revisión.</p>
+            <p style={{marginTop:12,color:'#ffda98'}}>Análisis de hasta 100 pendientes. El historial se compara mediante índice persistente de coincidencias. Los riesgos se notifican a las asesoras.</p>
             <div style={{overflowX:'auto',marginTop:15}}><table style={{width:'100%',minWidth:440,fontSize:13,borderCollapse:'collapse'}}><thead><tr><th style={{textAlign:'left'}}>Asesora</th><th>Prioridad</th><th>Asignaciones de hoy</th><th>Cupo disponible</th></tr></thead><tbody>{(distribution.data.capacity.advisors||[]).map(a=><tr key={a.advisor_id}><td style={{padding:10}}>{a.display_name}</td><td style={{textAlign:'center'}}>{a.priority}</td><td style={{textAlign:'center'}}>{a.used_today}</td><td style={{textAlign:'center'}}>{Math.max(0,30-Number(a.used_today||0))}</td></tr>)}</tbody></table></div>
             <div style={{display:'flex',gap:12,alignItems:'center',marginTop:18,flexWrap:'wrap'}}><span className={`ao-tag ${distribution.data.assignmentsEnabled?'green':'amber'}`}>{distribution.data.assignmentsEnabled?'Reparto habilitado':'Reparto desactivado en Cloudflare'}</span></div>
-            <p>Los pedidos elegibles se asignan automáticamente al llegar desde Shopify. Cloudflare revisa y recupera asignaciones pendientes cada minuto. Solo intervienes si hay un pedido retenido para revisión.</p>
+            <p>Los pedidos elegibles se asignan automáticamente al llegar desde Shopify. Cloudflare revisa y recupera asignaciones pendientes cada minuto. Las asesoras resuelven los riesgos de duplicado.</p>
           </>}
         </section>}
         {tab==='administrar'&&admin&&<section className="ao-panel">
@@ -550,10 +579,6 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           </div></details>
           <div style={{marginTop:20}}><h4>Asesoras registradas</h4>
           {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div><strong>{a.display_name}</strong> · Prioridad {a.priority} · {a.used_today}/30 hoy · {a.enabled?'Activa':'Pausada'}</div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:a.advisor_id,displayName:a.display_name})}>Cambiar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Configuración avanzada</button></div>{renameDraft.advisorId===a.advisor_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap',width:'100%'}}><input aria-label="Nuevo nombre visible" value={renameDraft.displayName} onChange={e=>setRenameDraft(s=>({...s,displayName:e.target.value.slice(0,80)}))} placeholder="Nombre real de la asesora" style={{minWidth:200,flex:1,padding:12,background:'#09243a',border:'1px solid #4a7795',borderRadius:8,color:'#fff'}}/><button type="button" className="ao-tag green" onClick={saveVisibleAdvisorName}>Guardar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:'',displayName:''})}>Cancelar</button></div>}</div>)}</div>
-          <div style={{marginTop:24}}><h4>Revisión de pedidos potencialmente repetidos</h4>
-           {(advisorAdmin.reviews||[]).filter(r=>r.resolution==='open').map(r=><div key={r.incoming_id} style={{padding:12,borderBottom:'1px solid #3b5d70'}}><strong>Pedido {r.order_number}</strong> · {r.reason}<p>Coincidencias: {(r.details?.similarOrderIds||[]).join(', ')||'Revisar historial'}</p><button type="button" className="ao-tag green" onClick={()=>resolveReviewV114(r.incoming_id,'approved')}>Aprobar pedido</button> <button type="button" className="ao-tag amber" onClick={()=>resolveReviewV114(r.incoming_id,'discarded')}>Descartar revisión</button></div>)}
-           <p style={{color:'#8adfec',marginTop:15}}>Índice histórico y recuperación: automáticos mediante Cloudflare. No tienes que ejecutar tareas de mantenimiento.</p>
-          </div>
           <p>Las nuevas órdenes se distribuyen en el momento de llegar, cuando la automatización está habilitada. WhatsApp continúa manual.</p>
         </section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
