@@ -40,6 +40,9 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [adminOpenedOrder,setAdminOpenedOrder]=useState(null);
   const [distribution,setDistribution]=useState({status:'idle',data:null,error:'',notice:''});
   const [advisorAdmin,setAdvisorAdmin]=useState({advisors:[],reviews:[],error:'',message:'',loading:false});
+  const [deleteDraft,setDeleteDraft]=useState(null);
+  const [atomBusy,setAtomBusy]=useState(0);
+  const [atomMessage,setAtomMessage]=useState('');
   const [renameDraft,setRenameDraft]=useState({advisorId:'',displayName:''});
   const [advisorDraft,setAdvisorDraft]=useState({advisorId:'',displayName:'',priority:2,enabled:false});
 
@@ -247,6 +250,18 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       if(role==='admin')fetchDashboard();
     }catch(e){setActionState({busy:0,message:String(e.message||'Error')});}
   };
+  const changeAtomStatus=async(o,status)=>{
+    if(!window.confirm(status==='processed'?`¿Confirmas que el pedido ${o.number} YA fue registrado en ATOM?`:`¿Marcar ${o.number} como pendiente de registrar en ATOM?`))return;
+    setAtomBusy(o.id);setAtomMessage('');
+    try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/advisor/atom-processing',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:o.id,status})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_GUARDADO');setAtomMessage('Gestión ATOM guardada.');await fetchInbox(true);if(role==='admin')await fetchDashboard();}
+    catch(e){setAtomMessage(String(e.message||e));}finally{setAtomBusy(0);}
+  };
+  const deleteTestOrder=async()=>{
+    if(!deleteDraft)return;
+    setAtomMessage('');
+    try{const token=await user.getIdToken();const r=await fetch('https://winner-os-confirmaciones.julian-1818.workers.dev/api/v1/admin/delete-test-order',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({incomingId:deleteDraft.id,reason:'test',confirmText:deleteDraft.confirmText})});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.code||'NO_ELIMINADO');setDeleteDraft(null);setAdminOpenedOrder(null);setAtomMessage(`Pedido ${d.deletedOrder} eliminado de Confirmaciones D1.`);await Promise.all([fetchDashboard(),fetchAdminOrders()]);}
+    catch(e){setAtomMessage(String(e.message||e));}
+  };
   const money = value => {
     const n=Number(String(value||'').replace(/[^0-9.]/g,''));
     return Number.isFinite(n)&&n>0 ? '$'+Math.round(n).toLocaleString('es-CO') : 'Valor por verificar';
@@ -384,6 +399,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         {tab==='pedidos'&&!admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Mis pedidos</h3><span className="ao-shopify-dot">Bandeja automática · 15 s</span></div>
           {filterControls()}
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'10px 0',fontSize:12}}><span className="ao-tag amber">ATOM pendientes: {inbox.totals?.atomPending||0}</span><span className="ao-tag green">ATOM procesadas: {inbox.totals?.atomProcessed||0}</span></div>
           <div className="ao-state-filters" style={{margin:'8px 0 16px'}}>{[['all','Todos'],['pending','Pendientes'],['sent','Enviados'],['confirmed','Confirmados'],['cancelled','Cancelados'],['duplicate','Duplicados']].map(([v,label])=><button key={v} type="button" aria-pressed={advisorStatus===v} onClick={()=>{setAdvisorStatus(v);setAdvisorPage(0);setExpandedOrder(null);}}>{label} {v==='all'?counts.total:counts[v]}</button>)}</div>
           <details style={{marginBottom:14,color:'#a7d2e7',fontSize:12}}><summary style={{cursor:'pointer'}}>Nombre de asesora en WhatsApp {rememberAdvisorName?'🔒':''}</summary><div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:9}}><input aria-label="Nombre de asesora para mensaje de WhatsApp" value={advisorName} disabled={rememberAdvisorName} onChange={e=>setAdvisorName(e.target.value.slice(0,80))} placeholder="Ej. Camila Londoño" style={{padding:10,borderRadius:8,color:'#fff',background:'#09263b',border:'1px solid #42738d',width:'100%',maxWidth:300,opacity:rememberAdvisorName?.73:1}}/><label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={rememberAdvisorName} onChange={e=>changeAdvisorNameLock(e.target.checked)} style={{accentColor:'#45cd96',width:17,height:17}}/>Mantener este nombre en futuras sesiones</label></div><p style={{fontSize:11,color:'#89afc6',marginTop:7}}>{rememberAdvisorName?'Nombre bloqueado. Desmarca la casilla para cambiarlo.':'Al marcar, queda guardado en este navegador y para esta cuenta. No afecta a otras asesoras.'}</p></details>
           {inbox.status==='error'&&<div className="ao-note" role="alert">Error al consultar: {inbox.error}</div>}
@@ -404,6 +420,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
               <div><p><b style={{color:'#c7a4ff'}}>PEDIDO</b></p><p>{(o.items||[]).map(i=>`${i.quantity} × ${i.title}${i.variant?' ('+i.variant+')':''}`).join(' · ')||'Sin detalle'}</p><p>Valor: {o.total||'—'}</p><p>Fecha: {o.createdAt}</p></div>
             </div>
 
+            {o.status==='confirmed'&&<div style={{marginTop:14,padding:13,border:'1px solid #438971',borderRadius:12,background:'#0a302c'}}><b style={{color:'#78edb8'}}>Control de carga a ATOM</b><div style={{marginTop:8,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><span style={{color:o.atomProcessingStatus==='processed'?'#6befb3':'#ffd78c',fontWeight:800}}>{o.atomProcessingStatus==='processed'?'✓ Procesada en ATOM':'● Pendiente por procesar'}</span><button type="button" disabled={atomBusy!==0} onClick={()=>changeAtomStatus(o,o.atomProcessingStatus==='processed'?'pending':'processed')} className="ao-tag green" style={{padding:'9px 13px'}}>{o.atomProcessingStatus==='processed'?'Volver a pendiente':'Marcar procesada'}</button></div></div>}
             {!['confirmed','cancelled','duplicate'].includes(o.status)&&<button type="button" className="ao-tag cyan" style={{padding:11,marginTop:10}} onClick={()=>{setTransferModal({id:o.id,target:''});setTransferNote('');}}>Transferir a otra asesora</button>}{o.timeline?.length>0&&<details style={{marginTop:14,border:'1px solid #34576d',padding:12,borderRadius:10}}><summary style={{cursor:'pointer',fontWeight:750,color:'#8fe5f7'}}>Historial de gestiones ({o.timeline.length})</summary>{o.timeline.map((event,i)=><div key={i} style={{borderTop:'1px solid #25445b',padding:'9px 0',fontSize:12}}><b>{ORDER_STATUS_LABELS[event.action]||event.action}</b> · {new Date(event.at).toLocaleString('es-CO')} · {event.note||'Sin nota'}</div>)}</details>}
             <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:16,alignItems:'center'}}>
               <button type="button" onClick={()=>setMessagePreview(messagePreview===o.id?null:o.id)} className="ao-tag cyan" style={{padding:'10px 14px'}}>Vista previa del mensaje</button><button type="button" onClick={()=>copyMessage(o)} className="ao-tag violet" style={{padding:'10px 14px'}}>Copiar mensaje</button>{whatsAppLink(o)?<a href={whatsAppLink(o)} target="_blank" rel="noopener noreferrer" className="ao-tag green" style={{padding:'10px 14px',textDecoration:'none'}}>Abrir WhatsApp (envío manual)</a>:<span className="ao-tag amber">Teléfono no válido para enlace WhatsApp</span>}
@@ -419,6 +436,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             </div>}
           </article>)}</div>}
           {inbox.status==='ready'&&<div style={{display:'flex',gap:9,alignItems:'center',justifyContent:'space-between',marginTop:16}}><button type="button" className="ao-tag cyan" style={{padding:10,opacity:advisorPage===0?.45:1}} disabled={advisorPage===0} onClick={()=>{setAdvisorPage(p=>Math.max(0,p-1));setExpandedOrder(null);}}>← Anterior</button><span style={{fontSize:12,color:'#a9d4e8'}}>Página {advisorPage+1}</span><button type="button" className="ao-tag cyan" style={{padding:10,opacity:inbox.hasMore?1:.45}} disabled={!inbox.hasMore} onClick={()=>{setAdvisorPage(p=>p+1);setExpandedOrder(null);}}>Siguiente →</button></div>}
+          {atomMessage&&<div className="ao-note" role="status">{atomMessage}</div>}
           {actionState.message&&<div className="ao-note" role="status">{actionState.message}</div>}
           {confirmAction&&<div role="presentation" style={{position:'fixed',inset:0,zIndex:99999,background:'rgba(0,8,19,.79)',display:'grid',placeItems:'center',padding:18}} onClick={()=>actionState.busy===0&&setConfirmAction(null)}>
             <div role="dialog" aria-modal="true" aria-label="Confirmar cambio de estado" onClick={e=>e.stopPropagation()} style={{maxWidth:450,width:'100%',border:`1px solid ${STATUS_STYLES[confirmAction.action]?.border||'#47b9ef'}`,background:'linear-gradient(145deg,#102c43,#061725)',boxShadow:'0 24px 80px #000a',borderRadius:20,padding:26,color:'#eefbff'}}>
@@ -434,6 +452,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
         </section>}
         {tab==='estadisticas'&&admin&&<section className="ao-panel">
           <div className="ao-section-head"><h3>Confirmaciones · Dashboard administrativo</h3><span className="ao-tag violet">Cohortes por fecha de pedido</span></div>
+          <details style={{margin:'12px 0',padding:12,border:'1px solid #844d53',borderRadius:10}}><summary style={{color:'#f7a9ae',cursor:'pointer'}}>Eliminar pedido de prueba de Confirmaciones D1 (irreversible)</summary><p style={{fontSize:12,color:'#e1bac0'}}>Solo elimina registros de Confirmaciones D1; no elimina pedidos de Shopify ni de ATOM. Verifica el número y el ID interno del pedido antes de confirmar.</p><input type="number" placeholder="ID interno de D1" value={deleteDraft?.id||''} onChange={e=>setDeleteDraft(s=>({...s,id:Number(e.target.value)}))} style={{padding:10,margin:5,background:'#102c43',color:'white',borderRadius:8}}/><input placeholder="Escribe ELIMINAR #26618" value={deleteDraft?.confirmText||''} onChange={e=>setDeleteDraft(s=>({...s,confirmText:e.target.value}))} style={{padding:10,margin:5,background:'#102c43',color:'white',borderRadius:8}}/><button type="button" className="ao-tag amber" style={{padding:11}} onClick={deleteTestOrder}>Eliminar definitivamente pedido de prueba</button></details>
+          {atomMessage&&<div className="ao-note" role="status">{atomMessage}</div>}
           <p style={{fontSize:13,color:'#b4cbe0'}}>Datos reales de D1, separados del Dashboard comercial de WINNER OS. Los pedidos confirmados después siguen atribuidos a su fecha original.</p>
           <div style={{display:'flex',gap:12,alignItems:'end',flexWrap:'wrap',margin:'18px 0'}}>
             <label style={{fontSize:12,color:'#87e6fa'}}>Desde <input type="date" value={dateRange.from} onChange={e=>setDateRange(x=>({...x,from:e.target.value}))} style={{display:'block',color:'#fff',background:'#09243a',border:'1px solid #47748f',borderRadius:9,padding:9}}/></label>
@@ -444,10 +464,15 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {dashboard.status==='error'&&<div className="ao-note" role="alert">Error de consulta: {dashboard.error}</div>}
           {dashboard.status==='ready'&&dashboard.data&&<>
             <p style={{fontSize:12,color:'#98c8e1'}}>Período: {dashboard.data.from} a {dashboard.data.to} · Zona horaria Colombia</p>
+            {dashboard.data.daily.some(d=>d.date===colombiaToday())&&<div style={{display:'flex',flexWrap:'wrap',gap:10,margin:'12px 0'}}><span className="ao-tag cyan">Facturación apta HOY: {money(dashboard.data.daily.find(d=>d.date===colombiaToday())?.eligibleBilling||0)}</span><span className="ao-tag green">Confirmados HOY: {money(dashboard.data.daily.find(d=>d.date===colombiaToday())?.confirmedBilling||0)}</span></div>}
             <div className="ao-grid" style={{margin:'15px 0'}}>{[
               ['Pedidos recibidos (período)',dashboard.data.totals.received,'cyan'],
               ['Pedidos recibidos (histórico)',dashboard.data.totals.allTimeReceived??dashboard.data.totals.received,'cyan'],
               ['Válidos para rendimiento',dashboard.data.totals.validForPerformance??dashboard.data.totals.eligible,'green'],
+              ['Facturación apta para rendimiento',money(dashboard.data.totals.eligibleBilling),'cyan'],
+              ['Facturación de pedidos confirmados',money(dashboard.data.totals.confirmedBilling),'green'],
+              ['Confirmados pendientes de subir a ATOM',dashboard.data.totals.atomPending||0,'amber'],
+              ['Confirmados procesados en ATOM',dashboard.data.totals.atomProcessed||0,'green'],
               ['Pendientes',dashboard.data.totals.pending||0,'amber'],
               ['Enviados',dashboard.data.totals.sent||0,'cyan'],
               ['Alertas +48 h',dashboard.data.totals.overdue||0,'amber'],
