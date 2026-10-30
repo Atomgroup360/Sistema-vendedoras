@@ -51,6 +51,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   const [renameDraft,setRenameDraft]=useState({advisorId:'',displayName:''});
   const [advisorDraft,setAdvisorDraft]=useState({advisorId:'',displayName:'',priority:2,enabled:false});
 
+  const inboxRequestSequence=useRef(0);
   const [inbox, setInbox] = useState({status:'idle',orders:[],error:'',hasMore:false,totals:null});
   const colombiaToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const colombiaYesterday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()-86400000));
@@ -113,6 +114,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
     }
     inboxBusyRef.current = true;
     if (!silent) setInbox(prev=>({...prev,status:'loading',error:''}));
+    const requestSequence=++inboxRequestSequence.current;
     try {
       const token=await user.getIdToken();
       const params=new URLSearchParams();
@@ -122,7 +124,8 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       });
       const data=await res.json();
       if (!res.ok || !data.ok) throw new Error(data.code||'ERROR_DE_CONEXION');
-      const orders=Array.isArray(data.orders)?data.orders:[];
+      if(requestSequence!==inboxRequestSequence.current)return;
+      const orders=(Array.isArray(data.orders)?data.orders:[]).filter(o=>role==='admin'||(tab==='historial'?(['cancelled','duplicate'].includes(o.status)||(o.status==='confirmed'&&o.atomProcessingStatus==='processed')):tab==='pedidos'?(['pending','sent'].includes(o.status)||(o.status==='confirmed'&&o.atomProcessingStatus!=='processed')):true));
       const nextIds=new Set(orders.map(o=>o.id));
       if (knownOrderIdsRef.current !== null) {
         const added=orders.filter(o=>!knownOrderIdsRef.current.has(o.id)).length;
@@ -222,7 +225,23 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
       setAdvisorAdmin(s=>({...s,loading:false,advisors:a.advisors||[],reviews:r.reviews||[]}));
     }catch(e){setAdvisorAdmin(s=>({...s,loading:false,error:String(e.message)}));}
   };
+  const fetchDistributionMode=async()=>{try{const data=await adminV114('distribution-settings');setDistributionMode(data.mode);}catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message||e)}));}};
+  const saveDistributionMode=async(mode)=>{
+    if(!window.confirm(`¿Cambiar reparto a ${mode==='fixed'?'FIJO POR PRIORIDAD':'TURNO A TURNO'}? No se moverán pedidos existentes.`))return;
+    setDistributionSaving('mode');try{await adminV114('distribution-settings',{mode});setDistributionMode(mode);setAdvisorAdmin(s=>({...s,message:'Modalidad de reparto guardada.',error:''}));}
+    catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message||e)}));}finally{setDistributionSaving('');}
+  };
+  const saveAdvisorLimit=async(a)=>{
+    const dailyLimit=Number(limitDrafts[a.advisor_id]??a.daily_limit??30);
+    if(!Number.isInteger(dailyLimit)||dailyLimit<1||dailyLimit>300){setAdvisorAdmin(s=>({...s,error:'El cupo debe estar entre 1 y 300.'}));return;}
+    setDistributionSaving(a.advisor_id);
+    try{await adminV114('advisor-daily-limit',{advisorId:a.advisor_id,dailyLimit});await refreshAdvisorsV114();setAdvisorAdmin(s=>({...s,message:`Cupo de ${a.display_name}: ${dailyLimit} pedidos por día.`,error:''}));}
+    catch(e){setAdvisorAdmin(s=>({...s,error:String(e.message||e)}));}finally{setDistributionSaving('');}
+  };
   const [allocationBusy,setAllocationBusy]=useState('');
+  const [distributionMode,setDistributionMode]=useState('fixed');
+  const [limitDrafts,setLimitDrafts]=useState({});
+  const [distributionSaving,setDistributionSaving]=useState('');
   const toggleAdvisorAllocation=async(a)=>{
     if(allocationBusy)return;
     const next=!Boolean(a.enabled);
@@ -339,7 +358,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
   useEffect(()=>{if(tab==='asesoras'&&role==='admin')fetchAdminOrders(adminAdvisor,adminPage);},[tab,user?.uid,adminAdvisor,adminPage]);
   useEffect(()=>{if(tab==='asesoras'&&role==='admin'&&!dashboard.data)fetchDashboard();},[tab,user?.uid]);
   useEffect(()=>{if(tab==='distribucion'&&role==='admin')fetchDistribution();},[tab,user?.uid]);
-  useEffect(()=>{if(tab==='administrar'&&role==='admin')refreshAdvisorsV114();},[tab,user?.uid]);
+  useEffect(()=>{if(tab==='administrar'&&role==='admin'){refreshAdvisorsV114();fetchDistributionMode();}},[tab,user?.uid]);
   useEffect(()=>{if(tab==='eliminar'&&role==='admin')searchDeletableOrders('');},[tab,user?.uid]);
   const stats=inbox.orders.reduce((a,o)=>{a.total++;a[o.status]=(a[o.status]||0)+1;return a;},{total:0});
   const admin = role === 'admin';
@@ -633,7 +652,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           {distribution.data&&<>
             <div className="ao-minis"><div className="ao-mini"><h4>Pendientes analizados</h4><strong>{distribution.data.preview.pendingCount}</strong></div><div className="ao-mini"><h4>Elegibles</h4><strong>{distribution.data.preview.eligible}</strong></div><div className="ao-mini"><h4>En revisión</h4><strong>{distribution.data.preview.held}</strong></div></div>
             <p style={{marginTop:12,color:'#ffda98'}}>Análisis de hasta 100 pendientes. El historial se compara mediante índice persistente de coincidencias. Los riesgos se notifican a las asesoras.</p>
-            <div style={{overflowX:'auto',marginTop:15}}><table style={{width:'100%',minWidth:440,fontSize:13,borderCollapse:'collapse'}}><thead><tr><th style={{textAlign:'left'}}>Asesora</th><th>Prioridad</th><th>Asignaciones de hoy</th><th>Cupo disponible</th></tr></thead><tbody>{(distribution.data.capacity.advisors||[]).map(a=><tr key={a.advisor_id}><td style={{padding:10}}>{a.display_name}</td><td style={{textAlign:'center'}}>{a.priority}</td><td style={{textAlign:'center'}}>{a.used_today}</td><td style={{textAlign:'center'}}>{Math.max(0,30-Number(a.used_today||0))}</td></tr>)}</tbody></table></div>
+            <div style={{overflowX:'auto',marginTop:15}}><table style={{width:'100%',minWidth:440,fontSize:13,borderCollapse:'collapse'}}><thead><tr><th style={{textAlign:'left'}}>Asesora</th><th>Prioridad</th><th>Asignaciones de hoy</th><th>Cupo disponible</th></tr></thead><tbody>{(distribution.data.capacity.advisors||[]).map(a=><tr key={a.advisor_id}><td style={{padding:10}}>{a.display_name}</td><td style={{textAlign:'center'}}>{a.priority}</td><td style={{textAlign:'center'}}>{a.used_today}</td><td style={{textAlign:'center'}}>{Math.max(0,Number(a.daily_limit??30)-Number(a.used_today||0))}</td></tr>)}</tbody></table></div>
             <div style={{display:'flex',gap:12,alignItems:'center',marginTop:18,flexWrap:'wrap'}}><span className={`ao-tag ${distribution.data.assignmentsEnabled?'green':'amber'}`}>{distribution.data.assignmentsEnabled?'Reparto habilitado':'Reparto desactivado en Cloudflare'}</span></div>
             <p>Los pedidos elegibles se asignan automáticamente al llegar desde Shopify. Cloudflare revisa y recupera asignaciones pendientes cada minuto. Las asesoras resuelven los riesgos de duplicado.</p>
           </>}
@@ -643,6 +662,14 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
           <p>Pausa o activa nuevas asignaciones con un toque. La prioridad más alta entre las asesoras activas será la primera en recibir pedidos. Las asesoras pausadas conservan sus pedidos anteriores, historial y acceso.</p>
           {advisorAdmin.error&&<div className="ao-note" role="alert">{advisorAdmin.error}</div>}
           {advisorAdmin.message&&<div className="ao-note" role="status">{advisorAdmin.message}</div>}
+          <div style={{border:'1px solid #356c81',borderRadius:14,padding:15,marginTop:14,background:'#0b263a'}}>
+            <h4 style={{margin:'0 0 10px',color:'#a5e7ff'}}>Modalidad de asignación automática</h4>
+            <p style={{fontSize:12,color:'#b6d7e6'}}>Fija: completa el cupo de la primera asesora antes de seguir. Turno a turno: reparte una a cada asesora activa y repite. La preferencia de un pedido relacionado mantiene la asesora anterior si tiene cupo.</p>
+            <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+              {[['fixed','Fija por prioridad'],['round_robin','Turno a turno']].map(([value,label])=><button key={value} type="button" aria-pressed={distributionMode===value} disabled={!!distributionSaving} className={`ao-tag ${distributionMode===value?'green':'cyan'}`} style={{padding:12}} onClick={()=>saveDistributionMode(value)}>{distributionMode===value?'✓ ':''}{label}</button>)}
+            </div>
+            <p style={{fontSize:11,color:'#9cb9ca'}}>El cambio aplica únicamente a asignaciones nuevas. El turno se recuerda en D1 y las asesoras pausadas se omiten.</p>
+          </div>
           <details style={{marginTop:15}}><summary style={{cursor:'pointer',color:'#8adfec'}}>Configuración avanzada · vincular cuenta existente</summary><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:15}}>
             <input aria-label="UID Firebase asesora" placeholder="UID de Firebase" value={advisorDraft.advisorId} onChange={e=>setAdvisorDraft(s=>({...s,advisorId:e.target.value}))} style={{padding:10,borderRadius:8,color:'#fff',background:'#09243a'}}/>
             <input aria-label="Nombre asesora" placeholder="Nombre de asesora" value={advisorDraft.displayName} onChange={e=>setAdvisorDraft(s=>({...s,displayName:e.target.value}))} style={{padding:10,borderRadius:8,color:'#fff',background:'#09243a'}}/>
@@ -651,7 +678,7 @@ export default function ConfirmationAdvisorPortal({ user, onLogout, role = 'conf
             <button type="button" className="ao-tag green" onClick={saveAdvisorV114}>Guardar asesora</button>
           </div></details>
           <div style={{marginTop:20}}><h4>Asesoras registradas</h4>
-          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div><strong>{a.display_name}</strong> · {a.enabled?`Turno activo #${(advisorAdmin.advisors||[]).filter(x=>x.enabled&&(Number(x.priority)<Number(a.priority)||(Number(x.priority)===Number(a.priority)&&String(x.advisor_id)<String(a.advisor_id)))).length+1}`:'En descanso'} · {a.used_today}/30 hoy · {a.enabled?'Recibe pedidos':'No recibe pedidos nuevos'}</div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className={`ao-tag ${a.enabled?'amber':'green'}`} disabled={Boolean(allocationBusy)} aria-label={`${a.enabled?'Pausar':'Reanudar'} nuevas asignaciones para ${a.display_name}`} onClick={()=>toggleAdvisorAllocation(a)}>{allocationBusy===a.advisor_id?'Guardando…':(a.enabled?'⏸ Pausar reparto':'▶ Activar reparto')}</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:a.advisor_id,displayName:a.display_name})}>Cambiar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Configuración avanzada</button></div>{renameDraft.advisorId===a.advisor_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap',width:'100%'}}><input aria-label="Nuevo nombre visible" value={renameDraft.displayName} onChange={e=>setRenameDraft(s=>({...s,displayName:e.target.value.slice(0,80)}))} placeholder="Nombre real de la asesora" style={{minWidth:200,flex:1,padding:12,background:'#09243a',border:'1px solid #4a7795',borderRadius:8,color:'#fff'}}/><button type="button" className="ao-tag green" onClick={saveVisibleAdvisorName}>Guardar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:'',displayName:''})}>Cancelar</button></div>}</div>)}</div>
+          {(advisorAdmin.advisors||[]).map(a=><div key={a.advisor_id} style={{padding:12,borderBottom:'1px solid #3b5d70',display:'flex',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}><div><strong>{a.display_name}</strong> · {a.enabled?`Turno activo #${(advisorAdmin.advisors||[]).filter(x=>x.enabled&&(Number(x.priority)<Number(a.priority)||(Number(x.priority)===Number(a.priority)&&String(x.advisor_id)<String(a.advisor_id)))).length+1}`:'En descanso'} · {a.used_today}/{a.daily_limit??30} hoy · {a.enabled?'Recibe pedidos':'No recibe pedidos nuevos'}</div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><label style={{fontSize:12,color:'#b1dbed',display:'flex',alignItems:'center',gap:6}}>Cupo diario <input type="number" min="1" max="300" value={limitDrafts[a.advisor_id]??a.daily_limit??30} onChange={e=>setLimitDrafts(s=>({...s,[a.advisor_id]:e.target.value}))} style={{width:66,padding:8,color:'#fff',background:'#09243a',border:'1px solid #4a7795',borderRadius:8}}/></label><button type="button" className="ao-tag cyan" disabled={!!distributionSaving} onClick={()=>saveAdvisorLimit(a)}>Guardar cupo</button><button type="button" className={`ao-tag ${a.enabled?'amber':'green'}`} disabled={Boolean(allocationBusy)} aria-label={`${a.enabled?'Pausar':'Reanudar'} nuevas asignaciones para ${a.display_name}`} onClick={()=>toggleAdvisorAllocation(a)}>{allocationBusy===a.advisor_id?'Guardando…':(a.enabled?'⏸ Pausar reparto':'▶ Activar reparto')}</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:a.advisor_id,displayName:a.display_name})}>Cambiar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setAdvisorDraft({advisorId:a.advisor_id,displayName:a.display_name,priority:Number(a.priority),enabled:!!a.enabled})}>Configuración avanzada</button></div>{renameDraft.advisorId===a.advisor_id&&<div style={{display:'flex',gap:8,flexWrap:'wrap',width:'100%'}}><input aria-label="Nuevo nombre visible" value={renameDraft.displayName} onChange={e=>setRenameDraft(s=>({...s,displayName:e.target.value.slice(0,80)}))} placeholder="Nombre real de la asesora" style={{minWidth:200,flex:1,padding:12,background:'#09243a',border:'1px solid #4a7795',borderRadius:8,color:'#fff'}}/><button type="button" className="ao-tag green" onClick={saveVisibleAdvisorName}>Guardar nombre</button><button type="button" className="ao-tag cyan" onClick={()=>setRenameDraft({advisorId:'',displayName:''})}>Cancelar</button></div>}</div>)}</div>
           <p>Las nuevas órdenes se distribuyen en el momento de llegar, cuando la automatización está habilitada. WhatsApp continúa manual.</p>
         </section>}
         {tab==='sistema'&&<section className="ao-panel"><div className="ao-section-head"><h3>Conectividad y fases de operación</h3><span className="ao-tag green"><ShieldCheck size={12}/> Modo seguro</span></div><div className="ao-flowgrid">{STATUSES.map(s=>{const Icon=s.icon;return <article key={s.name} className={`ao-card ${s.color}`}><div className="ao-cardhead"><h4>{s.name}</h4><Icon className="ao-ic" size={24}/></div><div className="ao-value">{s.value}</div><p className="ao-helper">{s.detail}</p></article>})}</div><div className="ao-note">Estos estados reflejan la configuración previamente verificada, no una comprobación en vivo del servicio. El administrador tiene consulta de pedidos y auditoría por asesora. No se modifica el pedido desde esa consulta.</div></section>}
