@@ -13,7 +13,7 @@ import {
   Coffee, Moon, Award, ListChecks, CalendarDays, Power, PowerOff,
   Archive, ArchiveRestore, CircleDollarSign, FileUp, Gauge, RefreshCcw,
   Settings2, ShieldCheck, TrendingDown, FileText, Copy, Download, Paintbrush, Scissors, Bell,
-  FlaskConical, Search, ArrowLeft
+  FlaskConical, Search, ArrowLeft, Menu, LogOut
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import Login from './src/components/Login';
@@ -22923,9 +22923,11 @@ function LegacyWinnerApp() {
   const [campaignMenuReviews, setCampaignMenuReviews] = useState([]);
   const [activeTab, setTabState] = useState('dashboard');
   const [navigationLoading, setNavigationLoading] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigationLoadingTimer = useRef(null);
 
   const setTab = nextTab => {
+    setMobileMenuOpen(false);
     if (!nextTab || nextTab === activeTab) return;
     setNavigationLoading(true);
     setTabState(nextTab);
@@ -23027,7 +23029,8 @@ function LegacyWinnerApp() {
         .tpc-app-shell button.bg-emerald-500:hover { background-color: #f1c116 !important; }
         .tpc-app-shell button[class*="focus:border-emerald"]:focus { border-color: var(--tpc-yellow) !important; }
         .tpc-app-shell .tpc-main-surface > div { min-width: 0; }
-        .tpc-app-shell .tpc-mobile-nav { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+        .tpc-app-shell .tpc-mobile-drawer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+        .tpc-app-shell .tpc-mobile-menu-item:focus-visible { outline: 3px solid #F4C430; outline-offset: 2px; }
         .tpc-app-shell table { font-variant-numeric: tabular-nums; }
         .tpc-app-shell .tpc-dashboard-filters { border-top: 3px solid var(--tpc-yellow); }
         .tpc-app-shell .tpc-dashboard-kpis > div,
@@ -23047,7 +23050,7 @@ function LegacyWinnerApp() {
           .tpc-app-shell .tpc-dashboard-revenue > div:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(3,42,120,.08); }
         }
         @media (max-width:1023px) {
-          .tpc-app-shell { padding-bottom: 82px; }
+          .tpc-app-shell { padding-bottom: 0; }
           .tpc-app-shell .tpc-main-surface { padding-left: 12px !important; padding-right: 12px !important; }
         }
         @media (max-width:639px) {
@@ -23115,7 +23118,10 @@ function LegacyWinnerApp() {
               <p className="text-[13px] font-black text-[#032A78] truncate">{currentTab.label}</p>
             </div>
           </div>
-          <div className="px-2.5 py-1.5 rounded-xl bg-[#F4C430]/18 border border-[#F4C430]/35 text-[#12386B] text-[8px] font-black uppercase">Winner 360</div>
+          <button type="button" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menú de navegación" aria-expanded={mobileMenuOpen} aria-controls="tpc-mobile-drawer" className="flex items-center gap-2 rounded-xl bg-[#12386B] text-white px-3 py-2.5 shadow-sm active:scale-[.98] transition-transform">
+            <Menu size={21} aria-hidden="true" />
+            <span className="text-[11px] font-extrabold">Menú</span>
+          </button>
         </div>
       </header>
 
@@ -23151,26 +23157,45 @@ function LegacyWinnerApp() {
           {activeTab === 'brief01' && <Brief01Module />}
           {activeTab === 'brief02' && <Brief02Module />}
           {activeTab === 'calculadora' && <CalculadoraIndependienteV532 />}
-          {activeTab === 'confirmaciones' && <ConfirmationAdvisorPortal user={user} role="admin" onLogout={() => import('./src/firebase').then(({ logout }) => logout())} />}
+          {activeTab === 'confirmaciones' && <ConfirmationAdvisorPortal key="confirmaciones-admin-v111" user={user} role="admin" onLogout={() => import('./src/firebase').then(({ logout }) => logout())} />}
         </main>
       </div>
 
-      {/* NAVEGACIÓN MÓVIL */}
-      <nav className="tpc-mobile-nav lg:hidden fixed bottom-0 inset-x-0 z-[70] bg-white/96 backdrop-blur-xl border-t border-slate-200 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] px-2 pt-2">
-        <div className="flex gap-1 max-w-2xl mx-auto overflow-x-auto pb-0.5">
-          {tabs.map(tab => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button key={tab.id} type="button" onClick={() => setTab(tab.id)} className="relative flex-1 min-w-[64px] flex flex-col items-center justify-center rounded-xl py-1.5 px-1">
-                {active && <span className="absolute top-0 w-5 h-[3px] rounded-full bg-[#F4C430]" />}
-                <span className={`relative w-8 h-8 rounded-xl flex items-center justify-center ${active ? 'bg-[#12386B] text-[#F4C430]' : 'text-slate-400'}`}><Icon size={16} />{tab.notificationCount > 0 ? <><Bell size={10} className="tpc-menu-bell absolute -top-1 -right-1 text-[#B52B36] fill-white"/><span className="absolute -top-2.5 -right-3 min-w-[16px] h-[16px] px-1 rounded-full bg-[#B52B36] text-white text-[6.5px] font-black flex items-center justify-center ring-2 ring-white">{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span></> : null}</span>
-                <span className={`mt-0.5 text-[7px] font-black uppercase tracking-tight truncate w-full text-center ${active ? 'text-[#032A78]' : 'text-slate-400'}`}>{tab.label}</span>
+      {/* NAVEGACIÓN MÓVIL · DRAWER SIN BARRA INFERIOR */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed inset-0 z-[100]" role="presentation">
+          <button type="button" aria-label="Cerrar menú" className="absolute inset-0 w-full h-full bg-slate-950/65 backdrop-blur-[2px]" onClick={() => setMobileMenuOpen(false)} />
+          <aside id="tpc-mobile-drawer" role="dialog" aria-modal="true" aria-label="Menú principal de WINNER OS" className="tpc-mobile-drawer absolute inset-y-0 left-0 w-[min(88vw,340px)] flex flex-col overflow-hidden bg-[linear-gradient(180deg,#0F2B59_0%,#14366C_100%)] text-white shadow-2xl">
+            <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-4 border-b border-white/10">
+              <div className="flex items-center gap-3 min-w-0">
+                <img src={TU_PEDIDO_COLOMBIA_LOGO} alt="Tu Pedido Colombia" className="w-11 h-11 object-contain rounded-full bg-white p-1 shrink-0" />
+                <div className="min-w-0"><div className="text-[12px] font-black truncate">WINNER OS</div><div className="text-[10px] text-white/65 truncate">Tu Pedido Colombia</div></div>
+              </div>
+              <button type="button" aria-label="Cerrar menú de navegación" onClick={() => setMobileMenuOpen(false)} className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20"><X size={20}/></button>
+            </div>
+            <nav aria-label="Módulos de WINNER OS" className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-1">
+              {tabs.map(tab => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
+                  <button key={tab.id} type="button" onClick={() => setTab(tab.id)} aria-current={active ? 'page' : undefined} className={`tpc-mobile-menu-item w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors ${active ? 'bg-[#F4C430] text-[#12386B]' : 'text-white/85 hover:bg-white/10'}`}>
+                    <Icon size={19} className="shrink-0" />
+                    <span className="flex-1 min-w-0 text-[12px] font-bold">{tab.label}</span>
+                    {tab.notificationCount > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${active ? 'bg-[#12386B] text-white' : 'bg-[#C4454D] text-white'}`}>{tab.notificationCount > 99 ? '99+' : tab.notificationCount}</span>}
+                    {active && <CheckCircle2 size={16} className="shrink-0" />}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="shrink-0 border-t border-white/15 p-4 bg-[#0B2347]">
+              <p className="text-[10px] text-white/60 mb-3 truncate">{user?.email || 'Sesión activa'}</p>
+              <button type="button" onClick={() => { setMobileMenuOpen(false); import('./src/firebase').then(({ logout }) => logout()); }} className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#C4454D] text-white px-4 py-3.5 text-[12px] font-black shadow-lg">
+                <LogOut size={18} aria-hidden="true" /> Cerrar sesión
               </button>
-            );
-          })}
+            </div>
+          </aside>
         </div>
-      </nav>
+      )}
     </div>
   );
 }
