@@ -21724,6 +21724,22 @@ function extractRedditAvatarCandidates(text) {
  }
  flush();return found.slice(0,40);
 }
+function extractRedditValueCandidates(text){
+ const lines=String(text||'').split(/\r?\n/);let inSection=false;const found=[];
+ const clean=s=>String(s||'').replace(/\*\*/g,'').replace(/^[\s>\-*•]+/,'').trim();
+ for(const raw of lines){
+  const line=clean(raw);
+  if(/^#{1,6}\s*\d*\s*\)?\s*(?:problemas adyacentes|pdf|upsells|bonos|ideas de valor)/i.test(raw)||/^(?:\d+[.)]\s*)?(?:problemas adyacentes|ideas de upsell)/i.test(line)){inSection=true;continue;}
+  if(inSection&&/^#{1,6}\s*(?:\d+\s*[).]?\s*)?(?:selecci[oó]n|matriz|verificaciones|recomendaciones|conclusi[oó]n)/i.test(raw))break;
+  if(!inSection||!/^\s*(?:[-*•]|\d+[.)])\s+/.test(raw))continue;
+  if(!/\b(?:pdf|gu[ií]a|checklist|upsell|bono|kit|plantilla|ebook|e-book)\b/i.test(line))continue;
+  const type=/\bupsell\b/i.test(line)?'upsell':/\b(?:pdf|gu[ií]a|checklist|ebook|e-book|plantilla)\b/i.test(line)?'pdf':'bono';
+  const name=clean(line.replace(/^(?:PDF|Upsell|Bono)\s*[:\-]?\s*/i,'').split(/\s*[:—–]\s*/)[0]).slice(0,180);
+  if(!name||found.some(x=>x.name.toLowerCase()===name.toLowerCase()))continue;
+  found.push({id:`RV-${String(found.length+1).padStart(3,'0')}`,name,type,problem:'Problema adyacente por validar',idea:line.slice(0,800),avatarId:'No documentado',evidence:'Propuesta recuperada del análisis previo; cotejar con comentarios originales',validation:'Hipótesis no aprobada: verificar factibilidad, derechos, oferta real y ficha técnica',selected:false});
+ }
+ return found.slice(0,12);
+}
 function Brief01RedditAudienceLab({user,research}) {
  const [comments,setComments]=useState('');
  const [analysis,setAnalysis]=useState('');
@@ -21776,7 +21792,7 @@ function Brief01RedditAudienceLab({user,research}) {
    setAnalysis(text);
    // El Worker Intelligence entrega `analysis` textual: parsear perfiles en lugar de exigir JSON inexistente.
    const newAvatars=result.schema==='reddit_v1'&&Array.isArray(result.avatars)?result.avatars:extractRedditAvatarCandidates(text);
-   const newValues=Array.isArray(result.valueIdeas)?result.valueIdeas:[];
+   const newValues=Array.isArray(result.valueIdeas)&&result.valueIdeas.length?result.valueIdeas:extractRedditValueCandidates(text);
    const keepSelection=(oldItems,newItems)=>newItems.map((item,i)=>{const old=oldItems.find(x=>x.id===item.id||x.name===item.name);return {...item,id:String(item.id||`AV-${i+1}`).slice(0,32),selected:!!old?.selected};});
    const mergedAvatars=keepSelection(candidates,newAvatars);
    const mergedValues=keepSelection(valueCandidates,newValues);
@@ -21788,18 +21804,18 @@ function Brief01RedditAudienceLab({user,research}) {
  };
 
  const avatarText=(a)=>`${a.id||''} — ${a.name||''}\nAudiencia: ${a.audience||''}\nSituación: ${a.situation||''}\nMotivación: ${a.motivation||''}\nProblema: ${a.problem||''}\nDeseo: ${a.desire||''}\nObjeción: ${a.objection||''}\nConciencia: ${a.awareness||''}\nEvidencia: ${a.evidence||''}\nFuente: ${a.source||''}\nHipótesis (no validada): ${a.hypothesis||''}\nÁngulos sugeridos (hipótesis):\n${(Array.isArray(a.angles)?a.angles:[]).map((x,i)=>`${i+1}. ${typeof x==='string'?x:[x.name,x.message,x.mechanism,x.proofNeeded].filter(Boolean).join(' | ')}`).join('\n')}`;
+ const syncAvatarSelection=(index,checked)=>{const next=candidates.map((v,j)=>j===index?{...v,selected:checked}:v);setCandidates(next);setBank(next.filter(x=>x.selected).map(avatarText).join('\n\n---\n\n'));};
+ const syncValueSelection=(index,checked)=>{const next=valueCandidates.map((v,j)=>j===index?{...v,selected:checked}:v);setValueCandidates(next);setIdeas(next.filter(x=>x.selected).map(valueText).join('\n\n---\n\n'));};
  const valueText=(v)=>`${v.name||''} — ${v.type||''}\nProblema: ${v.problem||''}\nIdea: ${v.idea||''}\nAvatar: ${v.avatarId||''}\nEvidencia: ${v.evidence||''}\nValidación pendiente: ${v.validation||''}`;
  const approveSelection=async()=>{
   setBusy(true);setMessage('');
   try{
-   const selectedA=candidates.filter(x=>x.selected).map(avatarText);
-   const selectedV=valueCandidates.filter(x=>x.selected).map(valueText);
-   // Nunca sustituir silenciosamente aprobaciones previas; anexar solamente candidatos nuevos.
-   const appendUnique=(oldText,items)=>{let out=String(oldText||'').trim();for(const entry of items){const first=entry.split('\n')[0];if(!out.includes(first))out+=(out?'\n\n---\n\n':'')+entry;}return out;};
-   const nextBank=appendUnique(bank,selectedA),nextIdeas=appendUnique(ideas,selectedV);
+   const nextBank=candidates.filter(x=>x.selected).map(avatarText).join('\n\n---\n\n');
+   const nextIdeas=valueCandidates.filter(x=>x.selected).map(valueText).join('\n\n---\n\n');
    await setDoc(doc(db,BRIEF01_COLLECTION,research.id,'reddit_intelligence','workspace'),{comments,analysis,avatarCandidates:candidates,valueCandidates,approvedAudienceBank:nextBank,approvedValueIdeas:nextIdeas,updatedAtMs:Date.now(),approvedAtMs:Date.now()},{merge:true});
    await updateDoc(doc(db,BRIEF01_COLLECTION,research.id),{redditAudienceBank:nextBank,redditValueIdeas:nextIdeas});
-   setBank(nextBank);setIdeas(nextIdeas);setMessage(`Selección guardada: ${selectedA.length} avatares y ${selectedV.length} ideas de valor. Los bancos anteriores se conservaron.`);
+   setBank(nextBank);setIdeas(nextIdeas);
+   setMessage(`Banco actualizado: ${candidates.filter(x=>x.selected).length} avatares y ${valueCandidates.filter(x=>x.selected).length} ideas. Los no seleccionados se excluyeron.`);
   }catch(e){setMessage('No se pudo aprobar: '+e.message)}finally{setBusy(false)}
  };
  return <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-5 space-y-4">
@@ -21815,24 +21831,27 @@ function Brief01RedditAudienceLab({user,research}) {
   {!!analysis.trim()&&<button type="button" disabled={busy||!loaded} onClick={async()=>{
    setBusy(true);setMessage('');try{
     const extracted=extractRedditAvatarCandidates(analysis);
-    if(!extracted.length){setMessage('No se encontraron candidatos en formato Perfil A, Avatar 1, AV-001 o lista numerada con situación/motivación/objeción. Conservamos el análisis original; puedes usar el banco manualmente.');return;}
+    const recoveredValues=extractRedditValueCandidates(analysis);
+    if(!extracted.length&&!recoveredValues.length){setMessage('No se encontraron candidatos en formato Perfil A, Avatar 1, AV-001 o lista numerada con situación/motivación/objeción. Conservamos el análisis original; puedes usar el banco manualmente.');return;}
     const merged=extracted.map(x=>({...x,selected:!!candidates.find(y=>y.id===x.id)?.selected}));
     setCandidates(merged);
-    await persist({analysis,avatarCandidates:merged});
-    setMessage(`Se recuperaron ${merged.length} avatares candidatos del análisis. Selecciónalos y pulsa APROBAR SELECCIONADOS Y GUARDAR EN BANCO. Ninguna audiencia fue aprobada automáticamente.`);
+    const mergedValues=recoveredValues.map(x=>({...x,selected:!!valueCandidates.find(y=>y.name===x.name)?.selected}));
+    if(mergedValues.length)setValueCandidates(mergedValues);
+    await persist({analysis,avatarCandidates:merged,valueCandidates:mergedValues.length?mergedValues:valueCandidates});
+    setMessage(`Se recuperaron ${merged.length} avatares y ${mergedValues.length} ideas de valor del análisis. Selecciónalos y pulsa APROBAR SELECCIONADOS Y GUARDAR EN BANCO. Ninguna audiencia fue aprobada automáticamente.`);
    }catch(e){setMessage('Error al recuperar candidatos: '+e.message)}finally{setBusy(false)}
-  }} className="rounded-xl border border-indigo-300 bg-indigo-50 text-indigo-900 px-4 py-2 text-xs font-bold">Recuperar avatares del análisis existente</button>}
+  }} className="rounded-xl border border-indigo-300 bg-indigo-50 text-indigo-900 px-4 py-2 text-xs font-bold">Recuperar avatares y upsells/PDF del análisis existente</button>}
   {(candidates.length>0||valueCandidates.length>0)&&<div className="rounded-2xl border border-indigo-200 p-3 space-y-3 bg-indigo-50/40">
    <p className="font-black text-indigo-900">Candidatos de DeepSeek · selecciona las hipótesis que quieres guardar</p>
-   <p className="text-xs text-slate-600">Cada avatar conserva sus ángulos asociados. La IA propone; tú apruebas. La selección no autoriza anuncios ni ofertas nuevas.</p>
+   <p className="text-xs text-slate-600">Cada casilla marcada aparece inmediatamente en su banco inferior; al desmarcarla desaparece. Pulsa APROBAR para guardar la selección. La IA propone; tú apruebas.</p>
    <div className="grid md:grid-cols-2 gap-3">{candidates.map((a,i)=><label key={a.id||i} className="block rounded-xl bg-white border p-3 space-y-2">
-    <div className="flex gap-2 items-start"><input type="checkbox" checked={!!a.selected} onChange={e=>setCandidates(prev=>prev.map((x,j)=>j===i?{...x,selected:e.target.checked}:x))} className="mt-1"/><div><strong className="text-sm">{a.id||`AV-${i+1}`} · {a.name||'Avatar por revisar'}</strong><p className="text-xs text-slate-500">{a.audience||'Audiencia por validar'}</p></div></div>
+    <div className="flex gap-2 items-start"><input type="checkbox" checked={!!a.selected} onChange={e=>syncAvatarSelection(i,e.target.checked)} className="mt-1"/><div><strong className="text-sm">{a.id||`AV-${i+1}`} · {a.name||'Avatar por revisar'}</strong><p className="text-xs text-slate-500">{a.audience||'Audiencia por validar'}</p></div></div>
     <p className="text-xs"><b>Situación:</b> {a.situation}</p><p className="text-xs"><b>Problema y objeción:</b> {a.problem} · {a.objection}</p>
     <p className="text-xs"><b>Evidencia:</b> {a.evidence||'Sin evidencia citada; hipótesis'} <span className="text-slate-500">{a.source}</span></p>
     <p className="text-xs font-bold text-indigo-800">Ángulos candidatos para este avatar</p>
     {(Array.isArray(a.angles)?a.angles:[]).map((ang,j)=><div key={j} className="bg-indigo-50 rounded-lg p-2 text-xs">{j+1}. {typeof ang==='string'?ang:[ang.name,ang.message,ang.mechanism].filter(Boolean).join(' · ')} {typeof ang==='object'&&ang.proofNeeded?<p className="text-amber-800 mt-1">Validación: {ang.proofNeeded}</p>:null}</div>)}
    </label>)}</div>
-   {!!valueCandidates.length&&<><p className="font-black text-indigo-900 text-sm">Ideas de valor · solo hipótesis</p><div className="grid md:grid-cols-2 gap-2">{valueCandidates.map((v,i)=><label key={v.id||i} className="flex items-start gap-2 rounded-xl border bg-white p-3"><input type="checkbox" className="mt-1" checked={!!v.selected} onChange={e=>setValueCandidates(prev=>prev.map((x,j)=>j===i?{...x,selected:e.target.checked}:x))}/><div className="text-xs"><b>{v.name||v.idea}</b> · {v.type}<p>{v.problem} → {v.idea}</p><p className="text-slate-500">{v.evidence} · {v.validation}</p></div></label>)}</div></>}
+   {!!valueCandidates.length&&<><p className="font-black text-indigo-900 text-sm">Upsells, bonos y PDF digitales · selecciona independientemente (hipótesis sin aprobación comercial)</p><div className="grid md:grid-cols-2 gap-2">{valueCandidates.map((v,i)=><label key={v.id||i} className="flex items-start gap-2 rounded-xl border bg-white p-3"><input type="checkbox" className="mt-1" checked={!!v.selected} onChange={e=>syncValueSelection(i,e.target.checked)}/><div className="text-xs"><b>{v.name||v.idea}</b> · {v.type}<p>{v.problem} → {v.idea}</p><p className="text-slate-500">{v.evidence} · {v.validation}</p></div></label>)}</div></>}
    <button type="button" disabled={busy||!loaded} onClick={approveSelection} className="rounded-xl bg-emerald-700 text-white px-4 py-3 text-xs font-bold disabled:opacity-40">APROBAR SELECCIONADOS Y GUARDAR EN BANCO</button>
   </div>}
   <div className="grid md:grid-cols-2 gap-3">
