@@ -21545,14 +21545,37 @@ function Brief01IntelligenceAssistant({user,research,step,onApproved}) {
 // V5.45 BRIEF01-only executive audit. Exactly five print pages, no generative inference.
 // Uses original approved stage texts, source competitors and deterministic financial data.
 function printBrief01FivePageAudit(research, reports) {
-  // V5.47: five-page management diagnosis; source-grounded, no AI call, no silent truncation.
+  // V5.48: five-page evidence-driven management audit; no external AI call or fabricated SKU claims.
   const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const strip=v=>String(v??'').replace(/\*\*/g,'').replace(/\*([^*\n]+)\*/g,'$1').replace(/^\s{0,3}#{1,6}\s*/gm,'').replace(/^\s*[-•]\s*/gm,'').replace(/\s+/g,' ').trim();
   const stages=Object.fromEntries(['meta','competitors','angles','suppliers','offer','diagnosis'].map(k=>[k,String(reports?.[k]?.text||'')]));
+  const lines=k=>stages[k].split(/\r?\n/).map(strip).filter(Boolean);
   const paragraphs=k=>stages[k].split(/\n\s*\n/).map(strip).filter(v=>v.length>55&&!/^(HALLAZGOS|CONSECUENCIA COMERCIAL|VERIFICACIONES NECESARIAS|OPORTUNIDADES Y ÁNGULOS)$/i.test(v));
-  const sentences=text=>(String(text||'').match(/[^.!?\n]+(?:[.!?]+|$)/g)||[]).map(strip).filter(s=>s.length>23&&!/^ETAPA\s+\d/i.test(s));
-  const brief=(text,max=330)=>{const units=sentences(text);let s='';for(const item of units){if(s.length+item.length>max)break;s+=(s?' ':'')+item;}return s||strip(text).slice(0,max).replace(/\s+\S*$/,'')+' [consultar estudio]';};
-  const select=(key,re,max=3,len=360)=>{const seen=new Set(),out=[];for(const p of paragraphs(key)){if(!re.test(p))continue;const x=brief(p,len);if(!seen.has(x)){seen.add(x);out.push(x);}if(out.length>=max)break;}return out;};
+  const complete=(text,limit=430)=>{
+    const value=strip(text);
+    if(value.length<=limit)return value;
+    const cut=value.slice(0,limit);
+    const punctuation=Math.max(cut.lastIndexOf('. '),cut.lastIndexOf('; '),cut.lastIndexOf(': '));
+    if(punctuation>limit*.55)return cut.slice(0,punctuation+1).trim();
+    const space=cut.lastIndexOf(' ');
+    return cut.slice(0,space>limit*.65?space:limit).trim()+'…';
+  };
+  const select=(key,re,max=3,len=440)=>{
+    const seen=new Set(),out=[];
+    for(const p of paragraphs(key)){
+      if(!re.test(p))continue;
+      const x=complete(p,len);
+      const fingerprint=x.toLocaleLowerCase('es').replace(/[^a-záéíóúñ0-9]/gi,'').slice(0,100);
+      if(x.length>40&&!seen.has(fingerprint)){seen.add(fingerprint);out.push(x);}
+      if(out.length>=max)break;
+    }
+    return out;
+  };
+  const brief=complete;
+  const findLine=(key,re,max=300)=>{
+    const entry=lines(key).find(v=>re.test(v)&&v.length>18);
+    return entry?complete(entry,max):'';
+  };
   const row=(label,body)=>`<div class="fact"><strong>${esc(label)}</strong><span>${esc(body)}</span></div>`;
   const items=(heading,arr)=>`<section class="block"><h3>${esc(heading)}</h3>${arr.length?arr.map(t=>`<p>${esc(t)}</p>`).join(''):'<p class="pending">No existe evidencia suficiente en el análisis aprobado. Requiere investigación.</p>'}</section>`;
   const decision=(title,body)=>`<section class="decision"><strong>${esc(title)}</strong><p>${esc(body)}</p></section>`;
@@ -21563,21 +21586,43 @@ function printBrief01FivePageAudit(research, reports) {
     const price=Number(c.singlePrice||c.price||0);
     const pack=typeof c.combos==='string'?c.combos:Array.isArray(c.combos)?c.combos.map(x=>typeof x==='string'?x:JSON.stringify(x)).join('; '):'';
     const detail=strip([pack,c.offers,c.promotions,c.notes].filter(x=>typeof x==='string').join(' · '));
-    const known=/\b(2|dos)\s*piezas|cervical\s*\+\s*lumbar|combo.*lumbar.*cervical/i.test(detail);
-    return `<tr><td>${esc(c.name||'Sin nombre')}</td><td>${price?esc(new Intl.NumberFormat('es-CO').format(price)):'No observado'}</td><td>${known?'Pack posiblemente comparable':'Contenido no acreditado'}</td><td>${esc(brief(detail||'Falta verificar contenido y condiciones',155))}</td></tr>`;
+    const label=String(c.name||'').trim();
+    const sourceParagraph=paragraphs('competitors').find(x=>x.toLocaleLowerCase('es').includes(label.toLocaleLowerCase('es')))||'';
+    const source=detail||sourceParagraph;
+    const two=/\b(?:pack|combo)\b.{0,60}(?:2|dos)\s*piezas|(?:cervical|cuello)\s*\+\s*lumbar|lumbar\s*\+\s*cervical/i.test(source);
+    const one=/\b(?:1|una|un)\s*piezas?\b|pieza (?:única|unica)|coj[ií]n individual/i.test(source);
+    const comparable=two?'Pack anunciado; verificar equivalencia':one?'Una pieza; comparación no equivalente':'Contenido no verificado';
+    const evidence=source?complete(source,155):'Sin datos verificables de cantidad, materiales ni términos de oferta';
+    return `<tr><td>${esc(label||'Sin nombre')}</td><td>${price?esc(new Intl.NumberFormat('es-CO').format(price)):'No observado'}</td><td>${esc(comparable)}</td><td>${esc(evidence)}</td></tr>`;
   }).join('');
   const diag=stages.diagnosis;
   const six=['A1.1','A1.2','A1.3','A2.1','A2.2','A2.3'];
   const blocks=six.map((id,i)=>{
-    const re=new RegExp('(?:^|\\n)\\s*(?:#{1,5}\\s*)?(?:FICHA\\s*)?'+id.replace('.','\\.')+'\\b','i');
+    const escaped=id.replace('.', '\\.');
+    const re=new RegExp('(?:^|\\n)\\s*(?:#{1,5}\\s*)?(?:FICHA\\s*)?'+escaped+'\\b','i');
     const m=re.exec(diag);if(!m)return '';
-    const tail=diag.slice(m.index);const next=six[i+1];let stop=tail.length;
-    if(next){const n=new RegExp('(?:^|\\n)\\s*(?:#{1,5}\\s*)?(?:FICHA\\s*)?'+next.replace('.','\\.')+'\\b','i').exec(tail.slice(m[0].length));if(n)stop=m[0].length+n.index;}
-    return tail.slice(0,stop);
+    let tail=diag.slice(m.index);
+    const rest=six.slice(i+1).map(n=>n.replace('.','\\.')).join('|');
+    const stops=[new RegExp('(?:^|\\n)\\s*(?:#{1,5}\\s*)?(?:FICHA\\s*)?(?:'+rest+')\\b','i'),/\n\s*##\s*(?:AUDIENCIA|MENSAJE GLOBAL|EXCLUSIONES|PRÓXIMOS PASOS)/i];
+    for(const stop of stops){if(!rest && stop===stops[0])continue;const x=stop.exec(tail.slice(m[0].length));if(x)tail=tail.slice(0,m[0].length+x.index);}
+    return tail;
   });
-  const field=(s,re)=>{const a=s.split(/\r?\n/).map(strip).filter(Boolean);const found=a.find(x=>re.test(x));return found?brief(found.replace(/^[-•]\s*/,''),195):'No trazado en ficha aprobada';};
-  const avatars=blocks.map((s,i)=>`<section class="avatar"><h4>${six[i]} · ${esc(brief(s.split(/\r?\n/)[0],74))}</h4><p><b>Situación y objeción:</b> ${esc(field(s,/avatar y objeción|avatar y objecion|contexto:/i))}</p><p><b>Brecha y ángulo:</b> ${esc(field(s,/brecha:|ángulo\/resultado|ángulo y resultado/i))}</p><p><b>Prueba a producir:</b> ${esc(field(s,/demostración:|prueba necesaria|mecanismo\/demostración/i))}</p></section>`).join('');
-  const audience=select('diagnosis',/audiencia 1|audiencia 2|que conduce|que trabaja sentado/i,2,220);
+  const field=(s,re,max=225)=>{
+    const match=s.split(/\r?\n/).map(strip).find(x=>re.test(x));
+    return match?complete(match.replace(/^(?:[-•]\s*)/,''),max):'';
+  };
+  const avatarData=blocks.map((s,i)=>{
+    const name=(s.split(/\r?\n/).map(strip).find(x=>new RegExp(six[i].replace('.','\\.')).test(x))||'').replace(/^.*?A[12]\.[123]\s*[—–-]?\s*/,'').replace(/^['“”]|['“”]$/g,'');
+    return {id:six[i],name:name||'Perfil sin nombre acreditado',context:field(s,/avatar y objeción|avatar y objecion|contexto:/i,245),angle:field(s,/ángulo\/resultado|ángulo y resultado|ángulo y resultado soñado/i,245),gap:field(s,/brecha:|brecha de origen/i,200),proof:field(s,/demostración:|prueba necesaria|mecanismo\/demostración/i,210),awareness:field(s,/conciencia:/i,180)};
+  });
+  const avatars=avatarData.map(a=>`<section class="avatar"><h4>${esc(a.id)} · ${esc(brief(a.name,66))}</h4><p><b>Comprador:</b> ${esc(a.context||'Perfil sin evidencia suficiente para validación')}</p><p><b>Ángulo y brecha:</b> ${esc(a.angle||a.gap||'Pendiente de justificar')}</p><p><b>Demostración:</b> ${esc(a.proof||'No especificada: bloquear afirmaciones no comprobadas')}</p></section>`).join('');
+  const avatarAlerts=[];
+  if(avatarData.some(x=>!x.context||!x.angle))avatarAlerts.push('Hay fichas sin contexto o ángulo explícito: no aprobar su traspaso a BRIEF 02.');
+  if(/comprador.*(?:quemado|estafado|desconfia|desconfía)/i.test(avatarData[5]?.context||''))avatarAlerts.push('A2.3 describe desconfianza transaccional, no necesariamente un avatar propio de la audiencia A2. Justificar o reemplazar.');
+  const auditDecision=(id)=>{
+    const d=avatarData.find(x=>x.id===id);
+    return d?`${id}: ${complete(d.angle||d.context||'Sin ángulo',175)} · Prueba: ${complete(d.proof||'pendiente',140)}`:'';
+  };
   const fin=research?.diagnosis?.financial||{},projection=(()=>{try{return calculateBrief01MonthlyProjection(research,fin)||{}}catch{return {}}})();
   const number=x=>x===null||x===undefined||x===''?'No disponible':typeof x==='number'?new Intl.NumberFormat('es-CO',{maximumFractionDigits:0}).format(x):String(x);
   const price=research?.managerApprovedScenario?.offer?.price||research?.offer?.price||fin.price;
@@ -21586,33 +21631,37 @@ function printBrief01FivePageAudit(research, reports) {
   const page=(i,body)=>`<article class="page" style="--accent:${shades[i]}"><header><div class="brand">TU PEDIDO COLOMBIA · WINNER OS · BRIEF 01</div><div class="phase">${String(i+1).padStart(2,'0')} / DIAGNÓSTICO ESTRATÉGICO</div><h1>${titles[i]}</h1><div class="meta">${esc(research?.name||'Producto no identificado')} · ${esc(research?.code||'BRIEF 01')} · ${esc(new Date().toLocaleDateString('es-CO'))}</div></header><main>${body}</main><footer>Decisiones condicionadas a la ficha técnica, fuentes y ensayos reales <b>${i+1} / 5</b></footer></article>`;
   const pages=[
     page(0,`<p class="lead">¿Dónde está la competencia, qué promete y cuál es la brecha realmente observada?</p>`+
-      items('Cobertura y límites de la muestra',select('meta',/muestra|cobertura|anunciante|intensidad|persistencia/i,3,390))+
-      items('Mensajes, mecanismos y precios de terceros',select('competitors',/Comfort Cars|Shopicol|GanoProducts|Zona Salavaje|TiendaExpress|ZalquioShop|LoQuieroya/i,3,360))+
-      items('Sofisticación y conciencia — fundamento',select('angles',/N2|N3|consciente de problema|consciente de solución|nivel predominante/i,2,385))+
-      decision('HIPÓTESIS ESTRATÉGICA','La competencia compite en comodidad y mecanismos descritos; evaluar si nuestra ventaja se puede demostrar con el SKU real. Los anuncios activos no prueban ventas ni CPA.') ),
+      items('Cobertura y límites de la muestra',select('meta',/muestra|cobertura|anunciante|intensidad|persistencia/i,3,470))+
+      items('Mensajes, mecanismos y precios de terceros',select('competitors',/Comfort Cars|Shopicol|GanoProducts|Zona Salavaje|TiendaExpress|ZalquioShop|LoQuieroya/i,3,440))+
+      items('Sofisticación y conciencia — fundamento',select('angles',/N2|N3|consciente de problema|consciente de solución|nivel predominante/i,2,470))+
+      decision('HIPÓTESIS ESTRATÉGICA','Posicionamiento candidato: explicar las dos piezas y demostrar mecanismos documentados que los anuncios rivales solo describen. Validez: muestra limitada; la persistencia de anuncios no prueba conversiones ni rentabilidad.') ),
     page(1,`<p class="lead">¿Qué objeción del comprador podemos resolver con un mecanismo propio verificable?</p>`+
-      items('Quejas y objeciones de productos análogos',select('suppliers',/desliz|correa|firmeza|cervical|inconsisten|tama[nñ]o/i,4,330))+
+      items('Quejas y objeciones de productos análogos',select('suppliers',/desliz|correa|firmeza|cervical|inconsisten|tama[nñ]o/i,4,410))+
       items('Mecanismo declarado por nuestra ficha técnica',[proof])+
-      items('Brecha → respuesta → prueba necesaria',select('suppliers',/Ángulo [1-6]|requiere ensayo|prueba|demostración/i,3,360))+
+      items('Brecha → respuesta → prueba necesaria',select('suppliers',/Ángulo [1-6]|requiere ensayo|prueba|demostración/i,3,410))+
       decision('CONTROL DE CLAIMS','Los defectos de reseñas de otros SKU no se atribuyen al propio. Materiales, correas, firmeza y compatibilidad se convierten en promesas solo con ficha y prueba específicas.') ),
     page(2,`<p class="lead">Dos audiencias matrices; tres compradores con contextos y motivaciones diferentes en cada una. No son seis nombres para una misma objeción.</p>`+
       `<h3 class="subhead">A1 · Conductores — perfiles A1.1 a A1.3</h3><div class="avatargrid">${avatars}</div>`+
-      decision('ALERTA DE DIVERSIDAD','Revisar que A2.3 pertenezca realmente a la audiencia A2 y no sea solo una objeción transversal de confianza. Cada ficha debe tener evidencia y motivación propia.') ),
+      decision('ALERTA DE DIVERSIDAD',avatarAlerts.join(' ')||'Cada ficha requiere situación, motivación, ángulo y una prueba distinta. La semejanza entre perfiles debe justificarse con evidencia antes de aprobar BRIEF 02.') ),
     page(3,`<p class="lead">¿Cuál oferta es equivalente a la nuestra y cómo defendemos valor sin inventar ventajas?</p>`+
       `<div class="stats">${row('Nuestro precio (COP)',number(price))}${row('Unidad de comparación','Contenido exacto: unidades, accesorios y garantía')}</div>`+
       `<table><thead><tr><th>Competidor</th><th>Precio COP</th><th>Comparabilidad</th><th>Evidencia / pendiente</th></tr></thead><tbody>${offerRows}</tbody></table>`+
       items('Diagnóstico de la arquitectura comercial',select('offer',/OPTIMIZAR|MANTENER|RECONSTRUIR|defensa|valor percibido/i,2,340))+
-      items('Bonos, PDF y upsells: hipótesis no aprobadas',select('offer',/bono|upsell|guía|PDF/i,3,320))+
+      items('Bonos, PDF y upsells: hipótesis no aprobadas',select('offer',/bono|upsell|guía|PDF/i,4,360))+
       decision('REGLA DE DECISIÓN','No declarar ventaja de precio al comparar una pieza contra un pack. Bonos y upsells solo se prueban tras verificar oferta, disponibilidad, costes y encaje con la objeción.') ),
     page(4,`<p class="lead">¿Qué vamos a probar, con qué evidencia y qué impediría aprobarlo?</p>`+
       `<div class="stats">${row('Veredicto del diagnóstico',research?.diagnosis?.classification||'Pendiente')}${row('Ticket COP',number(price))}${row('CPA objetivo COP',number(research?.planning?.planningCPA))}${row('Pedidos diarios mínimos',number(projection.requiredDailyOrders))}${row('Pauta proyectada COP',number(projection.operatingAdBudget))}${row('Contribución previa a pauta COP',number(fin.marginPerGenerated))}</div>`+
-      items('Prioridades e hipótesis del estudio',select('diagnosis',/diagnóstico sintético|mensaje global|prioridad|N2|N3|eje rector/i,3,345))+
-      items('Pruebas indispensables para autorizar mensajes',select('diagnosis',/próximos pasos|prueba|no publicar|exclusiones|condicional|verificar/i,3,320))+
+      items('Tres hipótesis publicitarias para evaluación',[
+        auditDecision('A1.1'),auditDecision('A1.2'),auditDecision('A2.1')].filter(Boolean))+
+      items('Verificaciones que pueden bloquear publicación',[
+        'Ficha técnica: confirmar componentes, medidas, sujeción y materiales antes de publicitar ventajas funcionales.',
+        'Prueba física: demostrar el mecanismo específico del ángulo en el mismo SKU; no extrapolar reseñas de análogos.',
+        'Oferta: verificar cantidad de unidades, accesorios, precio y garantía del competidor comparable; no utilizar anuncios como prueba de ventas.' ])+
       decision('DICTAMEN GERENCIAL','Autorizar testeo solo con claims verificables y comparabilidad real de ofertas. Rechazar avatares redundantes, someter mecanismos técnicos a prueba y decidir continuidad mediante métricas del simulador; no inferir rendimiento desde el anuncio competidor.') )
   ];
   // Intentionally fixed five pages; font sizing has been bounded to avoid hidden overflow.
-  const style=`@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;background:#dfe6ee;font:10px/1.42 Arial,'Segoe UI',sans-serif;color:#1c2c42}.page{position:relative;width:210mm;height:297mm;background:white;padding:13mm 13mm 12mm;margin:0 auto 18px;break-after:page;page-break-after:always;overflow:hidden}.page:last-child{break-after:auto;page-break-after:auto}header{border-top:6px solid var(--accent);padding-top:5mm}.brand{font-size:9px;letter-spacing:.6px;font-weight:800;color:#24486d}.phase{margin-top:12px;color:var(--accent);font-size:10px;font-weight:800}h1{font-size:20px;margin:5px 0 8px}.meta{border-bottom:1px solid #d9e2ea;padding-bottom:10px;color:#5b7189;font-size:9px}main{padding-top:9px}.lead{font-size:12px;font-weight:700;color:#244465;margin:7px 0 12px}.block{border-left:3px solid var(--accent);background:#f5f8fb;padding:8px 10px;margin:8px 0}.block h3{margin:0 0 6px;font-size:10px;color:var(--accent)}.block p{margin:5px 0;font-size:9.4px;line-height:1.43}.block p:before{content:'• ';color:var(--accent)}.decision{border:1px solid #c7d5e3;background:#f8fafc;border-radius:6px;padding:10px;margin-top:11px}.decision strong{color:var(--accent);font-size:9px}.decision p{margin:5px 0 0;line-height:1.4;font-size:9.3px}.subhead{font-size:10px;color:var(--accent)}.avatargrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:8px}.avatar{border:1px solid #d6dfe9;border-top:3px solid var(--accent);padding:7px;min-height:155px;border-radius:5px}.avatar h4{font-size:9px;margin:0 0 5px}.avatar p{font-size:8.4px;line-height:1.36;margin:5px 0}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.fact{background:#edf3f8;border-radius:5px;padding:7px;min-height:38px;display:flex;flex-direction:column;gap:2px}.fact strong{font-size:8px;color:#526881}.fact span{font-size:10px;font-weight:700}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px}th{background:#eaf0f6;text-align:left;color:#334b66}td,th{padding:5px;border-bottom:1px solid #dfe5ed;vertical-align:top;overflow-wrap:anywhere}td:nth-child(1){width:25%}.pending{color:#7a5e35}footer{position:absolute;bottom:8mm;left:13mm;right:13mm;border-top:1px solid #d8e1e9;display:flex;justify-content:space-between;padding-top:7px;color:#60748d;font-size:8px}footer b{color:var(--accent)}@media screen{body{padding:16px}.page{box-shadow:0 3px 16px #abb9c6}}@media print{body{background:white;padding:0}.page{margin:0;box-shadow:none}}`;
-  const html='<!doctype html><html lang="es"><head><meta charset="utf-8"><title>WINNER OS · Auditoría estratégica V5.47</title><style>'+style+'</style></head><body>'+pages.join('')+'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));<\/script></body></html>';
+  const style=`@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;background:#dfe6ee;font:10.5px/1.42 Arial,'Segoe UI',sans-serif;color:#1c2c42}.page{position:relative;width:210mm;height:297mm;background:white;padding:13mm 13mm 12mm;margin:0 auto 18px;break-after:page;page-break-after:always;overflow:hidden}.page:last-child{break-after:auto;page-break-after:auto}header{border-top:6px solid var(--accent);padding-top:5mm}.brand{font-size:9px;letter-spacing:.6px;font-weight:800;color:#24486d}.phase{margin-top:12px;color:var(--accent);font-size:10px;font-weight:800}h1{font-size:20px;margin:5px 0 8px}.meta{border-bottom:1px solid #d9e2ea;padding-bottom:10px;color:#5b7189;font-size:9px}main{padding-top:9px}.lead{font-size:12px;font-weight:700;color:#244465;margin:7px 0 12px}.block{border-left:3px solid var(--accent);background:#f5f8fb;padding:8px 10px;margin:8px 0}.block h3{margin:0 0 6px;font-size:10px;color:var(--accent)}.block p{margin:5px 0;font-size:9.4px;line-height:1.43}.block p:before{content:'• ';color:var(--accent)}.decision{border:1px solid #c7d5e3;background:#f8fafc;border-radius:6px;padding:10px;margin-top:11px}.decision strong{color:var(--accent);font-size:9px}.decision p{margin:5px 0 0;line-height:1.4;font-size:9.3px}.subhead{font-size:10px;color:var(--accent)}.avatargrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:8px}.avatar{border:1px solid #d6dfe9;border-top:3px solid var(--accent);padding:7px;min-height:155px;border-radius:5px}.avatar h4{font-size:9px;margin:0 0 5px}.avatar p{font-size:8.4px;line-height:1.36;margin:5px 0}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}.fact{background:#edf3f8;border-radius:5px;padding:7px;min-height:38px;display:flex;flex-direction:column;gap:2px}.fact strong{font-size:8px;color:#526881}.fact span{font-size:10px;font-weight:700}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8px}th{background:#eaf0f6;text-align:left;color:#334b66}td,th{padding:5px;border-bottom:1px solid #dfe5ed;vertical-align:top;overflow-wrap:anywhere}td:nth-child(1){width:25%}.pending{color:#7a5e35}footer{position:absolute;bottom:8mm;left:13mm;right:13mm;border-top:1px solid #d8e1e9;display:flex;justify-content:space-between;padding-top:7px;color:#60748d;font-size:8px}footer b{color:var(--accent)}@media screen{body{padding:16px}.page{box-shadow:0 3px 16px #abb9c6}}@media print{body{background:white;padding:0}.page{margin:0;box-shadow:none}}`;
+  const html='<!doctype html><html lang="es"><head><meta charset="utf-8"><title>WINNER OS · Auditoría estratégica V5.48</title><style>'+style+'</style></head><body>'+pages.join('')+'<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));<\/script></body></html>';
   const w=window.open('','_blank');if(!w)throw Error('Habilita ventanas emergentes para imprimir el informe.');w.document.open();w.document.write(html);w.document.close();
 }
 
