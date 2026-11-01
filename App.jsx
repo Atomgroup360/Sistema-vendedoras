@@ -21678,41 +21678,52 @@ function Brief01CentralAudit({user,research,onApproved}) {
 // V5.41 — Reddit: DeepSeek responde con `analysis` (texto), no con `avatars` JSON.
 // Recupera perfiles nombrados A-F / AV-001 en el texto SIN aprobarlos automáticamente.
 function extractRedditAvatarCandidates(text) {
- const clean=s=>String(s||'').replace(/\\\*/g,'*').replace(/\*\*/g,'').replace(/`/g,'').trim();
+ const clean=s=>String(s||'').replace(/\\\*/g,'*').replace(/\*\*/g,'').replace(/`/g,'').replace(/^\s*["“]|["”]\s*$/g,'').trim();
  const lines=String(text||'').split(/\r?\n/);
  const found=[];
- const heading=/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\d+[.)]\s*)?(?:\*\*)?\s*(?:perfil|avatar)\s+([A-Z]|\d{1,3}|AV[- ]?\d{1,3})\s*(?:\*\*)?\s*(?:[—–:\-]|["“]|\s+)(.*)$/i;
+ // El modelo alterna "Perfil A", "Avatar 3", "AV-003" y listas "1. **Teletrabajador** — situación...".
+ const named=/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\d+[.)]\s*)?(?:\*\*)?\s*(?:perfil|avatar)\s+([A-Z]|\d{1,3}|AV[- ]?\d{1,3})\b\s*(?:\*\*)?\s*(?:[—–:\-]|["“]|\s+)(.*)$/i;
+ const numbered=/^\s*(?:[-*]\s*)?(\d{1,3})[.)]\s+(?:\*\*)?(.{5,})$/;
  const stop=/^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:VERIFICACIONES NECESARIAS|SELECCI[ÓO]N SUGERIDA|CONSECUENCIA COMERCIAL|OPORTUNIDADES Y [ÁA]NGULOS|IDEAS DE VALOR|UPS[ -]?SELLS|RESUMEN EJECUTIVO|FUENTES CONSULTADAS|PR[ÓO]XIMOS PASOS)\b/i;
+ const signal=/\b(?:situaci[oó]n|motivaci[oó]n|objeci[oó]n|conciencia|sofisticaci[oó]n|[áa]ngulo|problema|deseo)\s*:/i;
  let current=null;
  const flush=()=>{
   if(!current)return;
   const details=current.notes.join(' ').replace(/\s+/g,' ').trim();
-  const id='RD-'+current.key.replace(/[^A-Z0-9]/gi,'').toUpperCase();
-  if(details.length>10 && !found.some(x=>x.id===id)){
-   const pick=(re)=>clean((details.match(re)||[])[1]||'');
-   const name=clean(current.name||details.slice(0,110)).slice(0,180);
-   found.push({id,name,audience:'Candidata Reddit, pendiente de aprobación',
-    situation:name,motivation:pick(/(?:motivaci[oó]n|deseo)\s*:\s*([^.;]+)/i),
-    problem:pick(/(?:problema|dolor|frustraci[oó]n)\s*:\s*([^.;]+)/i)||details.slice(0,450),
-    desire:pick(/(?:deseo|resultado soñado)\s*:\s*([^.;]+)/i),
-    objection:pick(/(?:objeci[oó]n)\s*:\s*([^.;]+)/i),
-    awareness:pick(/(?:conciencia)\s*:\s*([^.;]+)/i),
-    evidence:'Hipótesis extraída del análisis textual; contrastar con el comentario original y su URL.',
-    source:'Análisis DeepSeek de comentarios proporcionados manualmente',hypothesis:details.slice(0,1200),
-    angles:(()=>{const a=pick(/(?:[áa]ngulo|hook)\s*:\s*([^.;]+)/i);return a?[a]:[]})(),
-    selected:false});
+  const id='RD-'+current.key.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(details.length>12&&!found.some(x=>x.id===id)){
+   const pick=re=>clean((details.match(re)||[])[1]||'');
+   const name=clean(current.name).split(/\s+[—–-]\s+(?=(?:situaci[oó]n|motivaci[oó]n|problema|objeci[oó]n|conciencia|sofisticaci[oó]n|[áa]ngulo)\s*:)/i)[0].slice(0,180);
+   found.push({id,name,audience:'Audiencia candidata Reddit · pendiente de aprobación',
+    situation:pick(/\bsituaci[oó]n\s*:\s*([^.;]+)/i)||name,
+    motivation:pick(/\bmotivaci[oó]n\s*:\s*([^.;]+)/i),
+    problem:pick(/\b(?:problema|dolor|frustraci[oó]n)\s*:\s*([^.;]+)/i)||details.slice(0,450),
+    desire:pick(/\b(?:deseo|resultado soñado)\s*:\s*([^.;]+)/i),
+    objection:pick(/\bobjeci[oó]n\s*:\s*([^.;]+)/i),
+    awareness:pick(/\bconciencia\s*:\s*([^.;]+)/i),
+    sophistication:pick(/\bsofisticaci[oó]n\s*:\s*([^.;]+)/i),
+    evidence:'Hipótesis de análisis textual; cotejar con comentario y URL de origen.',
+    source:'Análisis DeepSeek basado en comentarios aportados manualmente',hypothesis:details.slice(0,1200),
+    angles:(()=>{const angle=pick(/\b[áa]ngulo\s*:\s*([^.;]+)/i);return angle?[angle]:[]})(),selected:false});
   }
   current=null;
  };
  for(const raw of lines){
-  const line=clean(raw);if(stop.test(line)){flush();break;}
-  const match=line.match(heading);
-  if(match){flush();current={key:match[1],name:clean(match[2]).replace(/^["“]|["”]$/g,''),notes:[line]};}
-  else if(current && line && current.notes.length<12)current.notes.push(line);
+  const line=clean(raw);
+  if(stop.test(line)){flush();continue;}
+  const nm=raw.match(named);
+  const nu=raw.match(numbered);
+  if(nm){flush();current={key:nm[1],name:clean(nm[2]).split(/\s+[—–]\s+(?=situaci[oó]n\s*:)/i)[0],notes:[line]};continue;}
+  // No confundir listas numeradas de instrucciones o verificaciones con avatares.
+  if(nu&&signal.test(nu[2])&&!(current&&/^\s*(?:#{1,6}\s*)?\bverificaciones/i.test(raw))){
+    flush();const full=clean(nu[2]);const title=full.split(/\s+[—–-]\s+(?=(?:situaci[oó]n|motivaci[oó]n|problema|objeci[oó]n|conciencia|sofisticaci[oó]n|[áa]ngulo)\s*:)/i)[0];
+    current={key:nu[1],name:title,notes:[full]};continue;
+  }
+  if(current&&line&&current.notes.length<12&&!/^\s*#{1,5}\s+/.test(raw))current.notes.push(line);
+  else if(/^\s*#{1,5}\s+/.test(raw))flush();
  }
  flush();return found.slice(0,40);
 }
-
 function Brief01RedditAudienceLab({user,research}) {
  const [comments,setComments]=useState('');
  const [analysis,setAnalysis]=useState('');
@@ -21761,9 +21772,10 @@ function Brief01RedditAudienceLab({user,research}) {
    const result=await response.json();
    if(!response.ok)throw Error(result.message||result.error||'Error del Worker');
    const text=String(result.analysis||'').trim();if(!text)throw Error('DeepSeek no devolvió contenido');
+   if(result.schema==='reddit_v1'&&(!Array.isArray(result.avatars)||!result.avatars.length))throw Error('Respuesta Reddit sin avatares validados; no se reemplazaron datos anteriores');
    setAnalysis(text);
    // El Worker Intelligence entrega `analysis` textual: parsear perfiles en lugar de exigir JSON inexistente.
-   const newAvatars=Array.isArray(result.avatars)&&result.avatars.length?result.avatars:extractRedditAvatarCandidates(text);
+   const newAvatars=result.schema==='reddit_v1'&&Array.isArray(result.avatars)?result.avatars:extractRedditAvatarCandidates(text);
    const newValues=Array.isArray(result.valueIdeas)?result.valueIdeas:[];
    const keepSelection=(oldItems,newItems)=>newItems.map((item,i)=>{const old=oldItems.find(x=>x.id===item.id||x.name===item.name);return {...item,id:String(item.id||`AV-${i+1}`).slice(0,32),selected:!!old?.selected};});
    const mergedAvatars=keepSelection(candidates,newAvatars);
@@ -21771,7 +21783,7 @@ function Brief01RedditAudienceLab({user,research}) {
    setCandidates(mergedAvatars);setValueCandidates(mergedValues);
    await persist({analysis:text,avatarCandidates:mergedAvatars,valueCandidates:mergedValues,approvedAudienceBank:bank,approvedValueIdeas:ideas,analyzedAtMs:Date.now(),
     analysisCoverageChars:input.length});
-   setMessage(newAvatars.length?`Análisis listo: ${newAvatars.length} avatares candidatos. Selecciona las tarjetas y pulsa APROBAR SELECCIONADOS Y GUARDAR EN BANCO. No se aprobó ninguno automáticamente.`:'Análisis guardado, pero no se detectaron perfiles estructurados. Usa «Recuperar avatares» o el banco manual; no se pierde el análisis.');
+   setMessage(newAvatars.length?`Análisis listo: ${newAvatars.length} avatares candidatos. Selecciona las tarjetas y pulsa APROBAR SELECCIONADOS Y GUARDAR EN BANCO. No se aprobó ninguno automáticamente.`:'No se recibieron candidatos estructurados. Se conservó el análisis; revisa el diagnóstico antes de aprobar.');
   }catch(e){setMessage('No se pudo analizar: '+e.message)}finally{setBusy(false)}
  };
 
@@ -21803,7 +21815,7 @@ function Brief01RedditAudienceLab({user,research}) {
   {!!analysis.trim()&&<button type="button" disabled={busy||!loaded} onClick={async()=>{
    setBusy(true);setMessage('');try{
     const extracted=extractRedditAvatarCandidates(analysis);
-    if(!extracted.length){setMessage('No se encontraron perfiles con encabezados reconocibles (Perfil A, Perfil B, AV-001). Conservamos el análisis original; puedes usar el banco manualmente.');return;}
+    if(!extracted.length){setMessage('No se encontraron candidatos en formato Perfil A, Avatar 1, AV-001 o lista numerada con situación/motivación/objeción. Conservamos el análisis original; puedes usar el banco manualmente.');return;}
     const merged=extracted.map(x=>({...x,selected:!!candidates.find(y=>y.id===x.id)?.selected}));
     setCandidates(merged);
     await persist({analysis,avatarCandidates:merged});
