@@ -21675,6 +21675,44 @@ function Brief01CentralAudit({user,research,onApproved}) {
 
 // V5.22 — Reddit como observación cualitativa separada de las seis fases aprobadas.
 // La captura es manual: no se consulta ni extrae Reddit automáticamente.
+// V5.41 — Reddit: DeepSeek responde con `analysis` (texto), no con `avatars` JSON.
+// Recupera perfiles nombrados A-F / AV-001 en el texto SIN aprobarlos automáticamente.
+function extractRedditAvatarCandidates(text) {
+ const clean=s=>String(s||'').replace(/\\\*/g,'*').replace(/\*\*/g,'').replace(/`/g,'').trim();
+ const lines=String(text||'').split(/\r?\n/);
+ const found=[];
+ const heading=/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\d+[.)]\s*)?(?:\*\*)?\s*(?:perfil|avatar)\s+([A-Z]|\d{1,3}|AV[- ]?\d{1,3})\s*(?:\*\*)?\s*(?:[—–:\-]|["“]|\s+)(.*)$/i;
+ const stop=/^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:VERIFICACIONES NECESARIAS|SELECCI[ÓO]N SUGERIDA|CONSECUENCIA COMERCIAL|OPORTUNIDADES Y [ÁA]NGULOS|IDEAS DE VALOR|UPS[ -]?SELLS|RESUMEN EJECUTIVO|FUENTES CONSULTADAS|PR[ÓO]XIMOS PASOS)\b/i;
+ let current=null;
+ const flush=()=>{
+  if(!current)return;
+  const details=current.notes.join(' ').replace(/\s+/g,' ').trim();
+  const id='RD-'+current.key.replace(/[^A-Z0-9]/gi,'').toUpperCase();
+  if(details.length>10 && !found.some(x=>x.id===id)){
+   const pick=(re)=>clean((details.match(re)||[])[1]||'');
+   const name=clean(current.name||details.slice(0,110)).slice(0,180);
+   found.push({id,name,audience:'Candidata Reddit, pendiente de aprobación',
+    situation:name,motivation:pick(/(?:motivaci[oó]n|deseo)\s*:\s*([^.;]+)/i),
+    problem:pick(/(?:problema|dolor|frustraci[oó]n)\s*:\s*([^.;]+)/i)||details.slice(0,450),
+    desire:pick(/(?:deseo|resultado soñado)\s*:\s*([^.;]+)/i),
+    objection:pick(/(?:objeci[oó]n)\s*:\s*([^.;]+)/i),
+    awareness:pick(/(?:conciencia)\s*:\s*([^.;]+)/i),
+    evidence:'Hipótesis extraída del análisis textual; contrastar con el comentario original y su URL.',
+    source:'Análisis DeepSeek de comentarios proporcionados manualmente',hypothesis:details.slice(0,1200),
+    angles:(()=>{const a=pick(/(?:[áa]ngulo|hook)\s*:\s*([^.;]+)/i);return a?[a]:[]})(),
+    selected:false});
+  }
+  current=null;
+ };
+ for(const raw of lines){
+  const line=clean(raw);if(stop.test(line)){flush();break;}
+  const match=line.match(heading);
+  if(match){flush();current={key:match[1],name:clean(match[2]).replace(/^["“]|["”]$/g,''),notes:[line]};}
+  else if(current && line && current.notes.length<12)current.notes.push(line);
+ }
+ flush();return found.slice(0,40);
+}
+
 function Brief01RedditAudienceLab({user,research}) {
  const [comments,setComments]=useState('');
  const [analysis,setAnalysis]=useState('');
@@ -21724,7 +21762,8 @@ function Brief01RedditAudienceLab({user,research}) {
    if(!response.ok)throw Error(result.message||result.error||'Error del Worker');
    const text=String(result.analysis||'').trim();if(!text)throw Error('DeepSeek no devolvió contenido');
    setAnalysis(text);
-   const newAvatars=Array.isArray(result.avatars)?result.avatars:[];
+   // El Worker Intelligence entrega `analysis` textual: parsear perfiles en lugar de exigir JSON inexistente.
+   const newAvatars=Array.isArray(result.avatars)&&result.avatars.length?result.avatars:extractRedditAvatarCandidates(text);
    const newValues=Array.isArray(result.valueIdeas)?result.valueIdeas:[];
    const keepSelection=(oldItems,newItems)=>newItems.map((item,i)=>{const old=oldItems.find(x=>x.id===item.id||x.name===item.name);return {...item,id:String(item.id||`AV-${i+1}`).slice(0,32),selected:!!old?.selected};});
    const mergedAvatars=keepSelection(candidates,newAvatars);
@@ -21732,7 +21771,7 @@ function Brief01RedditAudienceLab({user,research}) {
    setCandidates(mergedAvatars);setValueCandidates(mergedValues);
    await persist({analysis:text,avatarCandidates:mergedAvatars,valueCandidates:mergedValues,approvedAudienceBank:bank,approvedValueIdeas:ideas,analyzedAtMs:Date.now(),
     analysisCoverageChars:input.length});
-   setMessage(comments.length>input.length?'Análisis del primer lote (25.000 caracteres). Hay más comentarios por analizar.':'Análisis listo. Marca las tarjetas que quieres aprobar y guarda la selección; el banco existente sigue intacto.');
+   setMessage(newAvatars.length?`Análisis listo: ${newAvatars.length} avatares candidatos. Selecciona las tarjetas y pulsa APROBAR SELECCIONADOS Y GUARDAR EN BANCO. No se aprobó ninguno automáticamente.`:'Análisis guardado, pero no se detectaron perfiles estructurados. Usa «Recuperar avatares» o el banco manual; no se pierde el análisis.');
   }catch(e){setMessage('No se pudo analizar: '+e.message)}finally{setBusy(false)}
  };
 
@@ -21761,6 +21800,16 @@ function Brief01RedditAudienceLab({user,research}) {
    <button disabled={busy||!loaded||!comments.trim()} onClick={analyze} className="rounded-xl bg-indigo-700 text-white px-4 py-2 text-xs font-bold disabled:opacity-40">{busy?'Procesando...':'Analizar con DeepSeek'}</button></div>
   {message&&<p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-lg p-3">{message}</p>}
   <label className="block"><span className="text-xs font-bold">Análisis DeepSeek · Candidatos e hipótesis (editable)</span><textarea rows={16} value={analysis} onChange={e=>setAnalysis(e.target.value)} className="mt-1 w-full rounded-xl border p-3 text-xs" /></label>
+  {!!analysis.trim()&&<button type="button" disabled={busy||!loaded} onClick={async()=>{
+   setBusy(true);setMessage('');try{
+    const extracted=extractRedditAvatarCandidates(analysis);
+    if(!extracted.length){setMessage('No se encontraron perfiles con encabezados reconocibles (Perfil A, Perfil B, AV-001). Conservamos el análisis original; puedes usar el banco manualmente.');return;}
+    const merged=extracted.map(x=>({...x,selected:!!candidates.find(y=>y.id===x.id)?.selected}));
+    setCandidates(merged);
+    await persist({analysis,avatarCandidates:merged});
+    setMessage(`Se recuperaron ${merged.length} avatares candidatos del análisis. Selecciónalos y pulsa APROBAR SELECCIONADOS Y GUARDAR EN BANCO. Ninguna audiencia fue aprobada automáticamente.`);
+   }catch(e){setMessage('Error al recuperar candidatos: '+e.message)}finally{setBusy(false)}
+  }} className="rounded-xl border border-indigo-300 bg-indigo-50 text-indigo-900 px-4 py-2 text-xs font-bold">Recuperar avatares del análisis existente</button>}
   {(candidates.length>0||valueCandidates.length>0)&&<div className="rounded-2xl border border-indigo-200 p-3 space-y-3 bg-indigo-50/40">
    <p className="font-black text-indigo-900">Candidatos de DeepSeek · selecciona las hipótesis que quieres guardar</p>
    <p className="text-xs text-slate-600">Cada avatar conserva sus ángulos asociados. La IA propone; tú apruebas. La selección no autoriza anuncios ni ofertas nuevas.</p>
@@ -22858,8 +22907,50 @@ function CalculadoraIndependienteV532() {
   const profitability=marginBeforeAds-(isFixedBudget?(displayedScenario?.effectiveCPA??0):cpaConfigured);
   const shippingBand=freightRates.find(r=>totalPrice<=Number(r.ticketMax));
   const freightDescription=validFreight?(shippingBand?`Se aplican ${money(financial.freightPerShipment)} de la tabla global de BRIEF 01 porque el ticket de ${money(totalPrice)} está dentro del rango hasta ${money(shippingBand.ticketMax)}.`:`Se aplican ${money(financial.freightPerShipment)} según la tabla global de fletes de BRIEF 01 y el ticket de ${money(totalPrice)}.`):`El ticket de ${money(totalPrice)} no tiene una tarifa aplicable en la tabla global. Verifica su configuración.`;
+  // V5.40: informe imprimible de una pagina, calculado exclusivamente con el escenario activo.
+  const printScenarioPdf=()=>{
+    if(!valid||!displayedScenario)return;
+    const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const cash=v=>esc(money(v));
+    const qty=v=>Number(v).toLocaleString('es-CO',{maximumFractionDigits:1});
+    const s=displayedScenario;
+    const currentPace=hasDaily?dailyActual:minDaily;
+    const when=new Intl.DateTimeFormat('es-CO',{dateStyle:'medium',timeZone:'America/Bogota'}).format(new Date());
+    const row=(label,value)=>`<tr><td>${esc(label)}</td><td>${value}</td></tr>`;
+    const upRows=activeUpsells.map((u,i)=>row(`Upsell ${i+1}: ${u.name||'Sin nombre'} (${Math.max(1,Math.floor(n(u.quantity)||1))} ud.)`,`${cash(n(u.price)*Math.max(1,Math.floor(n(u.quantity)||1)))} / costo ${cash(n(u.cost)*Math.max(1,Math.floor(n(u.quantity)||1)))}`)).join('');
+    const notReachable=minOrders===null;
+    const targetSummary=notReachable
+      ? `<div class="notice">${esc(projection.message)} No hay una cantidad de pedidos que garantice alcanzar la meta con estos parámetros.</div>`
+      : `<div class="metrics"><div><small>PEDIDOS MÍNIMOS / MES</small><b>${qty(minOrders)}</b></div><div><small>PEDIDOS NECESARIOS / DÍA</small><b>${qty(minDaily)}</b></div><div><small>CPA DEL PLAN A RITMO META</small><b>${cash(isFixedBudget?minimumScenario?.effectiveCPA??0:cpaConfigured)}</b></div><div><small>INVERSIÓN ADS / DÍA A RITMO META</small><b>${cash(minimumScenario.ads/sellingDays)}</b></div></div>
+       <div class="goal">Para aspirar a ${cash(target)} de utilidad mensual, generar <strong>${qty(minDaily)} pedidos diarios durante ${sellingDays} días</strong> (${qty(minDaily*sellingDays)} pedidos al mes). Proyección a ese ritmo: ${cash(minimumScenario.profit)} de utilidad mensual.</div>`;
+    const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Escenario financiero - ${esc(form.name)}</title><style>
+      @page{size:A4 portrait;margin:10mm 12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#14263e;background:#fff;margin:0;font-size:10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      header{background:#12345b;color:#fff;padding:14px 16px;border-radius:8px;display:flex;justify-content:space-between;gap:12px;align-items:center}header .brand{font-size:10px;letter-spacing:1.2px;font-weight:800;color:#bcd7f0}header h1{font-size:20px;margin:5px 0}header .meta{font-size:9px;color:#d8e7f2;text-align:right;line-height:1.6}
+      .heading{font-size:10px;font-weight:800;color:#173b63;letter-spacing:.55px;text-transform:uppercase;border-bottom:1px solid #cbd9e6;padding-bottom:5px;margin:12px 0 6px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      table{width:100%;border-collapse:collapse;table-layout:fixed}td{padding:5px 5px;border-bottom:1px solid #e6edf3;vertical-align:top;overflow-wrap:anywhere}td:first-child{color:#526379;width:62%}td:last-child{text-align:right;font-weight:700} .total td{background:#edf4fa;color:#12345b;font-weight:800}.financial{margin-top:8px}
+      .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}.metrics>div{border:1px solid #b7d1e3;background:#eef6fd;border-radius:7px;padding:10px 7px;min-height:65px}.metrics small{font-size:8px;font-weight:800;display:block;color:#385e7c;min-height:18px}.metrics b{font-size:15px;display:block;margin-top:6px;color:#06325a;white-space:nowrap}
+      .goal{margin-top:9px;background:#eaf7f0;border-left:4px solid #19805c;padding:9px 11px;line-height:1.45}.notice{padding:12px;background:#fff5e5;border-left:4px solid #e5a021;line-height:1.5}footer{margin-top:10px;padding-top:7px;border-top:1px solid #dae4ec;font-size:8.5px;color:#617084;line-height:1.5}
+      .status{font-weight:800;color:${goalReached?'#16764f':'#a56412'}}.controls{padding:12px;text-align:center;background:#eff4f8}.controls button{background:#12345b;color:#fff;border:0;border-radius:7px;padding:12px 18px;font-weight:700;cursor:pointer}@media print{.controls{display:none}header{border-radius:0}body{font-size:9.3px}.heading{margin:10px 0 5px}td{padding:4px}.metrics>div{padding:7px 5px;min-height:59px}.goal{padding:7px 9px}footer{font-size:8px}}
+      </style></head><body><div class="controls"><button onclick="window.print()">Imprimir / Guardar PDF</button></div>
+      <header><div><div class="brand">TU PEDIDO COLOMBIA · WINNER OS</div><h1>Reporte de escenario financiero</h1><div>${esc(form.name||'Escenario sin nombre')}</div></div><div class="meta">${esc(when)}<br/>Moneda: COP<br/>Proyección · ${sellingDays} días</div></header>
+      <section class="columns"><div><h2 class="heading">1. Oferta y condiciones</h2><table>
+      ${row('Precio base de venta',cash(n(form.price)))}${row('Producto base (unidades)',esc(Math.max(1,Math.floor(n(form.quantity)||1))))}${row('Costo de mercancía por pedido',cash(productCost))}${upRows}${row('Ticket total con upsells',cash(totalPrice))}${row('Cancelación / devolución',`${qty(n(form.cancellation))}% / ${qty(n(form.returns))}%`)}${row('IER (efectividad de recaudo)',`${qty(rates.effective*100)}%`)}${row('Flete por envío',cash(financial.freightPerShipment))}</table></div>
+      <div><h2 class="heading">2. Costos configurados</h2><table>
+      ${row('Comisión por entrega',cash(n(form.commission)))}${row('Costo fijo por entrega',cash(n(form.fixed)))}${row('Otros costos por entrega',cash(n(form.additional)))}${row('Fulfillment por despacho',cash(fulfillmentPerDispatch))}${row('Modalidad de Ads',esc(isFixedBudget?'Presupuesto diario fijo':'CPA fijo por pedido'))}${row(isFixedBudget?'Presupuesto diario Ads':'CPA configurado',cash(isFixedBudget?dailyBudget:cpaConfigured))}${row('Meta de ganancia mensual',cash(target))}${row('Margen antes de Ads / pedido generado',cash(marginBeforeAds))}</table></div></section>
+      <h2 class="heading">3. Proyección del escenario actual (${qty(currentPace)} pedidos diarios)</h2><div class="columns financial"><table>
+      ${row('Pedidos generados al mes',qty(s.generated))}${row('Pedidos despachados / entregados',`${qty(s.shipped)} / ${qty(s.delivered)}`)}${row('Pedidos cancelados / devueltos',`${qty(s.cancelled)} / ${qty(s.returned)}`)}${row('Recaudo proyectado',cash(s.revenue))}${row('Costo mercancía proyectado',cash(s.productGoodsCost))}${row('Fletes proyectados',cash(s.freightCost))}</table><table>
+      ${row('Fulfillment proyectado',cash(s.fulfillmentCost))}${row('Comisiones',cash(s.commissionCost))}${row('Costos fijos y adicionales',cash(s.fixedCost+s.additionalCost))}${row('Pauta total del mes',cash(s.ads))}${row('CPA efectivo por pedido',s.effectiveCPA===null?'No aplica':cash(s.effectiveCPA))}${row('Ads / recaudo',s.adsShare===null?'No aplica':`${qty(s.adsShare)}%`)}<tr class="total"><td>UTILIDAD MENSUAL ESTIMADA</td><td>${cash(s.profit)}</td></tr></table></div>
+      <h2 class="heading">4. Resumen ejecutivo · pedidos y CPA necesarios para la meta</h2>${targetSummary}
+      <p class="status">${esc(goalReached?'El ritmo actual alcanza la meta.':'El ritmo actual no alcanza la meta establecida.')}</p>
+      <footer>Estimación para planificación, no utilidad contable ni recaudo garantizado. Calculado con el motor financiero vigente de WINNER OS / BRIEF 01. IER = (1 − cancelación) × (1 − devolución sobre despachados). El CPA es por pedido generado; con presupuesto fijo, el CPA efectivo depende del volumen. Las tasas y costos se mantienen según los datos introducidos y la tabla de fletes actual.</footer>
+      </body></html>`;
+    const report=window.open('','_blank');
+    if(!report){window.alert('Permite ventanas emergentes para imprimir el escenario en PDF.');return;}
+    report.document.open();report.document.write(html);report.document.close();
+  };
   return <div className="mx-auto max-w-[1450px] space-y-5 pb-14">
     <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#122D52] via-[#205494] to-[#2563A9] p-6 sm:p-8 text-white shadow-xl"><div className="pointer-events-none absolute -right-16 -top-28 h-72 w-72 rounded-full bg-white/10 blur-2xl"/><div className="pointer-events-none absolute right-20 -bottom-32 h-56 w-56 rounded-full bg-cyan-300/10 blur-2xl"/><div className="relative flex flex-wrap items-start justify-between gap-4"><div><p className="text-[11px] font-black uppercase tracking-[0.17em] text-sky-200">WINNER OS · Cálculos financieros BRIEF 01</p><h2 className="mt-2 text-3xl sm:text-4xl font-black tracking-tight">Calculadora de rentabilidad</h2><p className="mt-2 max-w-2xl text-sm text-blue-100">Crea un escenario, agrega complementos y descubre los pedidos que necesitas para alcanzar tu meta.</p></div><div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm"><p className="text-[10px] font-bold uppercase tracking-widest text-blue-100">Ticket del escenario</p><p className="mt-1 text-2xl font-black tabular-nums">{money(totalPrice)}</p></div></div><div className="relative mt-5 flex flex-wrap gap-2 text-xs font-semibold"><span className="rounded-full bg-white/15 px-3 py-1.5">✓ Sin proveedor</span><span className="rounded-full bg-white/15 px-3 py-1.5">✓ Hasta 3 upsells</span><span className="rounded-full bg-white/15 px-3 py-1.5">✓ IER y flete compartidos</span><span className="rounded-full bg-white/15 px-3 py-1.5">✓ Resultados al instante</span></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div><p className="text-sm font-black text-slate-900">Reporte ejecutivo de este escenario</p><p className="mt-1 text-xs text-slate-600">Una página A4 con costos, proyección, pedidos necesarios y CPA de la meta.</p></div><button type="button" onClick={printScenarioPdf} disabled={!valid||!displayedScenario} className="rounded-xl bg-[#12345b] px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-[#205494] disabled:cursor-not-allowed disabled:opacity-50">Imprimir / Guardar PDF · 1 página</button></div>
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_minmax(330px,0.85fr)] gap-5 items-start">
       <div className="space-y-5">
         {panel('1','Tu producto y su precio','Empieza con solo dos valores: cuánto cobras y cuánto te cuesta.','border-sky-100 bg-gradient-to-br from-sky-50 to-white',<div className="space-y-4"><label className="block space-y-1.5"><span className="text-[11px] font-extrabold text-slate-600">Nombre del escenario</span><input aria-label="Nombre del escenario" className={inputStyle} value={form.name} onChange={e=>setField('name',e.target.value)} placeholder="Ej. Combo moto + accesorio"/></label><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{field('price','Precio de venta','$ COP por pedido','$')}{field('unitCost','Costo del producto','Costo de compra por unidad, sin proveedor','$')}</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{field('quantity','Unidades del producto','Unidades base incluidas por pedido','','ud.')}<div className="space-y-2"><span className="text-[11px] font-extrabold text-slate-600">Modelo de inversión publicitaria</span><div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setField('adMode','cpa')} className={`rounded-xl border p-2 text-xs font-bold ${!isFixedBudget?'border-blue-600 bg-blue-100 text-blue-900':'bg-white border-slate-200'}`}>CPA fijo por pedido</button><button type="button" onClick={()=>setField('adMode','budget')} className={`rounded-xl border p-2 text-xs font-bold ${isFixedBudget?'border-blue-600 bg-blue-100 text-blue-900':'bg-white border-slate-200'}`}>Presupuesto Ads diario fijo</button></div>{isFixedBudget?field('dailyBudget','Inversión fija diaria de Ads','El CPA efectivo cambiará con los pedidos','$'):field('cpa','CPA por pedido generado','La inversión Ads cambia con los pedidos','$')}</div></div><div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sky-100 bg-white/80 p-3 text-sm"><span className="font-bold text-slate-600">Mercancía total del pedido</span><span className="font-black text-[#12386B] tabular-nums">{money(productCost)}</span></div></div>)}
