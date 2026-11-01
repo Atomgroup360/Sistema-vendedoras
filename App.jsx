@@ -21541,6 +21541,47 @@ function Brief01IntelligenceAssistant({user,research,step,onApproved}) {
  </section>;
 }
 
+
+// V5.45 BRIEF01-only executive audit. Exactly five print pages, no generative inference.
+// Uses original approved stage texts, source competitors and deterministic financial data.
+function printBrief01FivePageAudit(research, reports) {
+  const esc = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const strip = text => String(text||'').replace(/\\([#*_])/g,'$1').replace(/\*\*/g,'').replace(/^#{1,6}\s*/gm,'').replace(/\s+/g,' ').trim();
+  const sentences = (text, max=260) => {
+    const clean=strip(text).replace(/\s+[-•]\s+/g,'. ');
+    const parts=clean.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ0-9])/).filter(Boolean);
+    let out='';for(const part of parts){if(out && (out+' '+part).length>max)break; if(!out && part.length>max){out=part.slice(0,max).replace(/\s+\S*$/,'')+'…';break;}out+=(out?' ':'')+part;}return out||'Sin evidencia suficiente registrada';
+  };
+  const content = key => String(reports?.[key]?.text||'');
+  const scan=(key,term,max=200)=>{const paragraphs=content(key).split(/\n\s*\n/).map(strip).filter(Boolean);return sentences(paragraphs.find(p=>term.test(p))||paragraphs[0]||'',max);};
+  const bullets=(text,filter,limit=5,max=185)=>String(text||'').split(/\n/).map(s=>s.trim()).filter(s=>filter.test(s)).slice(0,limit).map(s=>sentences(s.replace(/^[\s*#>-]+/,'').replace(/^\d+[.)]\s*/,''),max));
+  const row=(name,value)=>`<div class="row"><div class="rk">${esc(name)}</div><div class="rv">${esc(value)}</div></div>`;
+  const p=(text)=>`<p>${esc(text)}</p>`;
+  const panel=(title,items)=>`<section class="panel"><h3>${esc(title)}</h3>${items.map(s=>`<div class="item">${esc(s)}</div>`).join('')||'<div class="item">Evidencia insuficiente / pendiente de revisión</div>'}</section>`;
+  const names=['MERCADO Y COMPETENCIA','OBJECIONES Y BRECHAS','AUDIENCIAS, AVATARES Y ÁNGULOS','OFERTA VS. COMPETENCIA','VIABILIDAD Y DECISIÓN'];
+  const colors=['#173F78','#087F78','#6A4BB0','#B97817','#13714E'];
+  const foot='Investigación IA: las hipótesis no equivalen a resultados validados. Confirmar ficha técnica, precios y condiciones antes de publicar.';
+  const page=(i,body)=>`<article class="page" style="--tone:${colors[i]}"><header><div class="eyebrow">TU PEDIDO COLOMBIA · WINNER OS · BRIEF 01</div><div class="line"><span>0${i+1} / ${names[i]}</span><small>AUDITORÍA ESTRATÉGICA</small></div><h1>${names[i]}</h1><div class="meta">${esc(research?.name||'Producto sin nombre')} · ${esc(research?.code||'BRIEF01')} · ${esc(new Date().toLocaleDateString('es-CO'))}</div></header><main>${body}</main><footer>${esc(foot)}<b>${i+1} / 5</b></footer></article>`;
+  const competitors=(research?.competitors||[]).slice(0,8).map(c=>({name:c.name||'Competidor',price:c.singlePrice||c.price||'',packs:c.combos||'',promotions:c.promotions||'',count:c.activeAdsCount||''}));
+  const competitionRows=competitors.map(c=>row(c.name,`Precio: ${c.price||'No observado'} | Pack: ${typeof c.packs==='string'?c.packs.slice(0,95):JSON.stringify(c.packs).slice(0,95)} | Promoción: ${String(c.promotions||'No observada').slice(0,75)}`)).join('');
+  const diagnosis=content('diagnosis');
+  const six=['A1.1','A1.2','A1.3','A2.1','A2.2','A2.3'];
+  const cards=six.map((code,i)=>{const escapedCode=code.replace('.','\\.');const found=diagnosis.match(new RegExp('(?:###?\\s*)?(?:FICHA\\s*)?'+escapedCode+'\\s*[^\\n]*','i'));const idx=found?.index??-1;const next=idx<0?-1:diagnosis.search(new RegExp('(?:###?\\s*)?(?:FICHA\\s*)?'+(six[i+1]||'ZZ.9').replace('.','\\.'),'i'));const section=idx<0?'':diagnosis.slice(idx,next>idx?next:idx+2100);const hook=section.match(/(?:Hook(?: de inicio)?|Ángulo(?:\/resultado)?|Avatar y objeción)\s*:\s*([^\n]+)/i);return `<div class="avatar"><b>${code}</b><strong>${esc(strip(found?.[0]||'Perfil pendiente').replace(/^FICHA\s*/i,'').slice(0,80))}</strong><span>${esc(sentences(hook?.[1]||section.slice(80),150))}</span></div>`;}).join('');
+  const fin=research?.diagnosis?.financial||{};const projection=(()=>{try{return calculateBrief01MonthlyProjection(research,fin)}catch{return {}}})();
+  const fmt=v=>(v===undefined||v===null||v==='')?'Pendiente':typeof v==='number'?new Intl.NumberFormat('es-CO',{maximumFractionDigits:2}).format(v):String(v);
+  const pages=[
+    page(0,`<div class="lead">¿Contra quién competimos y cuáles son los límites de esta muestra?</div>${panel('ETAPA 1 · Radar competitivo',[scan('meta',/muestra|cobertura|anuncian/i,345),scan('meta',/pauta|persistencia|copys/i,260)])}${panel('ETAPA 2 · Mensajes de la competencia',[scan('competitors',/ficha|competidor|direct/i,260),scan('angles',/sofisticaci[oó]n|N2|N3/i,260),scan('angles',/conciencia|problema/i,220)])}<div class="note">DECISIÓN: Diferenciar mensajes y mecanismos demostrables, no inferir ventas ni rentabilidad por anuncios activos.</div>`),
+    page(1,`<div class="lead">¿Qué frustraciones de compradores están sin resolver?</div>${panel('ETAPA 4 · Reseñas y objeciones',bullets(content('suppliers'),/^\s*[-*]?\s*(?:Grupo\s*[A-F]|Ángulo\s*\d+|\d+[.)])/i,6,195))}${panel('Brechas competitivas priorizadas',[scan('suppliers',/desliz|sujeci[oó]n/i,240),scan('suppliers',/firmeza|espuma|densidad/i,240),scan('suppliers',/compatibilidad|encaja|ajuste/i,240)])}<div class="note">CONDICIÓN: Las reseñas de productos análogos originan hipótesis; no demuestran defectos ni propiedades del SKU.</div>`),
+    page(2,`<div class="lead">Dos audiencias matrices · tres avatares diferentes en cada una</div><div class="subhead">AUDIENCIA A1 · TRES AVATARES</div><div class="avatars">${cards} </div><div class="note">VALIDACIÓN: Confirmar diferenciación por contexto, deseo y objeción; no solo por nombres. Cada ficha debe sostener un ángulo único y evidencia trazable.</div>`),
+    page(3,`<div class="lead">¿Qué oferta es realmente comparable con la nuestra?</div>${panel('ETAPA 2 · Competidores y condiciones',[scan('competitors',/oferta|precio|compar/i,280)])}<div class="competition">${competitionRows||row('Sin competidores cargados','Comparación pendiente')}</div>${panel('ETAPA 5 · Oferta y valor',[scan('offer',/optimizar|reconstruir|mantener|reposicionar/i,250),scan('offer',/bono|upsell|ticket/i,270)])}<div class="note">PROHIBIDO: declarar ventaja de precio entre packs diferentes o precios no observados. Bonos y upsells son hipótesis, no oferta aprobada.</div>`),
+    page(4,`<div class="lead">¿Lanzamos, testeamos o requerimos más evidencia?</div><div class="metrics">${row('Estado financiero',research?.diagnosis?.classification||'Pendiente')}${row('Ticket comercial (COP)',fmt(research?.offer?.price||fin.price))}${row('CPA planificado (COP)',fmt(research?.planning?.planningCPA))}${row('Pedidos diarios requeridos',fmt(projection.requiredDailyOrders))}${row('Inversión Ads proyectada',fmt(projection.operatingAdBudget))}${row('Margen previo a pauta',fmt(fin.marginPerGenerated))}</div>${panel('ETAPA 6 · Prioridades y estrategia',[scan('diagnosis',/diagn[oó]stico sint[eé]tico|sofisticaci[oó]n/i,230),scan('diagnosis',/mensaje global|eje rector|dos piezas/i,245),scan('diagnosis',/pr[oó]ximos pasos|exclusiones|verificaci[oó]n/i,245)])}<div class="note">DICTAMEN: Basarse en el simulador determinista; no autorizar claims no verificados, ofertas nuevas ni cambios automáticos en BRIEF 02.</div>`)
+  ];
+  const html=`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>WINNER OS · Auditoría BRIEF 01</title><style>
+  @page{size:A4;margin:0}*{box-sizing:border-box}body{font-family:Arial,'Segoe UI',sans-serif;margin:0;color:#19263b;background:#eee}.page{width:210mm;height:297mm;background:white;position:relative;padding:17mm 16mm 14mm;break-after:page;page-break-after:always;overflow:hidden}.page:last-child{break-after:auto;page-break-after:auto}header{border-top:7px solid var(--tone);padding-top:8mm}.eyebrow{font-size:9px;font-weight:700;letter-spacing:1.5px;color:#76849a}.line{display:flex;justify-content:space-between;align-items:center;font-weight:800;color:var(--tone);font-size:11px;margin-top:12px}.line small{font-size:8px;color:#748197}h1{font-size:22px;line-height:1.15;margin:11px 0}.meta{font-size:10px;color:#6d7b8c;border-bottom:1px solid #e1e6ed;padding-bottom:12px}.lead{font-size:14px;font-weight:700;line-height:1.4;margin:19px 0 16px;color:#263b57}.panel{background:#f7f9fc;border-left:4px solid var(--tone);padding:12px 15px;margin:12px 0;border-radius:0 8px 8px 0}.panel h3{margin:0 0 8px;font-size:11px;color:var(--tone)}.item{font-size:10px;line-height:1.5;margin:0 0 7px}.item:before{content:'•';font-weight:700;margin-right:6px;color:var(--tone)}.note{border:1px solid #d8e0e8;padding:12px;font-size:10px;font-weight:700;line-height:1.5;border-radius:7px;margin-top:16px}.subhead{font-size:11px;color:var(--tone);font-weight:800;margin:16px 0}.avatars{display:grid;grid-template-columns:1fr 1fr;gap:11px}.avatar{border:1px solid #dee5ed;border-top:3px solid var(--tone);padding:11px;min-height:91px;border-radius:6px;display:flex;flex-direction:column;gap:5px}.avatar b{color:var(--tone);font-size:11px}.avatar strong{font-size:10px}.avatar span{font-size:9px;line-height:1.35}.row{display:flex;justify-content:space-between;gap:15px;padding:8px 5px;border-bottom:1px solid #e4eaf0;font-size:10px;line-height:1.35}.rk{font-weight:700;max-width:37%;flex-shrink:0}.rv{text-align:right}.competition{border:1px solid #e6ecf1;border-radius:7px}.competition .row{font-size:9px}.metrics{border:1px solid #e4eaf0;border-radius:7px}.metrics .row:nth-child(odd){background:#f7f9fb}footer{position:absolute;left:16mm;right:16mm;bottom:11mm;border-top:1px solid #e3e8ee;padding-top:10px;display:flex;justify-content:space-between;gap:18px;color:#687487;font-size:8px;line-height:1.45}footer b{color:var(--tone);white-space:nowrap}@media screen{body{padding:24px}.page{margin:0 auto 24px;box-shadow:0 3px 17px #aaa}}@media print{body{background:white}.page{margin:0;box-shadow:none}}
+  </style></head><body>${pages.join('')}<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),450));<\/script></body></html>`;
+  const win=window.open('','_blank');if(!win)throw Error('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes para WINNER OS.');win.document.open();win.document.write(html);win.document.close();
+}
+
 // V5.2 AUDITORIA INTEGRAL — una acción de usuario; fases existentes del Worker.
 // Ninguna recomendación modifica el Diagnóstico Base ni los campos de investigación.
 // V5.8 — PDF independiente de AUDITORIA IA, no cambia Diagnostico Base.
@@ -21649,12 +21690,7 @@ function Brief01CentralAudit({user,research,onApproved}) {
  };
  const downloadAuditPdf=()=>{
   if(!count)return;
-  try{
-   const blob=brief02PdfBlob('AUDITORÍA EJECUTIVA PRELIMINAR · '+String(research?.name||'BRIEF 01'),brief01ExecutiveAuditSummary(research,mergedReports));
-   const href=URL.createObjectURL(blob),a=document.createElement('a');
-   a.href=href;a.download=`AUDITORIA_IA_${String(research?.code||research?.name||'BRIEF01').replace(/[^a-zA-Z0-9_-]+/g,'_')}_EJECUTIVA_V525.pdf`;
-   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),2500);
-  }catch(ex){setError('No se pudo crear el PDF: '+String(ex?.message||ex));}
+  try{printBrief01FivePageAudit(research,mergedReports);}catch(ex){setError('No se pudo abrir el PDF ejecutivo: '+String(ex?.message||ex));}
  };
  const short=(value)=>{
   const clean=String(value||'').replace(/\\([*#_])/g,'$1').replace(/\*\*/g,'').replace(/^#{1,6}\s*/gm,'');
@@ -21668,7 +21704,7 @@ function Brief01CentralAudit({user,research,onApproved}) {
   {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs p-3">{error}</p>}
   {stages.map(([k,label],i)=>{const block=mergedReports[k];return <div key={k} className="bg-white rounded-xl border border-indigo-100 p-3"><p className="font-black text-xs text-indigo-900">{i+1}. {label} · {block?.approvedAt?'APROBADO':block?.text?'COMPLETO':'PENDIENTE'}</p>{block?.text?<div className="whitespace-pre-wrap text-xs text-slate-700 mt-2">{short(block.text)}</div>:<p className="text-xs text-slate-400 mt-1">Sin analizar</p>}{showDetails&&block?.text&&<pre className="whitespace-pre-wrap font-sans text-xs text-slate-600 mt-3 max-h-80 overflow-y-auto border-t pt-2">{block.text}</pre>}</div>})}
   <button type="button" onClick={()=>setShowDetails(v=>!v)} className="text-xs underline font-bold text-indigo-900">{showDetails?'OCULTAR':'VER'} ANÁLISIS COMPLETOS</button>
-  {count>0&&<button type="button" onClick={downloadAuditPdf} disabled={busy} className="rounded-xl bg-blue-800 text-white px-4 py-3 text-xs font-black disabled:opacity-40">DESCARGAR AUDITORÍA IA COMPLETA (PDF)</button>}
+  {count>0&&<button type="button" onClick={downloadAuditPdf} disabled={busy} className="rounded-xl bg-blue-800 text-white px-4 py-3 text-xs font-black disabled:opacity-40">IMPRIMIR / GUARDAR AUDITORÍA ESTRATÉGICA (5 PÁGINAS)</button>}
   {complete&&<button type="button" disabled={busy} onClick={approve} className="rounded-xl bg-emerald-700 text-white px-4 py-3 text-xs font-black disabled:opacity-40">APROBAR AUDITORÍA PARA INFORME GERENCIAL</button>}
  </section>;
 }
